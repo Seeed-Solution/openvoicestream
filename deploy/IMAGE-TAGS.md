@@ -21,6 +21,10 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `rk-20260903.10` | `2a3cabbfdc8507e6058ae85e09803e1442621b20` + receipt-bound overlays | `0.0.12a0+kokoro.20260903.1` | 2026-09-03 | RK3576/RK3588 | `sha256:fdc480da30610f46075f41a8bf95be5774427a98d3e77c69272cdec1226593c1` |
 | `rk-20260909` | `c34af54` + this branch's two `Dockerfile.rk` build fixes | `0.0.13a0` | 2026-09-09 | spark | `sha256:184e9336847a6a0c246c94b311b11d0379d4c90366b8ea0ad6afa0a688b91a58` |
 | `rpi-hailo` (local, not pushed) | `4d66f475` + `final-hailo` stage | `0.0.12a0` baked | 2026-09-09 | harvest-pi | `sha256:f6d9bf16557a3a561968e2c942cfcc13112489faafe667a1df95bf5bc4700f65` (local image ID, 657 MB) |
+| `retail-voice-rpi-20260910-v014a0` | `1d44ef510e0d3436fd5bfbd3d28425c26c076d52` | `0.0.14a0` | 2026-09-10 | spark | `sha256:cc635791a802337054c5d65ad91eec91acc10f2ad58eca8dfb2c181d3b0f46d4` |
+| `retail-voice-rpi-hailo-20260910-v014a0` | `1d44ef510e0d3436fd5bfbd3d28425c26c076d52` + HailoRT 4.21.0 wheel | `0.0.14a0` | 2026-09-10 | spark | `sha256:55b8069baa63d6f787ede4e4025699be06830373fe1409dee1c474f64508c9e7` |
+| `retail-voice-rk-20260910-v014a0` | `1d44ef510e0d3436fd5bfbd3d28425c26c076d52` + rkvoice-stream `9d18ab35e97b275c4126cd6792005729cb364e18` | `0.0.14a0` | 2026-09-10 | spark | `sha256:d9c159849795d71db20ed7220c1cbc8532ffb06c3b2ef02c59126553304c185d` |
+| `retail-voice-jetson-20260910-v014a0` | `1d44ef510e0d3436fd5bfbd3d28425c26c076d52` | `0.0.14a0` | 2026-09-10 | spark | `sha256:4d8470906d2ff3ae494c94b9107c09f42f4849b429d98a2b6a5bc1afcc5e7929` |
 
 `rpi-hailo` — `Dockerfile.rpi --target final-hailo`, built on `harvest-pi`
 (reComputer R2000 series) and tagged locally `asrbench-rpi5-hailo-whisper:r2000`

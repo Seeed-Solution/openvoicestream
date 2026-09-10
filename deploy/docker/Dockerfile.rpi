@@ -57,7 +57,7 @@ RUN pip3 install --no-cache-dir --break-system-packages --index-url ${PIP_INDEX}
 # (server/core/asr_backend.py maps cpu.sherpa_asr → voxedge.backends.sherpa.asr).
 # Install the pure-Python wheel; sherpa-onnx (its only heavy dep) is already
 # installed above and imported lazily, so no [sherpa] extra is needed.
-ARG VOXEDGE_VERSION=0.0.12a0
+ARG VOXEDGE_VERSION=0.0.14a0
 # voxedge from PyPI, pinned. The old COPY of deploy/wheels/voxedge-*.whl
 # referenced a file that was never committed (the directory holds only a
 # provenance note), so this image could not be built from a clean clone.
