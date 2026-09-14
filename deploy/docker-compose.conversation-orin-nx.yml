@@ -1,0 +1,213 @@
+# OpenVoiceStream — Interruptible Conversational Voice AI on Jetson Orin NX
+# (JetPack 6.2 / TensorRT 10.3), with the local edge-llm chat service.
+#
+#   docker compose -f deploy/docker-compose.conversation-orin-nx.yml up -d
+#
+# Four services:
+#   profile-init — resolves (LANGUAGE, device) -> one OVS profile before start
+#   speech       — Qwen3-ASR + matcha TTS (CUDA), V2V server on :8621
+#   llm          — edge-llm Qwen3.5-4B GDN-MTP, OpenAI-compatible on :8000
+#   agent        — mic/speaker client running `ovs-agent run conversation`
+#
+# ── IMAGE DEFAULTS ────────────────────────────────────────────────────────
+#   speech: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-vox080a0-7330af9
+#     # UNVERIFIED digest: the solution compose records no manifest digest for
+#     # this tag; only the tag name is carried verbatim. Run
+#     # `docker manifest inspect <tag>` before pinning production.
+#   agent:  sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260914-runtimekws
+#     sha256:a2dc17a304d7941e924d95de0863b53fd3e1869b7caba6ecf64a60e57cfd9569
+#     (linux/arm64, recorded in the solution on 2026-09-13). Accumulates
+#     mid-utterance asr_final segments; bundles the sherpa-onnx KWS assets.
+#   Both overridable via SPEECH_IMAGE / AGENT_IMAGE (and LLM_IMAGE).
+#
+# ── SINGLE SESSION / LOOPBACK RATIONALE ──────────────────────────────────
+# The speech service admits ONE /v2v/stream session and the agent holds it
+# permanently. Speech therefore binds 127.0.0.1 by default: a LAN client
+# connecting first would make the agent's reconnect fail with WS 4429
+# too_many_sessions and silence the assistant. Re-expose deliberately with
+# OVS_SPEECH_BIND=0.0.0.0 only if you accept that.
+#
+# ── PROVENANCE ────────────────────────────────────────────────────────────
+# Ported 2026-09-14 from sensecraft-solutions/solutions/conversational_voice_ai
+# (assets/docker/docker-compose.orin-nx-local.yml), made self-contained: the
+# resolver, matrix, and agent/audio config are the byte-identical copies at
+# tools/resolve_profile.py, configs/matrix/language_device.yaml, and
+# deploy/conversation/*.yaml in THIS repo; no solution checkout is needed.
+
+services:
+  # Resolves the operator's LANGUAGE choice plus this board's device id into
+  # exactly one OpenVoiceStream profile before anything else starts.
+  #
+  # Exit 2 (unsupported pair) stops the whole `docker compose up` before a
+  # service starts (depends_on: service_completed_successfully), so an
+  # unsupported language fails visibly instead of being transcribed by a model
+  # that cannot read it.
+  # --no-verify-profile: configs/profiles/ lives inside the speech image at a
+  # path this compose does not pin; the repo test suite is what guarantees
+  # every profile the matrix names exists.
+  profile-init:
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-vox080a0-7330af9}
+    container_name: conversational-voice-profile-init
+    init: true
+    network_mode: none
+    entrypoint:
+      - python3
+      - /opt/voice/config/resolve_profile.py
+      - --matrix=/opt/voice/config/language_device.yaml
+      - --language=${LANGUAGE:-zh}
+      - --device=orin_nx_v091
+      - --no-verify-profile
+      - --write-env=/opt/voice/resolved/ovs.env
+    volumes:
+      - ../tools/resolve_profile.py:/opt/voice/config/resolve_profile.py:ro
+      - ../configs/matrix/language_device.yaml:/opt/voice/config/language_device.yaml:ro
+      - resolved-profile:/opt/voice/resolved
+    restart: "no"
+
+  speech:
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-jp62-trt103-edgellm-v091-vox080a0-7330af9}
+    container_name: conversational-voice-speech
+    runtime: nvidia
+    ipc: host
+    network_mode: host
+    command:
+      - /bin/sh
+      - -c
+      # Internal service: the on-device agent is its only client (loopback).
+      # Keep it on 127.0.0.1 — the session limiter allows ONE /v2v session, so
+      # a LAN client connecting first makes the agent's reconnect fail with
+      # 4429 too_many_sessions and silences the assistant. Re-expose
+      # deliberately with OVS_SPEECH_BIND=0.0.0.0 (e.g. for a browser client).
+      - 'set -a; . /opt/voice/resolved/ovs.env; set +a; exec python3 -m uvicorn server.main:app --host ${OVS_SPEECH_BIND:-127.0.0.1} --port 8621'
+    depends_on:
+      profile-init:
+        condition: service_completed_successfully
+    environment:
+      # Profile-owned ASR/TTS variables are deliberately absent here: the
+      # resolved OVS_PROFILE supplies them, so a language switch that changes
+      # profile is not silently overridden by a value pinned in compose.
+      OVS_PROFILE: jetson-edgellm-v091-matcha
+      OVS_PROFILE_DEFAULT: jetson-edgellm-v091-matcha
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      # Deploy-time ASR endpoint threshold override (ms); 0/unset keeps the
+      # profile value. See the rk3588 conversation compose for why the key is
+      # OVS_V2V_* and not the profile-owned VAD_ENDPOINT_SILENCE_MS.
+      OVS_V2V_VAD_ENDPOINT_SILENCE_MS: ${OVS_V2V_VAD_ENDPOINT_SILENCE_MS:-0}
+      HF_MODEL_CACHE_ROOT: /opt/models
+      OVS_AUTO_DOWNLOAD_ARTIFACTS: "1"
+      TTS_PROVIDER: cuda
+      STREAMING_ASR_PROVIDER: cuda
+      CUDA_MODULE_LOADING: LAZY
+    volumes:
+      - resolved-profile:/opt/voice/resolved:ro
+      - speech-models-v091:/opt/models
+      - voice-data:/opt/seeed-local-voice/data
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /lib/aarch64-linux-gnu:/host-libs:ro
+      - /usr/lib/python3.10/dist-packages/tensorrt:/usr/lib/python3.10/dist-packages/tensorrt:ro
+      - /usr/src/tensorrt:/usr/src/tensorrt:ro
+    mem_limit: 8g
+    memswap_limit: 14g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8621/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 900s
+
+  llm:
+    image: ${LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service:v0.9.1-gdn-mtp-runtime-20260804-v13}
+    container_name: conversational-voice-llm
+    runtime: nvidia
+    privileged: true
+    ipc: host
+    network_mode: host
+    shm_size: 512m
+    environment:
+      EDGELLM_MODEL_PROFILE: qwen35-4b-gdn-mtp
+      EDGELLM_MODEL_NAME: Qwen/Qwen3.5-4B
+      EDGELLM_ENGINE_PROFILE: 8k
+      EDGELLM_ENGINE_DIR: /workspace/models/qwen3.5-4b-gdn-mtp-8k
+      EDGELLM_MAX_INPUT_TOKENS: "8192"
+      EDGELLM_MAX_CONTEXT_TOKENS: "8192"
+      EDGELLM_ENGINE_REPO: harvestsu/qwen3.5-4b-gdn-mtp-jetson-artifacts
+      EDGELLM_ENGINE_REVISION: adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e
+      EDGELLM_EXPECTED_PAYLOAD_SHA256: 9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      PORT: "8000"
+      WARMUP_TIMEOUT: "300"
+      WARMUP_INFERENCE_TIMEOUT: "300"
+    volumes:
+      - edge-llm-models-v091:/workspace/models
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/local/cuda/targets/aarch64-linux/lib:/host-cudla:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /lib/aarch64-linux-gnu:/host-libs:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 900s
+
+  agent:
+    # voiceagent-20260914-runtimekws: the agent ACCUMULATES mid-utterance
+    # asr_final segments instead of overwriting the user text, so a backend
+    # endpoint that fires on a mid-sentence pause no longer splits one spoken
+    # sentence into two LLM turns. Bundles the sherpa-onnx KWS model.
+    image: ${AGENT_IMAGE:-sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260914-runtimekws}
+    container_name: conversational-voice-agent
+    init: true
+    network_mode: host
+    command: ["ovs-agent", "run", "conversation", "--config", "/opt/voice/config/agent-config.yaml"]
+    depends_on:
+      speech:
+        condition: service_healthy
+      llm:
+        condition: service_healthy
+    # Bind the ALSA directory instead of snapshotting individual device nodes.
+    # Together with the wildcard cgroup rule this keeps USB audio hot-pluggable.
+    device_cgroup_rules:
+      - "c 116:* rwm"
+    group_add: ["29"]
+    volumes:
+      - /dev/snd:/dev/snd
+      - ./conversation/agent-config.yaml:/opt/voice/config/agent-config.yaml:ro
+      - ./conversation/audio_profiles.yaml:/opt/voice/config/audio_profiles.yaml:ro
+      - agent-state:/var/lib/ovs-agent
+    environment:
+      CONFIG_DIR: /opt/voice/config
+      # Debug dashboard (agent plugin, unauthenticated — it can also trigger
+      # control actions such as abort/send-text). Default 0.0.0.0 so a headless
+      # device is reachable from the operator's browser; opt back to loopback
+      # with OVS_DEBUG_DASHBOARD_BIND=127.0.0.1 on untrusted networks.
+      OVS_DEBUG_DASHBOARD_BIND: ${OVS_DEBUG_DASHBOARD_BIND:-0.0.0.0}
+      # The agent turns these into the per-session v2v config (asr_language/
+      # tts_language), which is the only language knob the Qwen3-ASR and
+      # Qwen3-TTS backends have. Same operator input as profile-init above.
+      ASR_LANGUAGE: ${LANGUAGE:-zh}
+      TTS_LANGUAGE: ${LANGUAGE:-zh}
+      OVS_SLV_URL: ws://127.0.0.1:8621/v2v/stream
+      OVS_AGENT_SERVER_LOOP: "0"
+      PIPELINE_MODE: ${PIPELINE_MODE:-always_on}
+      WAKEWORD_BACKEND: ${WAKEWORD_BACKEND:-sherpa_onnx}
+      WAKEWORD_PHRASE: ${WAKEWORD_PHRASE:-你好小智}
+      WAKEWORD_THRESHOLD: ${WAKEWORD_THRESHOLD:-0.25}
+      WAKEWORD_MIC_SKIP_MS: ${WAKEWORD_MIC_SKIP_MS:-120}
+      LLM_BACKEND: openai_compat
+      LLM_BASE_URL: http://127.0.0.1:8000/v1
+      LLM_API_KEY: EMPTY
+      LLM_MODEL: Qwen/Qwen3.5-4B
+      SYSTEM_PROMPT: ${SYSTEM_PROMPT:-}
+      DEFAULT_MODE: chat
+    restart: unless-stopped
+
+volumes:
+  resolved-profile:
+  speech-models-v091:
+  edge-llm-models-v091:
+  voice-data:
+  agent-state:

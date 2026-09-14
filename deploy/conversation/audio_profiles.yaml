@@ -1,0 +1,22 @@
+profiles:
+  - name: xvf3800-flex-6ch
+    match:
+      input_channels: 6
+      name_regex: "(?i)C16K6Ch|Flex XVF3800"
+    mic_channels: 6
+    mic_channel_select: 0
+    mic_makeup_gain: 12.0
+
+  - name: xvf3800-4mic-2ch
+    match:
+      input_channels: 2
+      name_regex: "(?i)4-Mic Array|XVF3800"
+    mic_channels: 2
+    mic_channel_select: 0
+    mic_makeup_gain: 2.0
+
+  - name: fallback
+    match: {}
+    mic_channels: auto
+    mic_channel_select: 0
+    mic_makeup_gain: 1.0

@@ -1,0 +1,380 @@
+# (language, device) -> OpenVoiceStream profile matrix
+#
+# Consumed by tools/resolve_profile.py. One (language, device) pair resolves to
+# exactly one existing profile in configs/profiles/ plus a small env overlay.
+# Nothing here selects a profile that does not exist on disk; the resolver's
+# test suite asserts that.
+#
+# status values
+#   measured    - the exact ASR+TTS combination named by ovs_profile has an
+#                 on-device number in evidence[].
+#   untested    - every component has a number, the combination as a whole does
+#                 not. Deployable, resolver prints WARN.
+#   unsupported - no profile provides this pair. The resolver refuses. Chinese
+#                 never silently falls back to Whisper (Whisper's own Chinese
+#                 ceiling is 35-56% CER on every board measured,
+#                 BENCHMARKS.md:20).
+#
+# Deviation from docs/specs/p-voice-split-multilingual-spec.md section 3 that is
+# deliberate and must be re-read when the targeted bench lands: that table names
+# Whisper + Kokoro for the "English and other" column on Orin NX / RK3576 /
+# RK3588. No profile in configs/profiles/ pairs a Whisper ASR backend with any
+# TTS backend - every Whisper profile there is ASR-only (orin-whisper.json,
+# rk3576-whisper.json, rk3588-whisper.json, rpi5-hailo-whisper*.json all carry
+# tts_backend: null). Building those pairings is part of the targeted bench, not
+# of this matrix. Until then the non-Chinese lanes route to the existing
+# combined profiles, and each cell records the Whisper/Kokoro pairing the spec
+# wants under planned_alternative.
+
+version: 1
+schema: language_device_matrix/v1
+
+# Language catalogue. The list is the RK runtime's 30-language set verbatim
+# (qwen3asr_rk/python/qwen3asr/config.py:3-9). Qwen3-ASR upstream advertises 52
+# languages; the RK runtime constant is the narrower of the two, so it is the
+# one used here to keep a single language list across every device.
+# Whisper's 99-language set is a superset of these 30, so no cell loses a
+# language by adopting the narrower list.
+language_catalog_source: qwen3asr_rk/python/qwen3asr/config.py:3-9
+language_catalog_size: 30
+
+languages:
+  zh: {name: Chinese, name_zh: 中文, group: zh}
+  en: {name: English, name_zh: 英语, group: en}
+  yue: {name: Cantonese, name_zh: 粤语, group: other}
+  ar: {name: Arabic, name_zh: 阿拉伯语, group: other}
+  de: {name: German, name_zh: 德语, group: other}
+  fr: {name: French, name_zh: 法语, group: other}
+  es: {name: Spanish, name_zh: 西班牙语, group: other}
+  pt: {name: Portuguese, name_zh: 葡萄牙语, group: other}
+  id: {name: Indonesian, name_zh: 印尼语, group: other}
+  it: {name: Italian, name_zh: 意大利语, group: other}
+  ko: {name: Korean, name_zh: 韩语, group: other}
+  ru: {name: Russian, name_zh: 俄语, group: other}
+  th: {name: Thai, name_zh: 泰语, group: other}
+  vi: {name: Vietnamese, name_zh: 越南语, group: other}
+  ja: {name: Japanese, name_zh: 日语, group: other}
+  tr: {name: Turkish, name_zh: 土耳其语, group: other}
+  hi: {name: Hindi, name_zh: 印地语, group: other}
+  ms: {name: Malay, name_zh: 马来语, group: other}
+  nl: {name: Dutch, name_zh: 荷兰语, group: other}
+  sv: {name: Swedish, name_zh: 瑞典语, group: other}
+  da: {name: Danish, name_zh: 丹麦语, group: other}
+  fi: {name: Finnish, name_zh: 芬兰语, group: other}
+  pl: {name: Polish, name_zh: 波兰语, group: other}
+  cs: {name: Czech, name_zh: 捷克语, group: other}
+  tl: {name: Filipino, name_zh: 菲律宾语, group: other}
+  fa: {name: Persian, name_zh: 波斯语, group: other}
+  el: {name: Greek, name_zh: 希腊语, group: other}
+  ro: {name: Romanian, name_zh: 罗马尼亚语, group: other}
+  hu: {name: Hungarian, name_zh: 匈牙利语, group: other}
+  mk: {name: Macedonian, name_zh: 马其顿语, group: other}
+
+devices:
+  orin_nano: {name: Jetson Orin Nano 8GB, name_zh: Jetson Orin Nano 8GB}
+  orin_nx: {name: Jetson Orin NX 16GB, name_zh: Jetson Orin NX 16GB}
+  # The fully-local Orin NX preset runs the TensorRT-Edge-LLM v0.9.1 image, a
+  # different engine lineage from the cloud-LLM Orin NX preset. It gets its own
+  # device id so a language switch stays inside that lineage.
+  orin_nx_v091: {name: Jetson Orin NX 16GB (Edge-LLM v0.9.1 image), name_zh: Jetson Orin NX 16GB（Edge-LLM v0.9.1 镜像）}
+  rk3576: {name: reComputer RK3576, name_zh: reComputer RK3576}
+  rk3588: {name: reComputer RK3588, name_zh: reComputer RK3588}
+  rpi5: {name: Raspberry Pi 5, name_zh: 树莓派 5}
+
+# Applied to every resolved cell. Single session (spec section 3: 强制单会话).
+# OVS_MAX_CONCURRENT_SESSIONS is read by server/core/session_limiter.py:108.
+#
+# The other half of that spec line — 单路 mono — is NOT an env variable here.
+# It used to be emitted as OVS_AUDIO_INPUT_CHANNELS/OVS_AUDIO_MONO, which no
+# code read, so it enforced nothing. The mono lane is enforced where the audio
+# is: the agent opens the array and forwards exactly one channel
+# (`mic_channel_select`, agent/ovs_agent/audio/profiles.py) and the server
+# downmixes anything still multi-channel (server/core/asr_segmenter.py:287-289).
+common_env:
+  OVS_MAX_CONCURRENT_SESSIONS: "1"
+
+cells:
+  # -------------------------------------------------------------- Orin Nano
+  - device: orin_nano
+    group: zh
+    status: measured
+    ovs_profile: jetson-qwen3asr-matcha
+    asr: {backend: jetson.trt_edge_llm, model: Qwen3-ASR 0.6B, quant: int4}
+    tts: {backend: jetson.matcha_trt, model: matcha-icefall-zh-en, quant: bf16/fp16 Vocos}
+    env: {}
+    evidence:
+      - BENCHMARKS.md:63 - Qwen3-ASR 0.6B int4 streaming + offline CER 0 (measured on Orin NX; the same engine set ships for Orin Nano)
+      - configs/profiles/jetson-qwen3asr-matcha.json:2 - the shipped Orin Nano Qwen3-ASR + Matcha profile
+    planned_alternative: null
+
+  - device: orin_nano
+    group: en
+    status: untested
+    ovs_profile: jetson-qwen3asr-matcha
+    asr: {backend: jetson.trt_edge_llm, model: Qwen3-ASR 0.6B, quant: int4}
+    tts: {backend: jetson.matcha_trt, model: matcha-icefall-zh-en, quant: bf16/fp16 Vocos}
+    env: {}
+    evidence:
+      - configs/profiles/jetson-qwen3asr-matcha.json:2 - Matcha model is icefall zh-en, so English output is in scope
+      - "no English WER has been scored on this profile"
+    planned_alternative:
+      description: Whisper-base TensorRT bf16 ASR + Kokoro TRT TTS, per spec section 3
+      asr_profile: orin-whisper
+      tts_profile: jetson-kokoro-trt
+      blocked_on: no combined profile exists (orin-whisper.json declares tts_backend null); needs the targeted bench
+      evidence:
+        - docs/perf/whisper-cross-device-20260827.md:48 - Orin Nano base/30s bare TensorRT bf16, en short 11.37% / en long 9.19%, TTFT 18 ms, RTF 0.008
+
+  - device: orin_nano
+    group: other
+    status: untested
+    ovs_profile: jetson-multilang-highperf
+    asr: {backend: jetson.trt_edge_llm, model: Qwen3-ASR 0.6B, quant: int4}
+    tts: {backend: jetson.trt_edge_llm, model: Qwen3-TTS CustomVoice, quant: int4}
+    env: {}
+    evidence:
+      - BENCHMARKS.md:64 - Qwen3-TTS CustomVoice int4, 9-row language conditioning correct, RTF 0.61 (Orin NX, 2026-07-04)
+      - configs/profiles/jetson-multilang-highperf.json:2 - the combined Qwen3 ASR + Qwen3 TTS profile
+      - "no per-language WER/CER outside zh/en has been scored on this profile, and the RTF above is an Orin NX number, not an Orin Nano one"
+    planned_alternative:
+      description: Whisper-base TensorRT bf16 ASR + Kokoro TRT TTS, per spec section 3
+      asr_profile: orin-whisper
+      tts_profile: jetson-kokoro-trt
+      blocked_on: no combined profile exists; needs the targeted bench
+      evidence:
+        - docs/perf/whisper-cross-device-20260827.md:48
+
+  # ---------------------------------------------------------------- Orin NX
+  - device: orin_nx
+    group: zh
+    status: measured
+    ovs_profile: jetson-qwen3asr-matcha-nx
+    asr: {backend: jetson.trt_edge_llm, model: Qwen3-ASR 0.6B, quant: int4}
+    tts: {backend: jetson.matcha_trt, model: matcha-icefall-zh-en, quant: bf16/fp16 Vocos}
+    env: {}
+    evidence:
+      - BENCHMARKS.md:63 - Qwen3-ASR 0.6B int4 streaming + offline CER 0 on Orin NX (2026-07-04)
+      - configs/profiles/jetson-qwen3asr-matcha-nx.json:2 - the shipped Orin NX Qwen3-ASR + Matcha profile
+    planned_alternative: null
+
+  - device: orin_nx
+    group: en
+    status: untested
+    ovs_profile: jetson-qwen3asr-matcha-nx
+    asr: {backend: jetson.trt_edge_llm, model: Qwen3-ASR 0.6B, quant: int4}
+    tts: {backend: jetson.matcha_trt, model: matcha-icefall-zh-en, quant: bf16/fp16 Vocos}
+    env: {}
+    evidence:
+      - BENCHMARKS.md:94 - N=2 zh/en isolation passes on this stack, but no English WER was scored for it
+      - configs/profiles/jetson-qwen3asr-matcha-nx.json:2 - Matcha model is icefall zh-en, so English output is in scope
+    planned_alternative:
+      description: Whisper-base TensorRT bf16 ASR + Kokoro TRT TTS, per spec section 3
+      asr_profile: orin-whisper
+      tts_profile: jetson-kokoro-trt
+      blocked_on: no combined profile exists (orin-whisper.json declares tts_backend null); needs the targeted bench
+      evidence:
+        - docs/perf/whisper-cross-device-20260827.md:48 - Orin Nano base/30s bare TensorRT bf16, en short 11.37% / en long 9.19%, TTFT 18 ms
+
+  - device: orin_nx
+    group: other
+    status: untested
+    ovs_profile: jetson-multilang-highperf-nx
+    asr: {backend: jetson.trt_edge_llm, model: Qwen3-ASR 0.6B, quant: int4}
+    tts: {backend: jetson.trt_edge_llm, model: Qwen3-TTS CustomVoice, quant: int4}
+    env: {}
+    evidence:
+      - BENCHMARKS.md:64 - Qwen3-TTS CustomVoice int4, 9-row language conditioning correct, RTF 0.61 (Orin NX, 2026-07-04)
+      - configs/profiles/jetson-multilang-highperf-nx.json:2 - the combined Qwen3 ASR + Qwen3 TTS profile
+      - "no per-language WER/CER outside zh/en has been scored on this profile"
+    planned_alternative:
+      description: Whisper-base TensorRT bf16 ASR + Kokoro TRT TTS, per spec section 3
+      asr_profile: orin-whisper
+      tts_profile: jetson-kokoro-trt
+      blocked_on: no combined profile exists; needs the targeted bench
+      evidence:
+        - docs/perf/whisper-cross-device-20260827.md:48
+
+  # ------------------------------------------- Orin NX, Edge-LLM v0.9.1 image
+  - device: orin_nx_v091
+    group: zh
+    status: measured
+    ovs_profile: jetson-edgellm-v091-matcha
+    asr: {backend: jetson.trt_edge_llm, model: Qwen3-ASR 0.6B, quant: int4}
+    tts: {backend: jetson.matcha_trt, model: matcha-icefall-zh-en, quant: bf16/fp16 Vocos}
+    env: {}
+    evidence:
+      - BENCHMARKS.md:63 - Qwen3-ASR 0.6B int4 streaming + offline CER 0 on Orin NX (2026-07-04)
+      - configs/profiles/jetson-edgellm-v091-matcha.json:2 - the profile the fully-local preset already ships
+    planned_alternative: null
+
+  - device: orin_nx_v091
+    group: en
+    status: untested
+    ovs_profile: jetson-edgellm-v091-matcha
+    asr: {backend: jetson.trt_edge_llm, model: Qwen3-ASR 0.6B, quant: int4}
+    tts: {backend: jetson.matcha_trt, model: matcha-icefall-zh-en, quant: bf16/fp16 Vocos}
+    env: {}
+    evidence:
+      - configs/profiles/jetson-edgellm-v091-matcha.json:2 - Matcha model is icefall zh-en, so English output is in scope
+      - "no English WER has been scored on this profile"
+    planned_alternative:
+      description: Whisper-base TensorRT bf16 ASR + Kokoro TRT TTS, per spec section 3
+      asr_profile: orin-whisper
+      tts_profile: jetson-kokoro-trt
+      blocked_on: no combined profile exists; needs the targeted bench
+      evidence:
+        - docs/perf/whisper-cross-device-20260827.md:48
+
+  - device: orin_nx_v091
+    group: other
+    status: untested
+    ovs_profile: jetson-edgellm-v091-customvoice
+    asr: {backend: jetson.trt_edge_llm, model: Qwen3-ASR 0.6B, quant: int4}
+    tts: {backend: jetson.trt_edge_llm, model: Qwen3-TTS CustomVoice, quant: int4}
+    env: {}
+    evidence:
+      - BENCHMARKS.md:64 - Qwen3-TTS CustomVoice int4, 9-row language conditioning correct, RTF 0.61 (Orin NX, 2026-07-04)
+      - configs/profiles/jetson-edgellm-v091-customvoice.json:2 - same v0.9.1 lineage as the fully-local preset image
+      - "no per-language WER/CER outside zh/en has been scored on this profile"
+    planned_alternative: null
+
+  # ---------------------------------------------------------------- RK3576
+  - device: rk3576
+    group: zh
+    status: measured
+    ovs_profile: rk3576-default
+    asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
+    tts: {backend: rk.tts, model: matcha-icefall-zh-en, quant: ORT acoustic + RKNN Vocos}
+    env: {}
+    evidence:
+      - configs/profiles/rk3576-default.json:2 - W8A8 is the RK3576 default after the 2026-06-10 highperf long-dictation and V2V recheck
+    planned_alternative: null
+
+  - device: rk3576
+    group: en
+    status: untested
+    ovs_profile: rk3576-default
+    asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
+    tts: {backend: rk.tts, model: matcha-icefall-zh-en, quant: ORT acoustic + RKNN Vocos}
+    env: {}
+    evidence:
+      - configs/profiles/rk3576-default.json:2 - profile validated on the zh V2V recheck; English was not scored on it
+      - docs/perf/whisper-cross-device-20260827.md:58 - RK3576 English is measured only on the Whisper path (base/10s hybrid, 11.37% short), which is ASR-only
+    planned_alternative:
+      description: Whisper base/10s RKNN encoder + ONNX KV decoder ASR + Kokoro ConvOnly TTS, per spec section 3
+      asr_profile: rk3576-whisper
+      tts_profile: rk3576-kokoro-convonly
+      blocked_on: both halves exist as separate ASR-only / TTS-only profiles; the combined profile needs the targeted bench
+      evidence:
+        - docs/perf/whisper-cross-device-20260827.md:58
+        - configs/profiles/rk3576-kokoro-convonly.json:2
+
+  - device: rk3576
+    group: other
+    status: unsupported
+    ovs_profile: null
+    reason: >-
+      RK3576 TTS is Matcha icefall zh-en only (configs/profiles/rk3576-default.json
+      SHERPA_TTS_MODEL_DIR). The multilingual Kokoro ConvOnly bundle exists but only
+      as a TTS-only profile (rk3576-kokoro-convonly.json, asr_backend null), so no
+      profile on this board speaks a language outside zh/en.
+    reason_zh: >-
+      RK3576 的 TTS 仅有 Matcha icefall zh-en；多语 Kokoro ConvOnly 只有 TTS-only
+      profile，尚无 ASR+TTS 组合 profile。
+    evidence:
+      - configs/profiles/rk3576-default.json:38 - SHERPA_TTS_MODEL_DIR=/opt/tts/models/matcha-icefall-zh-en
+      - configs/profiles/rk3576-kokoro-convonly.json:4 - asr_backend null
+
+  # ---------------------------------------------------------------- RK3588
+  - device: rk3588
+    group: zh
+    status: measured
+    ovs_profile: rk3588-default
+    asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
+    tts: {backend: rk.tts, model: matcha-icefall-zh-en, quant: ORT acoustic + RKNN Vocos}
+    env: {}
+    evidence:
+      - configs/profiles/rk3588-default.json:2 - Qwen3 ASR + Matcha validated by TTS-to-ASR closed loop; W8A8 default after the 2026-06-09 recheck
+    planned_alternative: null
+
+  - device: rk3588
+    group: en
+    status: untested
+    ovs_profile: rk3588-default
+    asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
+    tts: {backend: rk.tts, model: matcha-icefall-zh-en, quant: ORT acoustic + RKNN Vocos}
+    env: {}
+    evidence:
+      - configs/profiles/rk3588-default.json:2 - closed-loop validation was on the zh short set; English was not scored on it
+      - docs/perf/whisper-cross-device-20260827.md:53 - RK3588 English is measured only on the Whisper path (base/20s hybrid, 7.58% long), which is ASR-only
+    planned_alternative:
+      description: Whisper base hybrid ASR + Kokoro RKNN TTS, per spec section 3
+      asr_profile: rk3588-whisper
+      tts_profile: rk3588-kokoro-rknn
+      blocked_on: rk3588-kokoro-rknn already pairs Qwen3 ASR with Kokoro; the Whisper-ASR variant needs the targeted bench
+      evidence:
+        - docs/perf/whisper-cross-device-20260827.md:53
+
+  - device: rk3588
+    group: other
+    status: untested
+    ovs_profile: rk3588-kokoro-rknn
+    asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
+    tts: {backend: rk.tts, model: Kokoro v1.0 hybrid, quant: RKNN INT8 decoder-front / CPU ONNX prefix + tail}
+    env: {}
+    evidence:
+      - configs/profiles/rk3588-kokoro-rknn.json:2 - Kokoro replaces Matcha for multilingual output, paired with Qwen3 ASR W8A8
+      - "the end-to-end multilingual loop on this profile has no measured WER/RTF yet (spec section 3: 组合待测)"
+    planned_alternative: null
+
+  # ---------------------------------------------------------------- RPi 5
+  - device: rpi5
+    group: zh
+    status: unsupported
+    ovs_profile: null
+    reason: >-
+      No Qwen3-ASR backend exists for Raspberry Pi 5, and Whisper is not an
+      acceptable substitute for Chinese - its Chinese ceiling on this board is
+      50.30% short / 57.74% long CER on CPU and 57.28% / 48.90% on Hailo-8.
+      Chinese must never silently fall back to Whisper.
+    reason_zh: >-
+      RPi5 无 Qwen3-ASR 后端；Whisper 在该板中文 CER 为 CPU 50.30%/57.74%、
+      Hailo-8 57.28%/48.90%，中文不得回退 Whisper。SenseVoice fallback 需另批。
+    evidence:
+      - docs/perf/whisper-cross-device-20260827.md:59 - Pi 5 CPU only, tiny/10s ONNX, zh short 50.30 / zh long 57.74
+      - docs/perf/whisper-cross-device-20260827.md:52 - Hailo-8 + Pi 5, base/5s hybrid, zh short 57.28 / zh long 48.90
+      - BENCHMARKS.md:20 - Whisper's Chinese ceiling is the model, not the runtime
+
+  - device: rpi5
+    group: en
+    status: untested
+    ovs_profile: rpi5-default
+    asr: {backend: cpu.sherpa_asr, model: sherpa-onnx streaming zh-en, quant: int8 CPU}
+    tts: {backend: cpu.sherpa, model: sherpa-onnx CPU voice, quant: int8 CPU}
+    env: {}
+    evidence:
+      - configs/profiles/rpi5-default.json:2 - the only RPi 5 profile that provides both ASR and TTS
+      - "no WER/RTF has been scored for this profile on RPi 5"
+    planned_alternative:
+      description: Whisper tiny CPU or Hailo-8 base/5s ASR + Kokoro ONNX CPU TTS, per spec section 3
+      asr_profile: rpi5-hailo-whisper
+      tts_profile: null
+      blocked_on: >-
+        the Hailo Whisper profiles are ASR-only and require a Hailo-8 module; no
+        Kokoro ONNX CPU profile exists for RPi 5. Both halves need the targeted bench.
+      evidence:
+        - docs/perf/whisper-cross-device-20260827.md:52 - Hailo-8 + Pi 5 base/5s, en short 13.81% / en long 19.03%, TTFT 81 ms
+        - docs/perf/whisper-cross-device-20260827.md:59 - Pi 5 CPU only tiny/10s, en short 10.16% / en long 23.73%
+
+  - device: rpi5
+    group: other
+    status: unsupported
+    ovs_profile: null
+    reason: >-
+      The only RPi 5 profile with both ASR and TTS is sherpa zh-en
+      (rpi5-default.json). No multilingual model pair runs on this board today.
+    reason_zh: >-
+      RPi5 唯一同时提供 ASR 与 TTS 的 profile 是 sherpa zh-en，暂无多语模型组合。
+    evidence:
+      - configs/profiles/rpi5-default.json:2
+      - configs/profiles/rpi5-hailo-whisper.json:2 - ASR-only, and English only in practice

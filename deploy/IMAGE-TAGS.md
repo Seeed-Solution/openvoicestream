@@ -20,6 +20,9 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `jetson-jp62-trt103-edgellm-v091-vox0011a0-20260818` | `13383c8` | `voxedge==0.0.11a0` | 2026-08-18 | spark | `sha256:2e3752dea4b9a7c3993229caa063e3746f48476d9b436eca6f35cdd4c3685070` |
 | `rk-20260903.10` | `2a3cabbfdc8507e6058ae85e09803e1442621b20` + receipt-bound overlays | `0.0.12a0+kokoro.20260903.1` | 2026-09-03 | RK3576/RK3588 | `sha256:fdc480da30610f46075f41a8bf95be5774427a98d3e77c69272cdec1226593c1` |
 | `rk-20260909` | `c34af54` + this branch's two `Dockerfile.rk` build fixes | `0.0.13a0` | 2026-09-09 | spark | `sha256:184e9336847a6a0c246c94b311b11d0379d4c90366b8ea0ad6afa0a688b91a58` |
+| `rk-20260913.3` (speech, `openvoicestream:`) | UNVERIFIED here — built on an RK3588 from `deploy/docker/Dockerfile.rk` `--build-arg VOXEDGE_VERSION=0.0.15a0`, seeed commit not recorded in the solution | `0.0.15a0` | 2026-09-13 | RK3588 (per solution) | `sha256:d1677071dff68d0be3a3edd26d5959b4598a502ad05162901e509a706723794a` (from the solution's `docker manifest inspect` note, not re-verified) |
+| `voiceagent-20260914-runtimekws` (`ovs-agent:`) | UNVERIFIED here — agent image built on an RK3588, commit not recorded in the solution | `0.0.15a0` | 2026-09-13/14 | RK3588 (per solution) | `sha256:a2dc17a304d7941e924d95de0863b53fd3e1869b7caba6ecf64a60e57cfd9569` (from the solution's compose comment, not re-verified) |
+| `jetson-jp62-trt103-edgellm-v091-vox080a0-7330af9` (speech, `seeed-local-voice:`) | `7330af9` (per tag suffix) | `0.0.8a0` (per tag) | UNVERIFIED (tag carries no date) | UNVERIFIED | UNVERIFIED — no digest recorded in the solution; run `docker manifest inspect` |
 | `rpi-hailo` (local, not pushed) | `4d66f475` + `final-hailo` stage | `0.0.12a0` baked | 2026-09-09 | harvest-pi | `sha256:f6d9bf16557a3a561968e2c942cfcc13112489faafe667a1df95bf5bc4700f65` (local image ID, 657 MB) |
 
 `rpi-hailo` — `Dockerfile.rpi --target final-hailo`, built on `harvest-pi`
