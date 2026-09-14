@@ -59,6 +59,20 @@ container needs (真机验证得出的完整配置，orin-nx 2026-07-02)：
 
 Verified end-to-end on a v0.9.0 Base-profile SLV (orin-nx 2026-07-04): enroll → `method: onnx_speaker_encoder` → clone TTFA 65 ms → exact ASR readback. Deployment recipe is a thin overlay (`FROM <v090 image>` + force-reinstall the voxedge wheel + the Base profile + the two engines above); note the Base tokenizer dir also needs `processed_chat_template.json`, not just `tokenizer.json`.
 
+**v2v-chat endpointing (VAD) / 断句检测器只能有一个**: the chat page sends
+`vad: "none"` (via `FULL_CHAT_SESSION` in `common/frontend/v2v-client.js`) —
+utterance boundaries are owned solely by the ASR backend's internal VAD (RK
+Qwen3 true-streaming declares `prefer_backend_endpoint_vad`). Never point the
+page at a server_vad configuration: two endpoint detectors race and silently
+truncate transcripts mid-sentence, no error on either side
+(docs/CONFIGURATION.md "Streaming ASR endpointing: pick exactly one detector";
+same rule the production ovs-agent configs follow with `vad: "none"` +
+client-side VAD). Only backends WITHOUT internal endpointing may use
+`vad: "silero"` — then the server VAD is the single detector. Trade-off of
+`vad: "none"`: no voice barge-in during playback; use the interrupt button or
+half-duplex. Server side, `OVS_V2V_SINGLE_ENDPOINT_STRICT=1` turns this
+misconfiguration into a hard session reject instead of a warning log.
+
 ## Environment / 环境变量
 
 | Variable | Default | Description |

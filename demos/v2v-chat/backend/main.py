@@ -79,6 +79,16 @@ def create_app(slv_url: str | None = None, proxy: SLVProxy | None = None) -> Fas
 
     app = FastAPI(title="slv-demo-v2v-chat", docs_url=None, redoc_url=None,
                   lifespan=_lifespan)
+
+    # Demos are edited live during bring-up; never let the browser cache
+    # stale JS/HTML between iterations.
+    @app.middleware("http")
+    async def _no_store(request, call_next):
+        resp = await call_next(request)
+        if request.url.path.endswith((".js", ".html", ".css")) or request.url.path == "/":
+            resp.headers["Cache-Control"] = "no-store"
+        return resp
+
     profiles_dir = Path(os.environ.get("DEMO_PROFILES_DIR") or _DEFAULT_PROFILES_DIR)
 
     @app.get("/healthz")

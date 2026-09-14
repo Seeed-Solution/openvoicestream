@@ -17,6 +17,70 @@
  * protocol doc instructs.
  */
 
+/**
+ * Recommended session options for full voice-chat clients (v2v-chat and
+ * friends). ONE endpoint detector per session — the single most expensive
+ * misconfiguration of /v2v/stream is two detectors racing, which silently
+ * truncates transcripts with no error on either side
+ * (docs/CONFIGURATION.md "Streaming ASR endpointing: pick exactly one
+ * detector").
+ *
+ * Which detector depends on the ASR backend, so pick it from the backend's
+ * capability (`fullChatSession({backendEndpointsInternally})`):
+ *
+ *   backendEndpointsInternally: true  → vad: "none"
+ *     Backends that end a turn on their OWN internal VAD (RK Qwen3 true
+ *     streaming declares prefer_backend_endpoint_vad). Asking for server VAD
+ *     as well would race it. This mirrors the production ovs-agent configs
+ *     (slv_config.vad="none" + a client-side VAD).
+ *
+ *   backendEndpointsInternally: false → vad: "silero"
+ *     Offline/accumulate-then-transcribe backends (Whisper, SenseVoice via
+ *     OfflineAccumulateStream) never end a turn themselves: with vad:"none"
+ *     and no client-side VAD or commits, spoken turns can never complete, so
+ *     the server VAD must be the single detector.
+ *
+ * Trade-off of vad:"none": no server speech_started events, so voice barge-in
+ * during TTS playback is unavailable — drive interruption via
+ * client.interrupt() (the 打断 button) or run half-duplex.
+ */
+export function fullChatSession(options = {}) {
+  const owns = options.backendEndpointsInternally;
+  return Object.freeze({ vad: owns === false ? "silero" : "none" });
+}
+
+/**
+ * Backend-owns-endpointing probe shared by the demos: the SLV `/health`
+ * ``asr_backend`` name is the only capability signal on the wire today.
+ * Unknown backends return false so the server VAD stays the detector — the
+ * safe default for an offline backend, and merely redundant (never
+ * truncating) for one that endpoints internally.
+ */
+export function backendEndpointsInternally(asrBackendName) {
+  const name = String(asrBackendName || "").toLowerCase();
+  // RK Qwen3 streaming (qwen3_asr_rk) owns its endpoint VAD in both
+  // true_streaming and chunk_confirm modes.
+  return name.includes("qwen3_asr_rk");
+}
+
+/**
+ * Resolve the endpoint detector from an SLV /health payload.
+ *
+ * Prefers the server's explicit `asr_owns_endpointing` flag (added
+ * 2026-09-13); older servers omit it and fall back to the backend-name
+ * heuristic. When neither is available this returns `false`, i.e. the SERVER
+ * VAD stays the detector: for an offline backend (Whisper/SenseVoice)
+ * `vad:"none"` makes spoken turns uncompletable, which is strictly worse than
+ * a redundant server VAD on a backend that endpoints internally (that case
+ * only risks truncation, and the server logs a single-detector warning).
+ */
+export function resolveBackendEndpointsInternally(health) {
+  if (health && typeof health.asr_owns_endpointing === "boolean") {
+    return health.asr_owns_endpointing;
+  }
+  return backendEndpointsInternally(health && health.asr_backend);
+}
+
 export class V2VStreamClient {
   /**
    * @param {object} opts
@@ -58,6 +122,7 @@ export class V2VStreamClient {
     this.ctx = opts.audioContext || null;
     this._sources = [];
     this._playhead = 0;           // ctx.currentTime-based scheduling cursor
+    this._primed = false;         // jitter-buffer lead applied for this response
     this._playing = false;
     this._endTimer = null;
     this._connectResolve = null;
@@ -93,7 +158,10 @@ export class V2VStreamClient {
         type: o.vad === "none" ? "none" : "server_vad",
         backend: o.vad || "silero",
         silence_duration_ms: o.vadSilenceMs || 400,
-        create_response: false,
+        // Auto-create a response at turn end when the server runs the LLM
+        // loop (OVS_V2V_SERVER_LOOP=1); callers targeting an ASR-only server
+        // can pass createResponse:false to keep the old manual behavior.
+        create_response: o.createResponse !== undefined ? !!o.createResponse : false,
         interrupt_response: true,
       },
     };
@@ -257,6 +325,7 @@ export class V2VStreamClient {
         this._activeResponseId = msg.response?.id || null;
         this._activeOutputItemId = null;
         this._responsePlaybackStartedAt = null;
+        this._primed = false;   // new response: re-apply the jitter-buffer lead once
         cb.onEvent && cb.onEvent(msg); break;
       case "response.output_item.added":
         if (msg.item?.type === "message" && msg.item?.role === "assistant") {
@@ -321,7 +390,22 @@ export class V2VStreamClient {
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.connect(ctx.destination);
-    const startAt = Math.max(ctx.currentTime + 0.03, this._playhead);
+    // Jitter buffer: 30ms is fine on loopback but over Tailscale-relayed WS
+    // (RTT 80-210ms) the 40ms TTS chunks arrive with heavy jitter and the
+    // playback underruns (choppy audio). The lead is applied ONCE per response
+    // (or after an underrun) — applying it per chunk would push every chunk
+    // 400ms past `now` and insert silence between chunks that had already
+    // arrived contiguously. Later chunks stay glued to `_playhead`.
+    const now = ctx.currentTime;
+    let startAt;
+    if (this._playhead > now + 0.01) {
+      startAt = this._playhead; // contiguous with already-buffered audio
+    } else if (this._primed) {
+      startAt = now + 0.03; // underrun mid-response: resume promptly
+    } else {
+      startAt = now + 0.4; // first chunk of a response: absorb jitter
+      this._primed = true;
+    }
     if (this._responsePlaybackStartedAt == null) {
       this._responsePlaybackStartedAt = startAt;
     }
@@ -348,6 +432,7 @@ export class V2VStreamClient {
       }
       this._sources = [];
       this._playing = false;
+      this._primed = false;   // next response primes the jitter buffer again
       if (this.opts.onPlaybackEnd) this.opts.onPlaybackEnd();
     }, waitMs);
   }
@@ -358,6 +443,7 @@ export class V2VStreamClient {
     for (const s of this._sources) { try { s.stop(); } catch { /* ended */ } }
     this._sources = [];
     this._playhead = 0;
+    this._primed = false;
     if (this._playing) {
       this._playing = false;
       if (this.opts.onPlaybackEnd) this.opts.onPlaybackEnd();

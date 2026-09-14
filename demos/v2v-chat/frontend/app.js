@@ -27,7 +27,11 @@
 
 import { createStatusPill, createMetricCard, createModelSwitchPanel } from "/common/ui.js";
 import { MicCapture } from "/common/mic-capture.js";
-import { V2VStreamClient } from "/common/v2v-client.js";
+import {
+  V2VStreamClient,
+  fullChatSession,
+  resolveBackendEndpointsInternally,
+} from "/common/v2v-client.js";
 
 /* ── i18n ──────────────────────────────────────────────────────────── */
 const I18N = {
@@ -495,6 +499,22 @@ async function start() {
     return;
   }
 
+  // Pick the single endpoint detector for this backend: vad:"none" only when
+  // the ASR backend ends turns on its own (RK Qwen3); offline backends need
+  // the server VAD or spoken turns never complete. /api/status proxies SLV
+  // /health; when the probe fails we keep the SERVER VAD (safe for offline
+  // backends) rather than silently disabling turn completion.
+  let backendOwnsEndpointing = null;
+  try {
+    const rs = await fetch("/api/status");
+    if (rs.ok) {
+      const st = await rs.json();
+      backendOwnsEndpointing = resolveBackendEndpointsInternally(st?.slv?.health);
+    }
+  } catch {
+    /* probe is advisory; session still starts with the server VAD */
+  }
+
   mic = new MicCapture({ onPcmChunk: onPcm, onLevel: onLevel });
   try {
     await mic.start();
@@ -511,8 +531,18 @@ async function start() {
     asrLanguage: asrLangSel.value,
     ttsLanguage: ttsLangSel.value,
     sampleRate: 16000,
-    vad: "silero",
+    // Single endpoint detector chosen from the backend capability
+    // (fullChatSession docblock in common/frontend/v2v-client.js).
+    vad:
+      backendOwnsEndpointing === null
+        ? "silero" // probe failed: keep the server VAD (turns must complete)
+        : fullChatSession({
+            backendEndpointsInternally: backendOwnsEndpointing,
+          }).vad,
     multiUtterance: true,
+    // This demo is the full-chat page: ask the server to auto-create a
+    // response at each turn end (requires OVS_V2V_SERVER_LOOP=1 server-side).
+    createResponse: true,
     onAsrPartial, onAsrFinal, onVadEvent,
     onTtsStarted, onTtsDone, onAudioChunk,
     onPlaybackStart, onPlaybackEnd,
