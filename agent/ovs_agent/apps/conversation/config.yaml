@@ -2,6 +2,12 @@
 slv_url: "${OVS_SLV_URL:-ws://127.0.0.1:8621/v2v/stream}"
 
 slv_config:
+  # DEVICE DEPLOYMENTS: pin the operator's language here (e.g. via the
+  # ${ASR_LANGUAGE:-...} env pattern used in
+  # deploy/conversation/agent-config.yaml). Leaving this `auto` puts a
+  # Chinese deployment on per-utterance language ID — this value becomes the
+  # v2v session's asr_language and is the ONLY language knob the RK and
+  # Jetson Qwen3-ASR backends have. The solution pins `zh` for that reason.
   asr_language: auto
   tts_language: zh
   tts_speaker_id: null
@@ -12,6 +18,11 @@ slv_config:
 
 client_vad_backend: silero
 client_vad_threshold: null
+# The client-VAD block below already matches the solution's shipped
+# agent-config.yaml values (speech_min 200 ms, silence 600 ms, drive_eos
+# true); a device deployment does NOT need to override these. 600 ms must
+# stay below the backend endpoint threshold (1500 ms in the RK image's
+# profile) so the client wins end-of-speech.
 client_vad_speech_min_ms: 200
 client_vad_silence_ms: 600
 client_vad_drive_eos: true
@@ -56,6 +67,11 @@ metadata:
     ms: 130
     mic_suppress_tail_ms: 120
   wakeword:
+    # Repo default `disabled` keeps the library default for existing
+    # deployments. DEVICE DEPLOYMENTS override to `sherpa_onnx` via
+    # WAKEWORD_BACKEND (both conversation composes default it to
+    # sherpa_onnx); the KWS model assets are bundled in the agent image at
+    # the WAKEWORD_MODEL_DIR paths below.
     backend: "${WAKEWORD_BACKEND:-disabled}"
     state_path: "${WAKEWORD_STATE_PATH:-/var/lib/ovs-agent/wakeword.json}"
     phrases:

@@ -130,6 +130,28 @@ def _strip_for_signal(text: str) -> str:
     return "".join(out).lower()
 
 
+def _is_ascii_word_char(ch: str) -> bool:
+    return ch.isascii() and (ch.isalnum() or ch == "_")
+
+
+def _join_asr_segment_text(left: str, right: str) -> str:
+    """Join two ASR segment texts for one utterance.
+
+    Each side is stripped; an empty side yields the other unchanged.
+    A space is inserted at the seam ONLY when both sides end/start with
+    an ASCII word character — Chinese segments must stay unspaced.
+    """
+    left = (left or "").strip()
+    right = (right or "").strip()
+    if not left:
+        return right
+    if not right:
+        return left
+    if _is_ascii_word_char(left[-1]) and _is_ascii_word_char(right[0]):
+        return left + " " + right
+    return left + right
+
+
 def _normalize_tool_trigger_text(text: str) -> str:
     """Normalize text for simple phrase-containment tool guards."""
     import unicodedata
@@ -299,6 +321,11 @@ class BaseApp:
         # from the mic watchdog (different subject + recovery). _mic_restart_ts
         # gives the wake loop a grace window to re-acquire after a mic restart.
         self._wake_watchdog_task: asyncio.Task | None = None
+        # SLV link watchdog: owns liveness of the conversation WS *and* of the
+        # dispatch task. A closed speech-service session is not something an
+        # interactive retry budget can resolve, so this one retries forever.
+        self._link_watchdog_task: asyncio.Task | None = None
+        self._slv_unhealthy_since: float | None = None
         self._wake_restart_lock: asyncio.Lock | None = None
         self._mic_restart_ts: float = 0.0
         self._boot_ts: float = 0.0
@@ -367,6 +394,15 @@ class BaseApp:
         # that would otherwise drop a clipped PTT utterance.
         self._ptt_explicit_eos_pending: bool = False
         self._last_user_utterance_text: str = ""
+        # Mid-utterance ASR segment accumulator: with client-owned
+        # endpointing (client_vad_drive_eos) the ASR backend may still
+        # emit finals on its OWN internal endpoint (RK Qwen3-ASR: 400 ms
+        # of silence) BEFORE the agent's asr_eos. Those segments belong
+        # to the still-open utterance and are concatenated here; the
+        # post-EOS final is the authoritative end and dispatches the
+        # joined text to the LLM. Cleared on dispatch, barge-in, sleep,
+        # wake-command single-turn completion, and session close.
+        self._pending_asr_utterance_text: str = ""
         # Per-turn EOS dedupe: VAD silence and PTT/end can both want to
         # send asr_eos. Send at most one per turn. Cleared on every
         # ASRFinal, on PTT/start (next turn), and on reconnect.
@@ -812,6 +848,7 @@ class BaseApp:
         except Exception:
             pass
         self._cancel_wake_command_timeout()
+        self._clear_pending_asr_utterance()
         drain_task = getattr(self, "_playback_drain_task", None)
         if drain_task is not None and not drain_task.done():
             drain_task.cancel()
@@ -859,6 +896,28 @@ class BaseApp:
             getattr(self.config, "pipeline_mode", "always_on") == "wake_word"
             and bool(getattr(self.config, "wake_command_single_turn", False))
         )
+
+    def _accumulate_asr_segment(self, text: str) -> None:
+        """Append one backend-endpointed ASR segment to the pending
+        utterance buffer (empty-after-strip segments are ignored)."""
+        seg = (text or "").strip()
+        if not seg:
+            return
+        self._pending_asr_utterance_text = _join_asr_segment_text(
+            getattr(self, "_pending_asr_utterance_text", ""), seg
+        )
+
+    def _take_pending_asr_utterance(self) -> str:
+        """Return and clear the accumulated mid-utterance segments."""
+        pending = getattr(self, "_pending_asr_utterance_text", "")
+        self._pending_asr_utterance_text = ""
+        return pending
+
+    def _clear_pending_asr_utterance(self) -> None:
+        """Drop the pending buffer without dispatching (barge-in, sleep,
+        session close): a half-accumulated utterance must never glue onto
+        the NEXT turn's text."""
+        self._pending_asr_utterance_text = ""
 
     def _cancel_wake_command_timeout(self) -> None:
         task = getattr(self, "_wake_command_timeout_task", None)
@@ -920,6 +979,7 @@ class BaseApp:
         self._first_tts_seen = False
         self._eos_sent_this_turn = False
         self._wake_command_retry_after_no_final = False
+        self._clear_pending_asr_utterance()
         self._play_sleep_tone()
         self._set_state(ConvState.SLEEPING)
 
@@ -1209,6 +1269,14 @@ class BaseApp:
             self._wake_watchdog(), name="wake-watchdog"
         )
         self._dispatch_task = asyncio.create_task(self._slv_dispatch(), name="slv-dispatch")
+        # SLV link supervisor: the dispatch loop's own retry is bounded in
+        # practice (measured 2026-09-13: a speech-service restart left the
+        # assistant mute until an operator hit reconnect), so a watchdog owns
+        # liveness of BOTH the WS and the dispatch task.
+        self._slv_unhealthy_since: float | None = None
+        self._link_watchdog_task = asyncio.create_task(
+            self._slv_link_watchdog(), name="slv-link-watchdog"
+        )
 
         # LLM backend warmup — runs after all plugins have registered
         # (so tool_registry is fully populated) and BEFORE any plugin
@@ -1287,6 +1355,14 @@ class BaseApp:
             except (asyncio.CancelledError, Exception):
                 pass
         self._wake_watchdog_task = None
+        link_watchdog_task = getattr(self, "_link_watchdog_task", None)
+        if link_watchdog_task is not None and not link_watchdog_task.done():
+            link_watchdog_task.cancel()
+            try:
+                await link_watchdog_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._link_watchdog_task = None
         # 1. stop mic capture
         if self._mic_task is not None:
             self._mic_task.cancel()
@@ -1382,6 +1458,76 @@ class BaseApp:
             # moment — don't judge it stalled during/just after a mic restart.
             self._mic_restart_ts = time.monotonic()
             self._mic_task = asyncio.create_task(self._mic_pump(), name="mic-pump")
+
+    async def _slv_link_watchdog(self) -> None:
+        """Keep the speech-service link alive without human intervention.
+
+        Two failure modes are covered, both observed on 2026-09-13 after
+        recreating the `speech` container (which is exactly what an image
+        update does):
+
+          1. the dispatch loop stops retrying (its reader-exit path goes quiet),
+             so the agent sits disconnected forever;
+          2. the dispatch task itself ends, leaving nothing that consumes SLV
+             events (every later `asr_eos` then hits a dead WS).
+
+        Bounded reconnect budgets (`SLVClient._RECONNECT_BACKOFFS`, 4 attempts)
+        are right for an interactive call like `wake()`; for the long-lived
+        conversation link they must not be the last word, so this watchdog
+        retries forever with a grace window between attempts and restarts the
+        dispatch task whenever it finishes.
+        """
+        retry_every_s = 2.0
+        # NB: `or 10.0` would swallow a deliberate 0 (instant retry).
+        _grace = getattr(self.config, "slv_link_grace_s", None)
+        grace_s = 10.0 if _grace is None else max(0.0, float(_grace))
+        while True:
+            await asyncio.sleep(retry_every_s)
+            try:
+                shutdown = getattr(self, "_shutdown_evt", None)
+                if shutdown is not None and shutdown.is_set():
+                    return
+                slv = getattr(self, "slv", None)
+                if slv is None or getattr(slv, "_closed", False):
+                    return
+
+                task = getattr(self, "_dispatch_task", None)
+                if task is not None and task.done():
+                    # Nothing consumes SLV events any more: revive the loop.
+                    exc = None
+                    if not task.cancelled():
+                        exc = task.exception()
+                    logger.error(
+                        "SLV dispatch task ended (exc=%r); restarting it", exc
+                    )
+                    self._dispatch_task = asyncio.create_task(
+                        self._slv_dispatch(), name="slv-dispatch"
+                    )
+                    self._slv_unhealthy_since = None
+                    continue
+
+                if slv.is_healthy():
+                    self._slv_unhealthy_since = None
+                    continue
+
+                now = time.monotonic()
+                if self._slv_unhealthy_since is None:
+                    self._slv_unhealthy_since = now
+                if now - self._slv_unhealthy_since < grace_s:
+                    continue
+                if slv.is_reconnecting():
+                    continue
+                logger.warning(
+                    "SLV link unhealthy for %.0fs; forcing a reconnect",
+                    now - self._slv_unhealthy_since,
+                )
+                await asyncio.wait_for(slv.reconnect(), timeout=10.0)
+                # Success clears the clock on the next tick; leave it set so a
+                # reconnect that returns without a healthy WS keeps retrying.
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - retry forever
+                logger.warning("SLV link watchdog reconnect failed: %s", exc)
 
     async def _mic_watchdog(self) -> None:
         """Recover from dead CoreAudio/sounddevice capture streams."""
@@ -2393,6 +2539,8 @@ class BaseApp:
         self._eos_sent_this_turn = False
         self._cancel_asr_watchdog()
         self._first_tts_seen = False
+        # A barge-in abandons whatever the user was mid-way through saying.
+        self._clear_pending_asr_utterance()
 
     def _arm_thinking_watchdog(self) -> None:
         """Re-arm the THINKING-state watchdog.
@@ -2508,6 +2656,17 @@ class BaseApp:
             )
             self._eos_sent_this_turn = False
             return
+        # The turn is being abandoned: any mid-utterance segments accumulated
+        # before the EOS belong to it and must not be glued onto the NEXT
+        # utterance's text (the post-EOS final carries the full text when the
+        # backend actually emits one; this path only runs when it didn't).
+        if getattr(self, "_pending_asr_utterance_text", ""):
+            logger.warning(
+                "dropping %d accumulated ASR segment char(s) with the abandoned "
+                "turn (no post-EOS final within %.1fs)",
+                len(self._pending_asr_utterance_text), timeout,
+            )
+        self._clear_pending_asr_utterance()
         logger.warning(
             "asr_final not received within %.1fs after asr_eos; "
             "assuming empty/dropped final — resetting to IDLE", timeout,
@@ -2692,6 +2851,9 @@ class BaseApp:
                 self._first_tts_seen = False
                 self._eos_sent_this_turn = False
                 self._cancel_asr_watchdog()
+                # Transport died mid-utterance: half-accumulated segments
+                # belong to a session that no longer exists.
+                self._clear_pending_asr_utterance()
                 if getattr(self, "_state", ConvState.IDLE) in {
                     ConvState.THINKING,
                     ConvState.BARGED_IN,
@@ -2933,7 +3095,15 @@ class BaseApp:
             # the empty-final bug the watchdog was designed to catch,
             # because the watchdog never even arms).
             self._eos_sent_this_turn = False
-            if evt.duplicate_of_streamed:
+            # A close-out final whose text duplicates what was already
+            # streamed (server: ``duplicate_of_streamed = final_text ==
+            # last_streamed_final``, server/main.py multi_utterance close) carries
+            # NO new content — joining it would append the same segment twice once
+            # mid-utterance accumulation is in play.
+            _final_text = "" if evt.duplicate_of_streamed else (evt.text or "")
+            if evt.duplicate_of_streamed and not getattr(
+                self, "_pending_asr_utterance_text", ""
+            ):
                 # A duplicate final means there is no new utterance to route.
                 # If the duplicate is the only final after client-driven EOS,
                 # cancelling the watchdog and returning here would strand the
@@ -2976,10 +3146,20 @@ class BaseApp:
             # after 3-4 such turns the small model latches onto the
             # pattern and replies with the same canned line forever.
             stripped_for_signal = _strip_for_signal(evt.text or "")
-            if (
+            _is_low_signal = (
                 not (evt.text or "").strip()
                 or len(stripped_for_signal) <= 1
                 or stripped_for_signal in _INTERJECTIONS
+            )
+            # A low-signal final that ANSWERS our client-side EOS still
+            # closes the utterance: when earlier backend-endpointed
+            # segments were accumulated, fall through and dispatch them
+            # (the RK backend commonly returns empty text for the
+            # post-EOS final when it already finalized the audio on its
+            # own internal endpoint).
+            if _is_low_signal and not (
+                _had_pending_eos
+                and getattr(self, "_pending_asr_utterance_text", "")
             ):
                 # Debug only: an open mic emits empty/low-signal finals every
                 # 1-4s while idle — at info this floods the log. The state-
@@ -3023,7 +3203,10 @@ class BaseApp:
                 #     PREVIOUS real utterance.
                 #   IDLE / SLEEPING — already terminal; no transition.
                 cur_state = getattr(self, "_state", ConvState.IDLE)
-                if cur_state in (ConvState.LISTENING, ConvState.BARGED_IN):
+                if (
+                    cur_state in (ConvState.LISTENING, ConvState.BARGED_IN)
+                    and not getattr(self, "_pending_asr_utterance_text", "")
+                ):
                     self._set_state(ConvState.IDLE)
                     # noise final → don't extend the hot-mic window (see
                     # _ensure_sleep_timer): ambient room speech must not keep the
@@ -3057,7 +3240,35 @@ class BaseApp:
             logger.info(
                 "asr_final received: %r (language=%r)", evt.text, evt.language
             )
-            self._last_user_utterance_text = evt.text or ""
+            # Mid-utterance segment? With client-owned endpointing
+            # (client_vad_drive_eos) the utterance boundary is the agent's
+            # asr_eos, NOT a server final: the RK backend endpoint
+            # (400 ms of silence) emits finals while the user is merely
+            # pausing mid-sentence. Accumulate such segments and wait for
+            # the post-EOS final instead of splitting one spoken sentence
+            # into two LLM turns.
+            if (
+                bool(getattr(self.config, "client_vad_drive_eos", False))
+                and not _had_pending_eos
+                and getattr(self, "_state", ConvState.IDLE)
+                in (ConvState.LISTENING, ConvState.BARGED_IN)
+            ):
+                self._accumulate_asr_segment(_final_text)
+                self._cancel_wake_command_timeout()
+                logger.info(
+                    "asr_final segment accumulated (pending=%r)",
+                    getattr(self, "_pending_asr_utterance_text", ""),
+                )
+                await self._broadcast("on_user_utterance", evt.text)
+                return
+            # Utterance end (post-EOS final, or server-VAD mode where
+            # every final ends a turn): join any accumulated segments.
+            full_text = _join_asr_segment_text(
+                self._take_pending_asr_utterance(), _final_text
+            )
+            if full_text != (evt.text or ""):
+                logger.info("asr utterance assembled from segments: %r", full_text)
+            self._last_user_utterance_text = full_text
             self._cancel_wake_command_timeout()
             # Re-enable speaker playback for the next turn. stop_playback
             # latched discard=True on the prior barge-in / sleep so SLV's
@@ -3084,13 +3295,13 @@ class BaseApp:
                     _cv.reset()
                 except Exception:  # pragma: no cover
                     pass
-            await self._broadcast("on_user_utterance", evt.text)
+            await self._broadcast("on_user_utterance", full_text)
             # (reconnect already happened above, before the empty-text guard)
             # Stop-intent: user said "停下" / "stop" — cancel everything,
             # do NOT route to LLM and do NOT extend session.history (the
             # user asked for quiet, not for more conversation).
-            if self._is_stop_intent(evt.text):
-                logger.info("stop intent matched: %r", evt.text)
+            if self._is_stop_intent(full_text):
+                logger.info("stop intent matched: %r", full_text)
                 if self._llm_turn_task is not None and not self._llm_turn_task.done():
                     self._llm_turn_task.cancel()
                     try:
@@ -3107,7 +3318,7 @@ class BaseApp:
                     pass
                 self._set_state(ConvState.IDLE)
                 self._reset_sleep_timer()
-                await self._broadcast("on_user_stop_intent", evt.text)
+                await self._broadcast("on_user_stop_intent", full_text)
                 return
             # Spawn the LLM turn as a tracked task so the dispatch loop
             # stays free to handle queued TTSAudio (playback) and
@@ -3129,7 +3340,7 @@ class BaseApp:
             # event or by SLVError, whichever comes first.
             self._arm_thinking_watchdog()
             self._llm_turn_task = asyncio.create_task(
-                self._run_user_utterance(evt.text, evt.language),
+                self._run_user_utterance(full_text, evt.language),
                 name="llm-turn",
             )
             return
@@ -3353,6 +3564,7 @@ class BaseApp:
             # back to IDLE.
             self._cancel_asr_watchdog()
             self._cancel_thinking_watchdog()
+            self._clear_pending_asr_utterance()
             old_state = getattr(self, "_state", ConvState.IDLE)
             await self._broadcast(
                 "on_error",
