@@ -44,7 +44,7 @@ jobs:
         # with ModuleNotFoundError: fastapi).
         run: |
           uv pip install --system -r server/requirements.txt
-          uv pip install --system --prerelease=allow voxedge==0.0.9a0
+          uv pip install --system --prerelease=allow voxedge==0.0.15a1
           uv pip install --system pytest pytest-asyncio httpx
 
       - name: Shell syntax

@@ -47,7 +47,7 @@ RUN pip install --no-cache-dir --index-url ${PIP_INDEX} --upgrade pip
 # between them is the kind of thing that shows up as a protocol error much later.
 # Keep the configured domestic mirror primary; upstream PyPI is only a
 # fallback for a release that has not propagated to the mirror yet.
-ARG VOXEDGE_VERSION=0.0.12a0
+ARG VOXEDGE_VERSION=0.0.15a1
 RUN pip install --no-cache-dir \
         --index-url ${PIP_INDEX} \
         --extra-index-url https://pypi.org/simple \

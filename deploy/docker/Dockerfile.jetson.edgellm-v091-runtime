@@ -12,7 +12,7 @@ ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 # 索引，则必须改用 --index-strategy 明确优先级。
 ARG PIP_EXTRA_INDEX_URL=https://pypi.org/simple
 ARG SOURCE_REVISION=unknown
-ARG VOXEDGE_VERSION=0.0.12a0
+ARG VOXEDGE_VERSION=0.0.15a1
 FROM ${BASE}
 ARG PIP_INDEX_URL
 ARG PIP_EXTRA_INDEX_URL

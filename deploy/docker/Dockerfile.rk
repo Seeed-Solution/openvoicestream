@@ -150,7 +150,7 @@ RUN pip install --no-cache-dir -e /opt/speech/third_party/rkvoice-stream
 # wheel (numpy-only core) WITHOUT extras — heavy backend deps (rknn / sherpa)
 # are already provided by this image's own pip deps + rkvoice-stream.
 # See docs/archive/specs/cutover-dockerfile-draft.md §2.
-ARG VOXEDGE_VERSION=0.0.12a0
+ARG VOXEDGE_VERSION=0.0.15a1
 # voxedge from PyPI, pinned. The old COPY of deploy/wheels/voxedge-*.whl
 # referenced a file that was never committed (the directory holds only a
 # provenance note), so this image could not be built from a clean clone.
@@ -273,7 +273,7 @@ RUN curl -fsSL https://github.com/explosion/spacy-models/releases/download/en_co
     && echo "${EN_CORE_MODEL_SHA256}  /tmp/en_core_web_sm-3.8.0-py3-none-any.whl" | sha256sum -c - \
     && pip install --no-cache-dir --no-deps /tmp/en_core_web_sm-3.8.0-py3-none-any.whl \
     && rm -f /tmp/en_core_web_sm-3.8.0-py3-none-any.whl
-ARG VOXEDGE_VERSION=0.0.13a0
+ARG VOXEDGE_VERSION=0.0.15a1
 RUN pip install --no-cache-dir --no-deps --index-url ${PIP_INDEX} \
     --extra-index-url https://pypi.org/simple "voxedge==${VOXEDGE_VERSION}" \
     && pip check
