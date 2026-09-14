@@ -1408,6 +1408,112 @@ def _metrics_requires_key() -> bool:
     return _env_truthy(os.environ.get("OVS_METRICS_REQUIRE_KEY"))
 
 
+# Operator-level default for the backend-owned endpoint VAD threshold, in ms.
+# Distinct from the profile's ``VAD_ENDPOINT_SILENCE_MS`` on purpose: the
+# profile loader re-stamps its own keys at startup, so a compose env entry for
+# that key never reaches the backend (measured 2026-09-13). This one is read
+# per session and injected through the ASR stream options, so a deployment (or
+# one client) can tune it without editing the image profile.
+_VAD_ENDPOINT_OPERATOR_ENV = "OVS_V2V_VAD_ENDPOINT_SILENCE_MS"
+
+
+def _coerce_vad_endpoint_ms(raw: "object", *, source: str) -> "int | None":
+    """Parse a backend endpoint threshold in ms; None when unset/invalid/0.
+
+    Invalid or out-of-range values are ignored with a warning rather than
+    failing the session — a bad tuning hint must never break a conversation.
+    """
+    if raw is None:
+        return None
+    try:
+        value = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        logger.warning(
+            "v2v: ignoring invalid vad_endpoint_silence_ms=%r from %s (want int ms)",
+            raw,
+            source,
+        )
+        return None
+    if value < 0 or value > 60000:
+        logger.warning(
+            "v2v: ignoring out-of-range vad_endpoint_silence_ms=%d from %s (0-60000 ms)",
+            value,
+            source,
+        )
+        return None
+    if value == 0:
+        return None
+    return value
+
+
+def _v2v_asr_stream_options(cfg: "dict[str, object]") -> dict:
+    """Session-scoped ASR stream options from the parsed v2v config.
+
+    Today this is just ``vad_endpoint_silence_ms`` — the backend endpoint
+    threshold for ASR backends that own their own endpoint VAD (RK Qwen3).
+    Without a per-session channel the only lever was the profile, which then
+    stamped the env value back at startup, so a client could not tune it at
+    all (see server/core/rk_profile_contract.py for the measured cost: 400 ms
+    cut a 1.5 s mid-sentence pause into two turns).
+
+    Precedence: the client's session value wins; otherwise the operator default
+    ``OVS_V2V_VAD_ENDPOINT_SILENCE_MS`` applies. The operator variable is
+    deliberately NOT named ``VAD_ENDPOINT_SILENCE_MS``: that key is part of the
+    baked profile and the profile loader re-stamps it at startup, so a compose
+    ``environment:`` entry for it is silently ignored (measured 2026-09-13).
+    The operator default must stay above the client VAD's silence window (the
+    shipped agent uses 600 ms) or the backend wins the endpoint race and cuts
+    utterances in half — see docs/CONFIGURATION.md "Streaming ASR
+    endpointing".
+    """
+    explicit = _coerce_vad_endpoint_ms(
+        cfg.get("vad_endpoint_silence_ms"), source="session config"
+    )
+    if explicit is not None:
+        return {"vad_endpoint_silence_ms": explicit}
+    operator = _coerce_vad_endpoint_ms(
+        os.environ.get(_VAD_ENDPOINT_OPERATOR_ENV), source=_VAD_ENDPOINT_OPERATOR_ENV
+    )
+    if operator is not None:
+        return {"vad_endpoint_silence_ms": operator}
+    return {}
+
+
+def _endpoint_detector_conflict(vad_backend: "str | None", asr_be) -> "str | None":
+    """Single-endpoint-detector guard for the voxedge engine path.
+
+    Returns the operator-facing warning text when the client asked for a
+    server-side VAD while the ASR backend already owns endpointing, else
+    ``None``. Two detectors racing is the most expensive misconfiguration of
+    this API: whichever fires first wins, the loser's segment is silently
+    truncated, and neither side logs an error
+    (docs/CONFIGURATION.md "Streaming ASR endpointing: pick exactly one
+    detector").
+
+    The legacy (non-engine) path already honours
+    ``prefer_backend_endpoint_vad`` at runtime and keeps its behaviour; the
+    engine path has no such reconciliation, so the caller gates on this.
+    Pure function: no I/O, no env reads — the strict-mode reject lives at the
+    call site.
+    """
+    if asr_be is None:
+        return None
+    if not bool(getattr(asr_be, "prefer_backend_endpoint_vad", False)):
+        return None
+    vad = str(vad_backend or "").strip().lower()
+    if vad in ("", "none", "off", "disabled"):
+        return None
+    return (
+        f"v2v(engine): client requested server VAD '{vad_backend}' "
+        "but the ASR backend owns endpointing "
+        "(prefer_backend_endpoint_vad=True) — two endpoint "
+        "detectors would race and silently truncate turns. Send "
+        "vad=none (Realtime V2: turn_detection.type='none') and "
+        "let the backend endpoint, or use a client-side VAD. "
+        "See docs/CONFIGURATION.md 'Streaming ASR endpointing'."
+    )
+
+
 @app.get("/metrics")
 async def metrics_endpoint(request: Request) -> Response:
     """Prometheus text exposition.
@@ -1561,6 +1667,15 @@ async def health():
         result["asr"] = asr_be.is_ready() if asr_be else False
         result["asr_backend"] = asr_be.name if asr_be and asr_be.is_ready() else None
         result["asr_capabilities"] = [c.value for c in asr_be.capabilities] if asr_be and asr_be.is_ready() else []
+        # Capability signal for clients that must pick exactly ONE endpoint
+        # detector (docs/CONFIGURATION.md "Streaming ASR endpointing"): when
+        # this is true, a client asking for its own server VAD would race the
+        # backend's, so it should send vad:"none" (and run a client-side VAD if
+        # it needs one). Offline/accumulate backends report false and need the
+        # server VAD to ever finish a turn.
+        result["asr_owns_endpointing"] = bool(
+            getattr(asr_be, "prefer_backend_endpoint_vad", False)
+        ) if asr_be and asr_be.is_ready() else None
         if asr_be and asr_be.is_ready() and hasattr(asr_be, "providers"):
             result["asr_providers"] = asr_be.providers
     except Exception:
@@ -6114,6 +6229,7 @@ async def _v2v_stream_via_engine(
     vad_silence_ms: int,
     multi_utterance: bool,
     coord,
+    asr_stream_options: "dict | None" = None,
 ):
     """Phase 1b feature-flag path: drive /v2v/stream via voxedge's
     importable :class:`ConversationEngine` instead of the in-handler
@@ -6355,6 +6471,7 @@ async def _v2v_stream_via_engine(
         silence_ms=vad_silence_ms,
         vad_preroll_ms=_vad_preroll_ms(),
         asr_language=asr_language or "auto",
+        asr_stream_options=asr_stream_options,
         tts_language=tts_language_norm,
         coordinator=engine_coord,
         tts_speaker_kwargs=tts_speaker_kwargs,
@@ -6780,6 +6897,28 @@ async def v2v_stream(ws: WebSocket):
         # we release that slot (+ unregister managers, dec metrics, reset ctx)
         # in the engine path's own finally — mirroring the legacy finally.
         if os.environ.get("OVS_V2V_ENGINE") == "voxedge":
+            # Single-endpoint-detector guard (docs/CONFIGURATION.md
+            # "Streaming ASR endpointing: pick exactly one detector").
+            # Default: loud warning (back-compat). With
+            # OVS_V2V_SINGLE_ENDPOINT_STRICT=1: reject the session.
+            _ep_msg = _endpoint_detector_conflict(
+                vad_backend, _get_asr_backend() if asr_language else None
+            )
+            if _ep_msg is not None:
+                if _env_truthy(os.environ.get("OVS_V2V_SINGLE_ENDPOINT_STRICT")):
+                    logger.error(_ep_msg + " (strict mode: rejecting session)")
+                    try:
+                        await ws.send_json({
+                            "type": v2v_proto.SERVER_ERROR,
+                            "code": "endpoint_detector_conflict",
+                            "error": _ep_msg,
+                        })
+                        await ws.close(code=1003)
+                    except BaseException:
+                        pass
+                    _v2v_release_early()
+                    return
+                logger.warning(_ep_msg)
             try:
                 await _v2v_stream_via_engine(
                     _RealtimeV2WebSocketProxy(ws, realtime_adapter)
@@ -6794,6 +6933,7 @@ async def v2v_stream(ws: WebSocket):
                     vad_silence_ms=vad_silence_ms,
                     multi_utterance=multi_utterance,
                     coord=coord,
+                    asr_stream_options=_v2v_asr_stream_options(cfg),
                 )
             finally:
                 # Same admission/teardown bookkeeping the legacy finally does:
@@ -6840,6 +6980,11 @@ async def v2v_stream(ws: WebSocket):
                 language=asr_language,
                 coord=coord,
                 executor=_get_asr_executor(),
+                # Same session-scoped options the engine path forwards: the
+                # legacy path is what the shipped RK/Jetson composes actually
+                # run (no OVS_V2V_ENGINE=voxedge), so ignoring the documented
+                # override here would make it silently dead.
+                stream_options=_v2v_asr_stream_options(cfg),
             )
             asr_enabled = True
             # VAD init runs in executor: silero ONNX first-load takes ~500ms and

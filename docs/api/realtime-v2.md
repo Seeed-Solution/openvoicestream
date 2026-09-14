@@ -95,7 +95,8 @@ Client:
           "type": "server_vad",
           "silence_duration_ms": 500,
           "create_response": true,
-          "interrupt_response": true
+          "interrupt_response": true,
+          "vad_endpoint_silence_ms": 1500
         }
       },
       "output": {
@@ -158,6 +159,13 @@ conversation.item.input_audio_transcription.failed
 
 With `turn_detection.create_response=true`, committing a VAD turn creates a
 response automatically. With it false, the client sends `response.create`.
+
+`turn_detection.vad_endpoint_silence_ms` (optional, ms) overrides the endpoint
+threshold of an ASR backend that endpoints on its own — the RK Qwen3 backend
+does so in both streaming modes even when `type` is `none`. Absent/`0` keeps the
+profile value; unparseable or out-of-range values are ignored. Keep it above the
+client-side VAD silence, otherwise the backend wins the race and cuts the
+utterance in half (`docs/CONFIGURATION.md`, "Streaming ASR endpointing").
 
 Manual mode is a generation barrier, not only a client-side convention. After
 the transcription completes, the server retains the committed input but must

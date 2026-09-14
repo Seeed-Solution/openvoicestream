@@ -21,7 +21,7 @@ def _profile(device: str = "rk3576") -> dict:
         "QWEN3_ASR_TRUE_PARTIAL_WARMUP": "2",
         "QWEN3_ASR_VAD_FINAL_ASYNC": "0" if device == "rk3576" else "1",
         "QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S": "2.5",
-        "VAD_ENDPOINT_SILENCE_MS": "400",
+        "VAD_ENDPOINT_SILENCE_MS": "1500",
         "MATCHA_USE_ORT": "1",
         "MATCHA_MODEL_SEQ_LEN": "80",
         "MATCHA_MIN_MEL_FRAMES": "96" if device == "rk3576" else "72",

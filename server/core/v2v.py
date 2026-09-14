@@ -169,6 +169,11 @@ def session_update_to_legacy_config(payload: dict[str, Any]) -> dict[str, Any]:
         "tts_speed": audio_out.get("speed"),
         "vad": vad,
         "vad_silence_ms": int(turn_detection.get("silence_duration_ms", 400)),
+        # Backend-owned endpoint threshold override (RK Qwen3 endpoints
+        # internally even with vad:"none"). Additive: clients that don't send
+        # it keep the profile value; unknown V2 fields are ignored elsewhere,
+        # so older servers simply drop it.
+        "vad_endpoint_silence_ms": turn_detection.get("vad_endpoint_silence_ms"),
         # Realtime sessions are persistent by definition.
         "multi_utterance": True,
         "_realtime_v2": True,

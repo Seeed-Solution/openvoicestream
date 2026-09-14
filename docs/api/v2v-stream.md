@@ -16,7 +16,8 @@ is a `config` that decides which features light up:
 | `tts_voice` | (Deprecated) Backend-specific opaque speaker string. Replaced by `tts_speaker_id`. Accepted only when `tts_speaker_id` is absent. |
 | Both set | Full V2V duplex. Binary in both directions: client → ASR input, server → TTS output. |
 | `vad` | Server-side VAD backend (default `silero` if ASR enabled, `none` otherwise). |
-| `vad_silence_ms` | How long silence to trigger auto `asr_endpoint`. Default is `OVS_VAD_SILENCE_MS` or 400 ms. |
+| `vad_silence_ms` | How long silence to trigger auto `asr_endpoint`. Default is `OVS_VAD_SILENCE_MS` or 400 ms. This is the **engine** VAD (`vad` above), separate from a backend's own endpointing. |
+| `vad_endpoint_silence_ms` | Optional per-session override of a backend's **own** endpoint threshold — for ASR backends that endpoint internally regardless of `vad` (RK Qwen3: both `true_streaming` and `chunk_confirm`). Milliseconds; absent or `0` keeps the profile value; out-of-range/unparseable values are ignored (the session still runs). Keep it above your client-side VAD silence, or the backend wins the race and cuts the utterance in half — see `docs/CONFIGURATION.md` "Streaming ASR endpointing". |
 | `multi_utterance` | If `true`, the session stays open across utterances; each VAD/backend endpoint emits a mid-session `asr_final` with `session_complete: false` and the loop keeps listening. Default `false` (single-utterance, current behaviour). |
 
 Existing `/asr/stream` and `/tts/stream` endpoints stay unchanged for
@@ -46,6 +47,7 @@ Clients can still override per connection with `vad` and `vad_silence_ms`.
  "sample_rate":16000,          // PCM sample rate
  "vad":"silero",               // "silero" | "webrtcvad" | "none"
  "vad_silence_ms":400,
+ "vad_endpoint_silence_ms":1500, // optional: backend-owned endpoint VAD
  "multi_utterance":false}      // see "End-of-utterance semantics" below
 
 {"type":"text", "text":"<incremental text chunk>"}

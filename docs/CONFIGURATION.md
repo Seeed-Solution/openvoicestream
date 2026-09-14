@@ -163,6 +163,39 @@ complete segment, and the server has already moved on. `{"type":"vad_endpoint"}`
 arrives *before* the finalize compute, so it is also the right signal for
 flipping client UI state without waiting for ASR.
 
+### The RK Qwen3 backend always endpoints — so its threshold must lose the race
+
+`vad:"none"` only disables the **engine's** VAD. The RK Qwen3-ASR backend runs
+its own webrtcvad endpoint in **both** `true_streaming` and `chunk_confirm`
+(measured 2026-09-13), and it re-opens a fresh segment when it fires. There is no
+per-session override plumbed through the engine, so the profile's
+`VAD_ENDPOINT_SILENCE_MS` is the only lever.
+
+Measured on RK3588 with `bench/parity/v2v_wav_inject.py` — one 6.33 s clip
+containing a 1.5 s mid-sentence pause (TTS halves spliced with silence):
+
+| `VAD_ENDPOINT_SILENCE_MS` | Result |
+|---|---|
+| 400 ms (old default) | finalize at 2.00 s of audio — **first half only** (`帮我查一下 N64。`), rest arrives as a new segment |
+| 1200 ms | finalize at 2.80 s — still cut at the pause (threshold below the pause length) |
+| 5000 ms | one 6.80 s segment, a single final for the whole clip |
+
+With the RK profiles at 1500 ms the shipped agent (client VAD
+`client_vad_silence_ms: 600`, `client_vad_drive_eos: true`) wins deterministically:
+the client decides the utterance boundary and the backend endpoint is only a
+fallback. Clients can also pass `vad_endpoint_silence_ms` in the v2v config to
+override the profile value for one session (`docs/api/v2v-stream.md`), which is
+the right lever when only some clients need a longer threshold.
+**Invariant:** `VAD_ENDPOINT_SILENCE_MS` must exceed the client VAD
+silence plus the EOS→finalize budget; a client that relies on the server's
+endpoint instead (dumb audio pipe, no VAD of its own) pays the full threshold as
+trailing dead air before the reply starts — give such a client its own VAD.
+
+Client-side, honouring a backend-issued `final` as "utterance over" (or
+overwriting the buffer with it) truncates: the production agent used to overwrite
+`_last_user_utterance_text` per final, which is exactly the "head kept, tail
+dropped" row of the table above. Accumulate instead.
+
 ## Leaf composition (optional, opt-in — ignore unless you need it)
 
 There is a second, newer config layer under `configs/leaves/` ("leaf

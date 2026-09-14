@@ -7,7 +7,7 @@ webrtcvad-wheels>=2.0.14  # VAD for long-audio segmentation (qwen3_asr bug A wor
 prometheus_client>=0.20,<1  # Week 2 production hardening: /metrics exposition
 python-json-logger>=2.0,<4  # Week 2 production hardening: structured JSON logging
 huggingface_hub>=0.20  # model-level artifact download; endpoint is pinned by deployment
-voxedge==0.0.12a0  # exact API contract; publication is a release prerequisite
+voxedge==0.0.15a1  # exact API contract; publication is a release prerequisite
 # 0.0.12a0 is the first release carrying `voxedge.backends.whisper`, which the
 # hailo.whisper / rk.whisper / jetson.whisper_trt specs need. On 0.0.11a0 those
 # profiles raise ModuleNotFoundError at backend creation, and CI cannot catch

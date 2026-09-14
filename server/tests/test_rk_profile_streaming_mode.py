@@ -71,7 +71,11 @@ def test_rk_release_profiles_contain_the_complete_latency_contract():
         for key in _PROFILE_DEFAULT_KEYS:
             assert key in env, (name, key)
         assert env["ASR_NPU_CORE_MASK"] == "NPU_CORE_1"
-        assert env["VAD_ENDPOINT_SILENCE_MS"] == "400"
+        # Must stay above the client VAD silence of the shipped agent (600 ms)
+        # plus the EOS->finalize budget, or the backend endpoint race truncates
+        # mid-sentence. See server/core/rk_profile_contract.py for the measured
+        # 400/1200/5000 ms comparison.
+        assert int(env["VAD_ENDPOINT_SILENCE_MS"]) >= 1200
         expected_min_mel = "96" if env["RK_PLATFORM"] == "rk3576" else "72"
         assert env["MATCHA_MIN_MEL_FRAMES"] == expected_min_mel
         assert env["MATCHA_STREAM_CHUNK_MS"] == "40"

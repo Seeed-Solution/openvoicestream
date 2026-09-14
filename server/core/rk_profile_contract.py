@@ -40,7 +40,22 @@ _COMMON_EXPECTED: dict[str, str] = {
     "QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS": "1500",
     "QWEN3_ASR_TRUE_PARTIAL_WARMUP": "2",
     "QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S": "2.5",
-    "VAD_ENDPOINT_SILENCE_MS": "400",
+    # Backend endpoint threshold. MUST stay comfortably above the client-side
+    # VAD silence of the shipped agent (agent-config.yaml:
+    # client_vad_silence_ms: 600) plus the EOS->finalize budget, otherwise the
+    # backend wins the endpoint race and cuts the utterance in half.
+    #
+    # Measured on RK3588 (2026-09-13, bench/parity/v2v_wav_inject.py, 6.33 s clip
+    # with a 1.5 s mid-sentence pause):
+    #   400  ms -> finalize at 2.00 s, first half only (`帮我查一下 N64。`)
+    #   1200 ms -> finalize at 2.80 s, still cut at the pause
+    #   5000 ms -> one 6.80 s segment, single final for the whole clip
+    # The RK Qwen3 backend endpoints on its own webrtcvad in BOTH true_streaming
+    # and chunk_confirm, even when the session declares vad:"none"; there is no
+    # per-session override plumbed through the engine, so this profile value is
+    # the only lever. 1500 ms = 600 ms client VAD + ~500 ms EOS->finalize
+    # budget + ~400 ms margin.
+    "VAD_ENDPOINT_SILENCE_MS": "1500",
     "MATCHA_USE_ORT": "1",
     "MATCHA_MODEL_SEQ_LEN": "80",
     "MATCHA_STREAM_CHUNK_MS": "40",

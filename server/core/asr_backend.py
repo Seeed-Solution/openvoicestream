@@ -146,8 +146,16 @@ class ASRBackend(ABC):
     @abstractmethod
     def transcribe(self, audio_bytes: bytes, language: str = "auto") -> TranscriptionResult: ...
 
-    def create_stream(self, language: str = "auto") -> ASRStream:
-        """Create a streaming ASR session. Requires STREAMING capability."""
+    def create_stream(
+        self, language: str = "auto", stream_options: Optional[dict] = None
+    ) -> ASRStream:
+        """Create a streaming ASR session. Requires STREAMING capability.
+
+        ``stream_options`` is session-scoped and optional; backends that own
+        their own endpoint VAD may consume ``vad_endpoint_silence_ms`` from it
+        (see ``docs/CONFIGURATION.md`` "Streaming ASR endpointing"). Legacy
+        backends ignore the argument.
+        """
         raise NotImplementedError(f"{self.name} does not support streaming")
 
     def has_capability(self, cap: ASRCapability) -> bool:

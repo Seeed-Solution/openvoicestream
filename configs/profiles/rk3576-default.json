@@ -36,7 +36,7 @@
     "QWEN3_ASR_TRUE_PARTIAL_WARMUP": "2",
     "QWEN3_ASR_VAD_FINAL_ASYNC": "0",
     "QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S": "2.5",
-    "VAD_ENDPOINT_SILENCE_MS": "400",
+    "VAD_ENDPOINT_SILENCE_MS": "1500",
     "TTS_MODEL_DIR": "/opt/tts/models",
     "TTS_BACKEND": "matcha_rknn",
     "SHERPA_TTS_MODEL_DIR": "/opt/tts/models/matcha-icefall-zh-en",
