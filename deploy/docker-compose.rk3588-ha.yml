@@ -57,6 +57,14 @@ services:
     volumes:
       - /dev:/dev
       - rk1828-llm-models:/opt/llm/models
+      # The container's RKNN3 client lib must be the same generation as this
+      # host's rknn3_transfer_proxy + EP firmware (one package, they only speak
+      # to each other). The entrypoint copies the host pair over its bundled one
+      # when this is mounted. Without it, a host on a different generation makes
+      # model init block in read() with no error until the READY timeout.
+      # The dir is mounted, not the two files: a bind mount of a file the host
+      # does not have makes docker create a DIRECTORY at that host path.
+      - /usr/lib:/opt/rk1828/host-lib:ro
     environment:
       - RK1828_ARTIFACT_AUTO_DOWNLOAD=${RK1828_ARTIFACT_AUTO_DOWNLOAD:-1}
       - RK1828_ARTIFACT_REPO_ID=${RK1828_ARTIFACT_REPO_ID:-harvestsu/seeed-local-voice-rk-artifacts}
