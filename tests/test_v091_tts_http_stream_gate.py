@@ -6,8 +6,14 @@ import time
 from pathlib import Path
 
 
+# Moved out of the repo root by 9017136 ("slim repo root — relocate evidence"),
+# which renamed validation/ to docs/validation/ and added validation/ to
+# .gitignore. This path was not updated with it, so every test in this file has
+# raised FileNotFoundError from the loader ever since — a red that looked like
+# three failing assertions but was one stale path.
 SCRIPT = (
     Path(__file__).resolve().parents[1]
+    / "docs"
     / "validation"
     / "v091-runtime-qualification-20260725"
     / "tts-http-stream-gate.py"
