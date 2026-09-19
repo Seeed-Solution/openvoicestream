@@ -23,6 +23,10 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `rk-20260913.3` (speech, `openvoicestream:`) | UNVERIFIED here — built on an RK3588 from `deploy/docker/Dockerfile.rk` `--build-arg VOXEDGE_VERSION=0.0.15a0`, seeed commit not recorded in the solution | `0.0.15a0` | 2026-09-13 | RK3588 (per solution) | `sha256:d1677071dff68d0be3a3edd26d5959b4598a502ad05162901e509a706723794a` (from the solution's `docker manifest inspect` note, not re-verified) |
 | `voiceagent-20260914-runtimekws` (`ovs-agent:`) | UNVERIFIED here — agent image built on an RK3588, commit not recorded in the solution | `0.0.15a0` | 2026-09-13/14 | RK3588 (per solution) | `sha256:a2dc17a304d7941e924d95de0863b53fd3e1869b7caba6ecf64a60e57cfd9569` (from the solution's compose comment, not re-verified) |
 | `jetson-jp62-trt103-edgellm-v091-vox080a0-7330af9` (speech, `seeed-local-voice:`) | `7330af9` (per tag suffix) | `0.0.8a0` (per tag) | UNVERIFIED (tag carries no date) | UNVERIFIED | UNVERIFIED — no digest recorded in the solution; run `docker manifest inspect` |
+| `openvoicestream:rk-20260918-envownership` (speech, superseded by `rk-20260919-envownership`) | working tree on `a8cddf3` — one changed file (`server/core/profile_loader.py` md5 `a9a006e2…`) | `0.0.15a0` (inherited from the base, unchanged) | 2026-09-18 | macbook (arm64, thin overlay) | index `sha256:81e51b3ec91f36dc6a7262bdc0916ae1009c48d60d1f1ff3d510968c28c3eed2`, linux/arm64 `sha256:52939b54c565763474…` |
+| `edge-llm-rk1828:20260919-hostruntime` | working tree — `entrypoint.sh` md5 `9eb1c6ca…`, `rk1828_llm_server.py` md5 `a66de901…` | n/a | 2026-09-19 | macbook (arm64, thin overlay) | index `sha256:53a5ec99355755c3e66b4c399daaf700394e4d9404a56c8582c0262b3cccfa80` |
+| `openvoicestream:rk-20260919-envownership` (speech) | working tree — `server/core/profile_loader.py` md5 `eb4756e7…` | `0.0.15a0` (inherited, unchanged) | 2026-09-19 | macbook (arm64, thin overlay) | index `sha256:c17693df0363a22a3e5d76d344d00b65e3e2a41ac50409f203ea4fb26da7ac7e` |
+| `edge-llm-rk1828:20260918-hostruntime` (superseded by `20260919-hostruntime`) | working tree on `a8cddf3` — the two changed files only (`entrypoint.sh` md5 `c515e16d…`, `rk1828_llm_server.py` md5 `a66de901…`) | n/a | 2026-09-18 | macbook (arm64, thin overlay) | index `sha256:cc270b1ca173f9ab1e6476d14c7e256d6ce43a567eca1ffbfa9909e5d30efdbe`, linux/arm64 `sha256:4b91b9b3144936ac33ba27dd8b1e1d70515563e50303930a299228ab74824485` |
 | `rpi-hailo` (local, not pushed) | `4d66f475` + `final-hailo` stage | `0.0.12a0` baked | 2026-09-09 | harvest-pi | `sha256:f6d9bf16557a3a561968e2c942cfcc13112489faafe667a1df95bf5bc4700f65` (local image ID, 657 MB) |
 
 `rpi-hailo` — `Dockerfile.rpi --target final-hailo`, built on `harvest-pi`
@@ -88,3 +92,75 @@ the moss `channels=1` stereo→mono downmix cherry-pick (`MossTtsNanoBackend._st
 Built via overlay Dockerfile on seeed-orin-nx (`/home/seeed/moss-slv-build/`),
 not a full rebuild. Verified: downmix present (mono_hex 9600 for stereo[100,200]),
 profile parses (asr=jetson.trt_edge_llm, tts=jetson.moss_tts_nano, moss_channels=1).
+
+`edge-llm-rk1828:20260918-hostruntime` — a **thin overlay** on
+`edge-llm-rk1828:20260731-kvreuse` (base index `sha256:b4d6025fe475fc577c53a0b96e4abb5337d754d9a7c8e0b37589924a08d8b434`),
+replacing exactly `/opt/rk1828-llm/entrypoint.sh` and `rk1828_llm_server.py`.
+Built as an overlay on purpose: the Mac's `deploy/rk1828-runtime/rknn_qwen3_demo`
+does **not** match `MANIFEST.json` (md5 `98d560df…`/859120 B vs the recorded
+`600b33ee…`/859984 B), so a full rebuild there would have shipped an
+unprovenanced worker binary. Verified before building: the base's copies of both
+service files are byte-identical to git HEAD, and the base's four staged runtime
+files match `deploy/rk1828-runtime/MANIFEST.json` exactly. Verified after:
+`600b33ee…` and `79dad96c…` still in place, both service files replaced, and the
+entrypoint's host-runtime alignment exercised inside the image (bundled client
+reported as its real `1.0.4`, a mounted fake `1.1.0` copied over it).
+Not yet run against the card — no RK1828 host was reachable on 2026-09-18.
+
+`openvoicestream:rk-20260918-envownership` — a **thin overlay** on
+`openvoicestream:rk-20260913.3`, replacing only `server/core/profile_loader.py`.
+Operator env ownership is no longer a hand-maintained prefix table: it is derived
+from every key the shipped `configs/profiles/*.json` and `configs/leaves/*.yaml`
+declare (230 keys, 60 of which the old table did not cover — `MOSS_*`,
+`PARAFORMER_*`, `SPARKTTS_*`, `SENSEVOICE_*`, `DIAR_*` …), plus the keys of the
+profile actually selected, which is what covers an out-of-tree profile chosen via
+`OVS_PROFILE_JSON` or bind-mounted into the image. The prefix table is kept in
+full — derivation only ever widens ownership.
+
+Two deliberate exceptions: `LD_LIBRARY_PATH` and other process variables are
+denylisted (the image sets it and `configs/profiles/jetson-qwen3asr-moss-nx.json`
+replaces it on purpose), and `VAD_ENDPOINT_SILENCE_MS` — declared by the four
+`rk3*-default/multilang` profiles — now flips to operator-owned **if and only if
+an operator actually sets it**. `deploy/docker-compose.rk3588-ha.yml:160` and
+`deploy/docker-compose.radxa.yml:82` pass it as `${VAD_ENDPOINT_SILENCE_MS:-}`,
+i.e. empty, and empty values were already excluded from the snapshot, so the
+shipped deployments are unaffected. Anyone who has a value for it in `.env` will
+see it take effect where it was previously ignored; making those four profiles
+claim it via `profile_owned_env` is the follow-up that pins the old behaviour
+explicitly.
+
+Verified before building: the base's copy of the file is byte-identical to git
+HEAD and the base carries `configs/profiles` (51) + `configs/leaves` (20).
+Verified after, inside the image: 230 derived keys (same count as on the build
+host), `LD_LIBRARY_PATH` excluded, `MOSS_ENGINE_DIR` protected, `PIPER_MODEL_DIR`
+protected only when a profile declares it, and the import-time snapshot retains
+the operator's original value. Tests: `server/tests -k "profile or leaf or
+artifact or rk"` 714 passed / 5 skipped; the full `server/tests tests` run fails
+20 tests **both with and without this change** (identical test-id sets — a
+pre-existing full-suite ordering issue; those five files pass in isolation).
+
+Building it as an overlay also surfaced that `rk-20260913.3` ships macOS
+AppleDouble sidecars (`configs/leaves/._*.yaml`, one per leaf file, binary). They
+are inert, but reading one raised `UnicodeDecodeError` at import in the first
+build of this overlay, so the derivation skips `._*` by name and no longer
+decodes strictly. Its build context was evidently copied from a Mac.
+
+The `20260919-*` pair supersedes `20260918-*` after an independent Codex review
+found two real defects in the 0918 build, both since fixed and re-verified:
+
+* `entrypoint.sh` copied the host client as `cp … && log …`. Under `set -e` a
+  failing left-hand side of an AND-list does **not** exit the shell, so a
+  read-only layer or a partial copy left a mismatched pair in place and the
+  service started straight into the 180 s init hang it exists to prevent. It now
+  fails closed, compares the shim as well as the backend, and refuses a
+  half-present host pair. All three paths exercised inside the built image:
+  copy succeeds / half pair → exit 1 / read-only `lib` dir → exit 1.
+* `profile_loader` kept an out-of-tree profile's operator key for one call only.
+  Switching to a profile that did not declare it restored the operator value in
+  step 0 and then deleted it in step 1's stale-clear, so the operator's env went
+  silently unset. Reproduced, then fixed with a durable `_EXTRA_OPERATOR_KEYS`
+  set; the repro now restores the operator value. The scan also shape-checks
+  profile JSON (a valid-but-wrong top-level list used to raise an uncaught
+  AttributeError at import) and tolerates an unreadable config dir.
+
+Full suite after both fixes: 1579 passed, 13 skipped.
