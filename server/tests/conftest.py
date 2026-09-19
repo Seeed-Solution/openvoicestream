@@ -36,6 +36,10 @@ def _restore_profile_loader_globals():
         copy.deepcopy(_pl._CURRENT_PROFILE),
         set(_pl._APPLIED_KEYS),
         set(_pl._OWNED_OVERRIDES),
+        # Also mutable, also module-level: a test that applies an out-of-tree
+        # profile writes the keys it discovers here, and leaving them set would
+        # reopen exactly the leak this fixture closes.
+        set(_pl._EXTRA_OPERATOR_KEYS),
     )
     try:
         yield
@@ -45,3 +49,5 @@ def _restore_profile_loader_globals():
         _pl._APPLIED_KEYS.update(saved[1])
         _pl._OWNED_OVERRIDES.clear()
         _pl._OWNED_OVERRIDES.update(saved[2])
+        _pl._EXTRA_OPERATOR_KEYS.clear()
+        _pl._EXTRA_OPERATOR_KEYS.update(saved[3])
