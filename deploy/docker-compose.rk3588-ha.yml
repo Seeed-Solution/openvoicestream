@@ -82,6 +82,12 @@ services:
       - RK1828_MAX_CONTEXT=${RK1828_MAX_CONTEXT:-8192}
       - RK1828_CORE_MASK=${RK1828_CORE_MASK:-ff}
       - RK1828_PORT=1828
+      # Per-attempt ceiling for the worker's READY handshake. 180 s covers a
+      # cold ~3.2 GB read at the ~44 MB/s an eMMC/SD rootfs gives; raise it for
+      # slower storage. Do NOT raise RK1828_START_ATTEMPTS to paper over a load
+      # that fails identically every time — failed loads degrade the EP 8 -> 4.
+      - RK1828_READY_TIMEOUT=${RK1828_READY_TIMEOUT:-180}
+      - RK1828_START_ATTEMPTS=${RK1828_START_ATTEMPTS:-3}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:1828/health"]

@@ -158,6 +158,13 @@ services:
       RK1828_MAX_CONTEXT: "8192"
       RK1828_CORE_MASK: ff
       RK1828_PORT: "1828"
+      # Seconds the supervisor waits for the worker's READY handshake, per
+      # attempt. Model init pushes ~3.2 GB over PCIe; 180 s covers a cold read
+      # at the ~44 MB/s an eMMC/SD rootfs gives. Raise it for slower storage.
+      RK1828_READY_TIMEOUT: ${RK1828_READY_TIMEOUT:-180}
+      # Failed loads degrade the EP from 8 cores to 4, so do not add attempts
+      # hoping one sticks — a load that fails identically every time will not.
+      RK1828_START_ATTEMPTS: ${RK1828_START_ATTEMPTS:-3}
       # Internal service: the agent calls it on 127.0.0.1. Loopback by default
       # so the local LLM is not an open OpenAI-compatible endpoint on the LAN.
       RK1828_HOST: ${RK1828_HOST:-127.0.0.1}

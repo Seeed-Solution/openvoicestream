@@ -139,6 +139,9 @@ so a container replacement does not re-download 3.2 GB.
 | `RK1828_PORT` | `1828` | |
 | `RK1828_HOST_LIB_DIR` | `/opt/rk1828/host-lib` | where the host's `/usr/lib` is mounted; see *Runtime alignment* |
 | `RK1828_PREFER_HOST_RUNTIME` | `1` | `0` keeps the bundled client lib even when the host has a different one |
+| `RK1828_READY_TIMEOUT` | `180` | seconds per READY attempt. Was hardcoded until 2026-09-18 |
+| `RK1828_START_ATTEMPTS` | `3` | do not raise it to paper over a load that fails identically each time |
+| `RK1828_FAIL_COOLDOWN_S` | `300` | sleep before exiting after the last attempt, so the restart policy does not re-enter the loop immediately |
 
 The entrypoint verifies file SIZES, not just existence — a half-finished download
 would otherwise be treated as present and fail model init with something far less
