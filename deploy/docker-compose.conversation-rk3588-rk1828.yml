@@ -130,10 +130,10 @@ services:
   # see deploy/docker-compose.rk3588-ha.yml lines 13-20 — lspci shows the
   # 182a device, rknn3.service is active, /dev/pcie-rkep-* exists.
   llm:
-    # 20260919-hostruntime: thin overlay on 20260731-kvreuse (staged RKNN3 worker
+    # 20260919-hostruntime.2: thin overlay on 20260731-kvreuse (staged RKNN3 worker
     # binary + libs byte-identical). Adds the host-runtime alignment below and
     # the configurable READY timeout. See deploy/IMAGE-TAGS.md for the digests.
-    image: ${LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-rk1828:20260919-hostruntime}
+    image: ${LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-rk1828:20260919-hostruntime.2}
     container_name: conversational-voice-llm
     privileged: true
     init: true

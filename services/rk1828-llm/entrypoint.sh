@@ -91,10 +91,19 @@ if [ -f "${host_rkcp}" ] && [ -f "${host_shim}" ]; then
     log "  If model init hangs until the READY timeout, this is the reason."
   fi
 elif [ -f "${host_rkcp}" ] || [ -f "${host_shim}" ]; then
-  log "FATAL: ${HOST_LIB_DIR} has only one half of the RKNN3 client pair."
-  log "  librknn3_api.so (the dlopen shim) and librknn3_api_rkcp.so (the backend)"
-  log "  are versioned together and must both come from the host."
-  exit 1
+  # Half a pair is a broken host mount, not a usable fallback: the shim and the
+  # backend are versioned together. Refuse — UNLESS the operator has already
+  # said not to use the host copy at all, in which case the half pair is
+  # irrelevant and failing here would block a deployment that would have run.
+  if [ "${RK1828_PREFER_HOST_RUNTIME:-1}" = "1" ]; then
+    log "FATAL: ${HOST_LIB_DIR} has only one half of the RKNN3 client pair."
+    log "  librknn3_api.so (the dlopen shim) and librknn3_api_rkcp.so (the backend)"
+    log "  are versioned together and must both come from the host."
+    log "  Set RK1828_PREFER_HOST_RUNTIME=0 to run with the bundled client instead."
+    exit 1
+  fi
+  log "WARNING: ${HOST_LIB_DIR} has only half the client pair, but"
+  log "  RK1828_PREFER_HOST_RUNTIME=0 — running with the bundled client."
 else
   log "WARNING: no host RKNN3 client at ${HOST_LIB_DIR} — using the bundled one."
   log "  Mount the host's lib dir read-only (see deploy/docker-compose.conversation-rk3588-rk1828.yml)."

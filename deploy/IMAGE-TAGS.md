@@ -24,7 +24,8 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `voiceagent-20260914-runtimekws` (`ovs-agent:`) | UNVERIFIED here — agent image built on an RK3588, commit not recorded in the solution | `0.0.15a0` | 2026-09-13/14 | RK3588 (per solution) | `sha256:a2dc17a304d7941e924d95de0863b53fd3e1869b7caba6ecf64a60e57cfd9569` (from the solution's compose comment, not re-verified) |
 | `jetson-jp62-trt103-edgellm-v091-vox080a0-7330af9` (speech, `seeed-local-voice:`) | `7330af9` (per tag suffix) | `0.0.8a0` (per tag) | UNVERIFIED (tag carries no date) | UNVERIFIED | UNVERIFIED — no digest recorded in the solution; run `docker manifest inspect` |
 | `openvoicestream:rk-20260918-envownership` (speech, superseded by `rk-20260919-envownership`) | working tree on `a8cddf3` — one changed file (`server/core/profile_loader.py` md5 `a9a006e2…`) | `0.0.15a0` (inherited from the base, unchanged) | 2026-09-18 | macbook (arm64, thin overlay) | index `sha256:81e51b3ec91f36dc6a7262bdc0916ae1009c48d60d1f1ff3d510968c28c3eed2`, linux/arm64 `sha256:52939b54c565763474…` |
-| `edge-llm-rk1828:20260919-hostruntime` | working tree — `entrypoint.sh` md5 `9eb1c6ca…`, `rk1828_llm_server.py` md5 `a66de901…` | n/a | 2026-09-19 | macbook (arm64, thin overlay) | index `sha256:53a5ec99355755c3e66b4c399daaf700394e4d9404a56c8582c0262b3cccfa80` |
+| `edge-llm-rk1828:20260919-hostruntime.2` | working tree — `entrypoint.sh` md5 changed only in the half-pair branch | n/a | 2026-09-19 | macbook (arm64, thin overlay) | index `sha256:08b4d4b8d8b0b82beb520c96657707889531b604ea60ce0fb9bcfd137c7e6113` |
+| `edge-llm-rk1828:20260919-hostruntime` (superseded by `.2`) | working tree — `entrypoint.sh` md5 `9eb1c6ca…`, `rk1828_llm_server.py` md5 `a66de901…` | n/a | 2026-09-19 | macbook (arm64, thin overlay) | index `sha256:53a5ec99355755c3e66b4c399daaf700394e4d9404a56c8582c0262b3cccfa80` |
 | `openvoicestream:rk-20260919-envownership` (speech) | working tree — `server/core/profile_loader.py` md5 `eb4756e7…` | `0.0.15a0` (inherited, unchanged) | 2026-09-19 | macbook (arm64, thin overlay) | index `sha256:c17693df0363a22a3e5d76d344d00b65e3e2a41ac50409f203ea4fb26da7ac7e` |
 | `edge-llm-rk1828:20260918-hostruntime` (superseded by `20260919-hostruntime`) | working tree on `a8cddf3` — the two changed files only (`entrypoint.sh` md5 `c515e16d…`, `rk1828_llm_server.py` md5 `a66de901…`) | n/a | 2026-09-18 | macbook (arm64, thin overlay) | index `sha256:cc270b1ca173f9ab1e6476d14c7e256d6ce43a567eca1ffbfa9909e5d30efdbe`, linux/arm64 `sha256:4b91b9b3144936ac33ba27dd8b1e1d70515563e50303930a299228ab74824485` |
 | `rpi-hailo` (local, not pushed) | `4d66f475` + `final-hailo` stage | `0.0.12a0` baked | 2026-09-09 | harvest-pi | `sha256:f6d9bf16557a3a561968e2c942cfcc13112489faafe667a1df95bf5bc4700f65` (local image ID, 657 MB) |
@@ -164,3 +165,9 @@ found two real defects in the 0918 build, both since fixed and re-verified:
   AttributeError at import) and tolerates an unreadable config dir.
 
 Full suite after both fixes: 1579 passed, 13 skipped.
+
+`.2` differs from `20260919-hostruntime` in one branch: a half-present host pair
+no longer exits 1 when the operator has already set RK1828_PREFER_HOST_RUNTIME=0.
+Failing there would have blocked a deployment that asked not to use the host copy
+in the first place. Both paths were exercised in the built image (PREFER=1 →
+exit 1 on the half pair; PREFER=0 → warns and continues to the artifact check).
