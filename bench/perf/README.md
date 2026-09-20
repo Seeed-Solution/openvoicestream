@@ -178,3 +178,9 @@ key numbers to pick out of each scenario file:
 
 Each device runs the *exact same* corpus bytes (SHA256-verified), so RTF
 deltas are pure compute, not input variation.
+
+## Known issues
+
+- **RK3576 / `measure_v2v_unified.py --multi 2`**：第二句稳定 timeout，summary 全为
+  "no samples"，且 `stop_to_final` 大于 `stop_to_tts_audio`。RK 侧 V2V 聚合统计不可用。
+  见 [`docs/known-issues/rk3576-v2v-multi-utterance-timeout.md`](../../docs/known-issues/rk3576-v2v-multi-utterance-timeout.md)。
