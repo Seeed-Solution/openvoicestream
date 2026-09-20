@@ -253,13 +253,15 @@ cells:
   - device: rk3576
     group: en
     status: untested
-    ovs_profile: rk3576-default
+    ovs_profile: rk3576-piper
     asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
-    tts: {backend: rk.tts, model: matcha-icefall-zh-en, quant: ORT acoustic + RKNN Vocos}
+    tts: {backend: rk.tts, model: piper-en-us-lessac, quant: ORT encoder + RKNN flow_decoder 512mel}
     env: {}
     evidence:
-      - configs/profiles/rk3576-default.json:2 - profile validated on the zh V2V recheck; English was not scored on it
-      - docs/perf/whisper-cross-device-20260827.md:58 - RK3576 English is measured only on the Whisper path (base/10s hybrid, 11.37% short), which is ASR-only
+
+      - configs/profiles/rk3576-piper.json:2 - Piper en_US/lessac at 512 mel frames; 291 ms for 5.28 s of audio (RTF 0.056) measured on cat-remote 2026-09-20
+
+      - synthesised audio transcribed back word for word through the spark trt_edgellm ASR; a 9.68 s utterance spanning two decoder windows came back clean across the seam
     planned_alternative:
       description: Whisper base/10s RKNN encoder + ONNX KV decoder ASR + Kokoro ConvOnly TTS, per spec section 3
       asr_profile: rk3576-whisper
@@ -300,13 +302,15 @@ cells:
   - device: rk3588
     group: en
     status: untested
-    ovs_profile: rk3588-default
+    ovs_profile: rk3588-piper
     asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
-    tts: {backend: rk.tts, model: matcha-icefall-zh-en, quant: ORT acoustic + RKNN Vocos}
+    tts: {backend: rk.tts, model: piper-en-us-lessac, quant: ORT encoder + RKNN flow_decoder 512mel}
     env: {}
     evidence:
-      - configs/profiles/rk3588-default.json:2 - closed-loop validation was on the zh short set; English was not scored on it
-      - docs/perf/whisper-cross-device-20260827.md:53 - RK3588 English is measured only on the Whisper path (base/20s hybrid, 7.58% long), which is ASR-only
+
+      - configs/profiles/rk3588-piper.json:2 - Piper en_US/lessac at 512 mel frames; 190 ms for 5.28 s of audio (RTF 0.036) measured on radxa 2026-09-20
+
+      - synthesised audio transcribed back word for word through the spark trt_edgellm ASR; a 9.68 s utterance spanning two decoder windows came back clean across the seam
     planned_alternative:
       description: Whisper base hybrid ASR + Kokoro RKNN TTS, per spec section 3
       asr_profile: rk3588-whisper
