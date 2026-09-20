@@ -22,7 +22,7 @@
     "ASR_NPU_CORE_MASK": "NPU_CORE_AUTO",
     "ASR_ENABLED_CPUS": "4",
     "ASR_MAX_NEW_TOKENS": "64",
-    "ASR_FINAL_STOP_ON_PUNCT": "1",
+    "ASR_FINAL_STOP_ON_PUNCT": "0",
     "ASR_FINAL_STOP_MIN_CHARS": "8",
     "ASR_FINAL_STOP_MIN_CHUNKS": "2",
     "ASR_MODEL_DIR": "/opt/asr/models",
