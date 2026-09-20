@@ -28,6 +28,8 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `edge-llm-rk1828:20260919-hostruntime` (superseded by `.2`) | working tree — `entrypoint.sh` md5 `9eb1c6ca…`, `rk1828_llm_server.py` md5 `a66de901…` | n/a | 2026-09-19 | macbook (arm64, thin overlay) | index `sha256:53a5ec99355755c3e66b4c399daaf700394e4d9404a56c8582c0262b3cccfa80` |
 | `openvoicestream:rk-20260919-envownership` (speech) | working tree — `server/core/profile_loader.py` md5 `eb4756e7…` | `0.0.15a0` (inherited, unchanged) | 2026-09-19 | macbook (arm64, thin overlay) | index `sha256:c17693df0363a22a3e5d76d344d00b65e3e2a41ac50409f203ea4fb26da7ac7e` |
 | `edge-llm-rk1828:20260918-hostruntime` (superseded by `20260919-hostruntime`) | working tree on `a8cddf3` — the two changed files only (`entrypoint.sh` md5 `c515e16d…`, `rk1828_llm_server.py` md5 `a66de901…`) | n/a | 2026-09-18 | macbook (arm64, thin overlay) | index `sha256:cc270b1ca173f9ab1e6476d14c7e256d6ce43a567eca1ffbfa9909e5d30efdbe`, linux/arm64 `sha256:4b91b9b3144936ac33ba27dd8b1e1d70515563e50303930a299228ab74824485` |
+| `openvoicestream:rk-20260920-piper-en` (speech, superseded by `rk-20260920-piper-en.2`) | recorded after the fact from the image itself — four files over `rk-20260919-envownership`: `configs/profiles/rk3588-piper.json` + `rk3576-piper.json` (= `38341b3`, i.e. without the `asr_model_id` line `3c23458` added), `deploy/artifacts/rk_manifest.json` (= HEAD), `rkvoice_stream/backends/tts/piper.py` (= rkvoice-stream `3e935dd`) | `0.0.15a0` (inherited) | 2026-09-20 05:45Z (layer timestamps) | macbook (arm64, thin overlay) | index `sha256:47966ea63759bf3727d05f1645032248c0367683a0f1625a6635b772f48f0456`, linux/arm64 `sha256:3235c329d33ae563beccad85dc7340cabcfb99578869ffce78866f4856417e85` |
+| `openvoicestream:rk-20260920-piper-en.2` (speech) | two files over `rk-20260920-piper-en`, byte-identical to rkvoice-stream main `5978d04`: `backends/asr/qwen3/streaming.py` md5 `6833d738…`, `backends/tts/piper.py` md5 `5809d480…` | `0.0.15a0` (inherited) | 2026-09-20 | macbook (arm64, thin overlay) | index `sha256:301a8105e18423abd40f83b694a1cfe9f58d44393e174814616c5c85ce429b62`, linux/arm64 `sha256:20f06d70b8006a8f2e37b84e1c45d01c95f5fdd9a1d07bc33b1a42076ee0e16b` |
 | `rpi-hailo` (local, not pushed) | `4d66f475` + `final-hailo` stage | `0.0.12a0` baked | 2026-09-09 | harvest-pi | `sha256:f6d9bf16557a3a561968e2c942cfcc13112489faafe667a1df95bf5bc4700f65` (local image ID, 657 MB) |
 
 `rpi-hailo` — `Dockerfile.rpi --target final-hailo`, built on `harvest-pi`
@@ -171,3 +173,45 @@ no longer exits 1 when the operator has already set RK1828_PREFER_HOST_RUNTIME=0
 Failing there would have blocked a deployment that asked not to use the host copy
 in the first place. Both paths were exercised in the built image (PREFER=1 →
 exit 1 on the half pair; PREFER=0 → warns and continues to the artifact check).
+
+`openvoicestream:rk-20260920-piper-en.2` — a **thin overlay** on
+`rk-20260920-piper-en`, replacing two `rkvoice_stream` modules with the copies on
+suharvest/rkvoice-stream main `5978d04` (PRs #7-#11).
+
+* `backends/asr/qwen3/streaming.py` — in `true_streaming`, a continuous utterance
+  longer than `QWEN3_ASR_TRUE_ROLL_SEC` (5 s) came back as its last ~5 s: encoder
+  frames past the rolling buffer's cap were dropped and nothing kept their text.
+  The window is now decoded and committed before it rolls, with
+  `QWEN3_ASR_TRUE_ROLL_OVERLAP_SEC` (1.0 s) of frames carried over. Measured on
+  radxa with old and new loaded side by side in the speech container, same audio
+  at real-time pace: 2.8 s identical and no commit; 7.8 s old "And a case of edge
+  computers that…" / new the whole sentence; 13.8 s three commits, whole sentence,
+  no repeated, missing or clipped word at a seam. Each commit blocks `feed_audio`
+  for 600-900 ms; final latency through the WS service was not measured.
+* `backends/tts/piper.py` — English had no pause at "," or ".": `espeak-ng --ipa`
+  prints no punctuation and the line breaks that stood in for it were flattened.
+  Terminators now reach the model as tokens, and a segment gets a trailing pause
+  by its final mark (`PIPER_SENTENCE_PAUSE_MS` 300, `PIPER_CLAUSE_PAUSE_MS` 150).
+  Measured on radxa: commas 110-260 ms, sentence ends 300-330 ms, none inside
+  "1,000" / "10:30"; "Dr. Smith paid 3.14 dollars at example.com. Thanks a lot!"
+  is two segments. Also brings `7442ae7` (decoder-window probe sanity check),
+  which the base predates.
+
+Verified before building: the base's `streaming.py` is byte-identical to
+rkvoice-stream `7442ae7` and its `piper.py` to `3e935dd`, so the overlay's diff is
+exactly the reviewed commits. Verified after, inside the image and again after a
+pull on radxa: both md5s, no `._*` sidecars, both modules compile and import.
+The code went through three rounds of independent review (Codex); the first two
+found real defects -- a window commit that stopped at the first sentence
+terminator, an external abort accepted as a complete decode, abbreviation and
+domain periods treated as sentence ends -- all fixed before this build.
+
+Known, and not changed by this image: the final decode still runs with
+`ASR_FINAL_STOP_ON_PUNCT=1`, so an utterance of two sentences loses the second
+("They ship today. Do you want one?" -> "They shipped today.", identical on the
+base). The Piper profiles in this lineage are the `38341b3` copies, without the
+`asr_model_id` line added in `3c23458`.
+
+`rk-20260920-piper-en` was pushed without an entry here; its row above is
+reconstructed from `docker history` and file md5s, not from a build log.
+
