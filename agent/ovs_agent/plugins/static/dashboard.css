@@ -6,7 +6,10 @@
   --panel-2: #131826;
   --border: #252b3a;
   --text: #e6e8eb;
-  --muted: #7a8597;
+  /* #7a8597 measured 4.38:1 on --panel: below the 4.5 floor for the 10-11px
+     card labels that use it everywhere. This value measures 5.7:1 there. */
+  --muted: #8d99ad;
+  --muted-dim: #6f7b8d;
   --accent: #5cdbd3;
   --accent-2: #8b5cf6;
   --error: #ef5350;
@@ -18,7 +21,10 @@
   --state-speaking: #82c91e;
   --state-barged: #f6a623;
   --radius: 8px;
-  --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.25);
+  /* Elevation is declared once per element: flat surfaces carry a border,
+     floating surfaces (menus, modal, toast) carry this shadow. */
+  --shadow: 0 2px 4px rgba(0,0,0,0.4), 0 12px 32px rgba(0,0,0,0.35);
+  --ring: rgba(92,219,211,0.55);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -30,18 +36,24 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
+  accent-color: var(--accent);
+  caret-color: var(--accent);
 }
+
+::selection { background: rgba(92,219,211,0.28); color: #fff; }
 
 /* ── toolbar ─────────────────────────────────────────────────────── */
 
 #toolbar {
   display: flex; justify-content: space-between; align-items: center;
-  gap: 16px; padding: 10px 16px;
+  gap: 12px 16px; flex-wrap: wrap; padding: 10px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   position: relative; z-index: 10;
 }
-.tb-left, .tb-right { display: flex; align-items: center; gap: 12px; }
+.tb-left, .tb-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tb-right { flex: 1 1 auto; justify-content: flex-end; }
+.state-pill, .mode-btn, .tab { white-space: nowrap; }
 
 .state-pill {
   display: inline-flex; align-items: center; gap: 8px;
@@ -81,7 +93,7 @@ html, body {
 .mode-btn .caret { color: var(--muted); font-size: 9px; margin-left: 2px; }
 .mode-menu {
   position: absolute; left: 0; top: 36px;
-  background: var(--panel); border: 1px solid var(--border);
+  background: #202737;
   border-radius: var(--radius); box-shadow: var(--shadow);
   padding: 4px; display: flex; flex-direction: column; gap: 2px;
   min-width: 220px; z-index: 30;
@@ -94,9 +106,14 @@ html, body {
 .mode-item:hover { background: var(--panel-2); }
 .mode-item.current { background: rgba(92,219,211,0.08); border: 1px solid rgba(92,219,211,0.3); }
 .mode-item .label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
-.mode-item .desc { color: var(--muted); font-size: 11px; }
+.mode-item .desc { color: var(--muted); font-size: 12px; }
 
-.filters { display: flex; gap: 10px; color: var(--muted); font-size: 12px; }
+.filters {
+  display: flex; flex-wrap: wrap; gap: 4px 10px;
+  color: var(--muted); font-size: 12px;
+  padding: 4px 10px; border-radius: 6px;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
 .filters label { cursor: pointer; user-select: none; display: inline-flex; gap: 4px; align-items: center; }
 .filters input[type="checkbox"] { accent-color: var(--accent); }
 
@@ -105,6 +122,9 @@ html, body {
   background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border); padding: 6px 12px;
   border-radius: 6px; font: inherit; cursor: pointer;
+  /* Without this a narrow window squeezes the labels into one glyph per
+     line and the toolbar grows to a third of the viewport. */
+  white-space: nowrap; flex: 0 0 auto;
   transition: background 150ms ease, border-color 150ms ease;
 }
 .ctl-btn:hover, .icon-btn:hover { background: #1f2638; border-color: #3a4258; }
@@ -117,13 +137,15 @@ html, body {
 #sendInput {
   background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border); padding: 6px 10px;
-  border-radius: 6px; font: inherit; min-width: 200px;
+  border-radius: 6px; font: inherit;
+  flex: 1 1 200px; min-width: 160px; max-width: 360px;
 }
-#sendInput:focus { outline: none; border-color: var(--accent); }
+#sendInput::placeholder { color: var(--muted-dim); }
+#sendInput:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
 
 .menu {
   position: absolute; right: 16px; top: 48px;
-  background: var(--panel); border: 1px solid var(--border);
+  background: #202737;
   border-radius: var(--radius); box-shadow: var(--shadow);
   padding: 4px; display: flex; flex-direction: column; gap: 2px;
   z-index: 20;
@@ -137,7 +159,7 @@ html, body {
 
 /* ── main layout ─────────────────────────────────────────────────── */
 
-#main { display: flex; height: calc(100vh - 56px); }
+#main { display: flex; height: calc(100vh - 56px); min-height: 0; }
 
 #left { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-width: 0; }
 #right { width: 320px; padding: 16px; overflow-y: auto; background: var(--bg); }
@@ -156,15 +178,19 @@ html, body {
 .tab-panel.active { display: block; }
 
 /* chat */
-.chat-stream { display: flex; flex-direction: column; gap: 10px; }
+.chat-stream {
+  display: flex; flex-direction: column; gap: 10px;
+  /* Without a measure the two speakers sit at opposite window edges and the
+     turn order stops reading as one conversation. */
+  width: 100%; max-width: 860px; margin: 0 auto;
+}
 .bubble {
-  max-width: 80%; padding: 10px 14px; border-radius: 12px;
-  line-height: 1.5; word-wrap: break-word;
+  max-width: min(78%, 52ch); padding: 10px 14px; border-radius: 12px;
+  line-height: 1.55; word-wrap: break-word;
   animation: fadein 200ms ease-out;
-  box-shadow: var(--shadow);
 }
 @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.bubble.user { align-self: flex-end; background: #1f3a4d; color: var(--text); border-bottom-right-radius: 4px; }
+.bubble.user { align-self: flex-end; background: #1f3a4d; color: var(--text); border: 1px solid #2a4c63; border-bottom-right-radius: 4px; }
 .bubble.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
 .bubble.partial { align-self: flex-end; background: transparent; color: var(--muted); font-style: italic; border: 1px dashed var(--border); }
 .bubble.stop { align-self: center; background: var(--panel-2); color: var(--muted); font-size: 12px; padding: 6px 12px; }
@@ -190,37 +216,48 @@ html, body {
 .history-stream { display: flex; flex-direction: column; gap: 8px; }
 .hist-item { padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
 .hist-item .role { font-size: 10px; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
-.hist-item.system { border-left: 3px solid var(--muted); }
-.hist-item.user { border-left: 3px solid var(--state-listening); }
-.hist-item.assistant { border-left: 3px solid var(--success); }
+.hist-item .role.system    { color: var(--muted); }
+.hist-item.system   { background: var(--panel-2); }
+.hist-item.user     { background: rgba(78,168,255,0.07); border-color: rgba(78,168,255,0.28); }
+.hist-item.user .role      { color: var(--state-listening); }
+.hist-item.assistant { background: rgba(130,201,30,0.06); border-color: rgba(130,201,30,0.24); }
+.hist-item.assistant .role { color: var(--success); }
 
 /* sidebar cards */
 .card {
   background: var(--panel); padding: 12px 14px;
   border: 1px solid var(--border); border-radius: var(--radius);
-  margin-bottom: 12px; box-shadow: var(--shadow);
+  margin-bottom: 12px;
 }
 .card h3 {
-  margin: 0 0 8px; font-size: 11px; color: var(--muted);
+  margin: 0 0 10px; font-size: 11px; color: var(--muted);
   text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;
   display: flex; align-items: center; gap: 6px;
 }
 .row-flex { display: flex; justify-content: space-between; align-items: center; }
-.small { font-size: 11px; }
+.small { font-size: 12px; }
 .muted { color: var(--muted); }
 
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-.dot.open    { background: var(--success); box-shadow: 0 0 6px rgba(130,201,30,0.5); }
+.dot.open    { background: var(--success); }
 .dot.closed  { background: var(--error); }
 .dot.unknown { background: var(--muted); }
 
 /* latency table */
-.lat-tbl { width: 100%; font-family: var(--mono); font-size: 12px; }
-.lat-tbl th { text-align: left; color: var(--muted); font-weight: 500; padding: 2px 6px 2px 0; width: 48px; }
-.lat-tbl .lat-now { color: var(--text); font-weight: 600; width: 70px; }
-.lat-tbl .lat-hist { color: var(--muted); font-size: 11px; }
-.lat-tbl .lat-spark { width: 36px; padding-left: 4px; }
-.lat-tbl .lat-spark canvas { display: block; background: var(--panel-2); border-radius: 2px; }
+.lat-tbl {
+  width: 100%; font-family: var(--mono); font-size: 12px;
+  border-collapse: collapse; font-variant-numeric: tabular-nums;
+}
+.lat-tbl th, .lat-tbl td { padding: 3px 6px 3px 0; }
+.lat-tbl th { text-align: left; color: var(--muted); font-weight: 500; width: 44px; }
+.lat-tbl .lat-now { color: var(--text); font-weight: 600; width: 64px; text-align: right; }
+.lat-tbl .lat-hist { color: var(--muted-dim); font-size: 11px; white-space: nowrap; }
+.lat-tbl .lat-spark { width: 64px; padding-right: 0; }
+.lat-tbl .lat-spark canvas {
+  /* No plate behind the line: an empty filled rectangle reads as a broken
+     widget when a metric has no samples yet. */
+  display: block; width: 64px; height: 20px;
+}
 
 /* sparkline canvases */
 canvas.spark { display: block; }
@@ -257,7 +294,7 @@ canvas.spark { display: block; }
 .settings-body select:focus,
 .settings-body input:focus,
 .settings-body textarea:focus { outline: none; border-color: var(--accent); }
-.settings-warn { padding: 6px 8px; background: rgba(246,166,35,0.08); border-left: 2px solid var(--warn); border-radius: 4px; }
+.settings-warn { padding: 6px 8px; background: rgba(246,166,35,0.10); border: 1px solid rgba(246,166,35,0.35); border-radius: 4px; }
 .settings-body .ms-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* advanced toggle inside mode settings panel */
@@ -283,12 +320,16 @@ canvas.spark { display: block; }
 }
 
 /* errors */
-.error-card { border-color: rgba(239,83,80,0.3); }
+/* The red frame is a state, not a decoration: it appears when the list is
+   non-empty, so an idle dashboard does not sit under a permanent alarm. */
+.error-card { border-color: var(--border); }
+.error-card.has-errors { border-color: rgba(239,83,80,0.45); }
+.error-card.has-errors h3 { color: #f0908d; }
 .err-dot {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--error); animation: tts-pulse 1s ease-in-out infinite;
+  background: var(--error);
 }
-.err-list { font-family: var(--mono); font-size: 11px; max-height: 200px; overflow-y: auto; }
+.err-list { font-family: var(--mono); font-size: 12px; max-height: 200px; overflow-y: auto; }
 .err-item { padding: 4px 0; border-bottom: 1px solid rgba(239,83,80,0.15); color: var(--text); cursor: pointer; }
 .err-item .ts { color: var(--muted); margin-right: 6px; }
 .err-item .stack { display: none; white-space: pre-wrap; color: var(--muted); padding: 4px 0 4px 12px; }
@@ -303,29 +344,29 @@ canvas.spark { display: block; }
 .err-item .err-cls {
   font-size: 10px; color: var(--muted); margin-left: 6px; font-style: italic;
 }
-.err-item.error-red    { border-left: 3px solid #ef5350; padding-left: 6px; }
+.err-item.error-red    { border-left: 1px solid #ef5350; padding-left: 8px; }
 .err-item.error-red    .err-type { background: rgba(239,83,80,0.18); color: #ef5350; }
-.err-item.error-orange { border-left: 3px solid #ffa726; padding-left: 6px; }
+.err-item.error-orange    { border-left: 1px solid #ffa726; padding-left: 8px; }
 .err-item.error-orange .err-type { background: rgba(255,167,38,0.18); color: #ffa726; }
-.err-item.error-yellow { border-left: 3px solid #ffee58; padding-left: 6px; }
+.err-item.error-yellow    { border-left: 1px solid #ffee58; padding-left: 8px; }
 .err-item.error-yellow .err-type { background: rgba(255,238,88,0.18); color: #ffee58; }
-.err-item.error-gray   { border-left: 3px solid #78909c; padding-left: 6px; }
+.err-item.error-gray    { border-left: 1px solid #78909c; padding-left: 8px; }
 .err-item.error-gray   .err-type { background: rgba(120,144,156,0.18); color: #b0bec5; }
 
 /* toast */
 .toast {
   position: fixed; top: 70px; right: 16px; z-index: 50;
-  background: var(--panel); border: 1px solid var(--border);
+  background: #202737;
   border-radius: var(--radius); padding: 10px 14px; box-shadow: var(--shadow);
   animation: fadein 200ms ease-out;
 }
-.toast.success { border-left: 3px solid var(--success); }
-.toast.error   { border-left: 3px solid var(--error); }
+.toast.success { border-left: 1px solid var(--success); }
+.toast.error   { border-left: 1px solid var(--error); }
 
 /* scrollbar polish */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+::-webkit-scrollbar-thumb { background: #2f3646; border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: #3a4258; }
 
 /* mode-settings panel */
@@ -334,8 +375,11 @@ canvas.spark { display: block; }
   transform: translate(-50%, -50%);
   width: min(760px, calc(100vw - 40px));
   max-height: min(82vh, 720px);
-  background: var(--panel); border: 1px solid var(--border);
-  border-radius: 8px; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  background: #1c2231;
+  border-radius: 12px;
+  /* The second shadow is the scrim: the panel had none, so the dashboard
+     behind it stayed at full contrast and competed with the form. */
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 100vmax rgba(8, 11, 16, 0.55);
   display: flex; flex-direction: column;
 }
 .mode-settings-panel .ms-header {
@@ -374,7 +418,7 @@ canvas.spark { display: block; }
 /* pipeline_mode controls (wake_word / push_to_talk) */
 .state-sleeping { background: rgba(120, 128, 145, 0.10); color: var(--muted); }
 .state-sleeping .state-dot { background: var(--muted); animation: none; opacity: 0.6; }
-.state-sleeping #stateText::before { content: "💤 "; }
+.state-sleeping #stateText { opacity: 0.85; }
 .pipeline-ctl { background: rgba(99, 132, 255, 0.10); }
 #btnPTT.active { background: var(--success); color: #fff; transform: scale(0.97); }
 .pipeline-badge {
@@ -447,8 +491,8 @@ canvas.spark { display: block; }
 
 /* Subtitle bubble in chat stream */
 .bubble.subtitle {
-  border-left: 3px solid #6aa9f0;
-  background: rgba(106, 169, 240, 0.05);
+  border-left: 1px solid #6aa9f0;
+  background: rgba(106, 169, 240, 0.07);
 }
 .sub-orig { line-height: 1.4; }
 .sub-trans { line-height: 1.4; font-size: 1.05em; font-weight: 500; margin-top: 2px; }
@@ -456,4 +500,44 @@ canvas.spark { display: block; }
   display: inline-block; padding: 0 6px; margin-left: 4px;
   font-size: 0.75em; background: rgba(100, 100, 100, 0.15);
   border-radius: 4px; vertical-align: middle;
+}
+
+/* ── focus, empty states, narrow windows ─────────────────────────── */
+
+/* Buttons had no focus style at all: `:focus { outline: none }` on the inputs
+   removed the browser ring without replacing it, so keyboard operation was
+   invisible. One ring, every control. */
+:where(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.tab:focus-visible { border-radius: 4px 4px 0 0; }
+
+/* An operator opens this page before the first turn exists. Blank panels read
+   as a broken page; these say what the panel is waiting for. */
+.chat-stream:empty::after,
+.event-stream:empty::after,
+.history-stream:empty::after {
+  display: block; padding: 28px 0; text-align: center;
+  color: var(--muted-dim); font-size: 12px;
+}
+.chat-stream:empty::after    { content: "等待第一轮对话——对着麦克风说话，或用右上角输入框直接发文字"; }
+.event-stream:empty::after   { content: "暂无事件。勾选顶部过滤项可以放开更多事件类型"; }
+.history-stream:empty::after { content: "上下文为空，或尚未点击刷新"; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The sidebar is fixed at 320px; below ~900px it squeezes the conversation
+   into a column narrower than the bubbles. Stack instead. */
+@media (max-width: 900px) {
+  #main { flex-direction: column; height: auto; min-height: calc(100vh - 56px); }
+  #left { border-right: 0; border-bottom: 1px solid var(--border); min-height: 60vh; }
+  #right { width: 100%; }
+  .bubble { max-width: 88%; }
 }
