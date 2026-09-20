@@ -799,6 +799,224 @@
           "sha256": "b7839ce8d6f8a920fe022802893ccd4256568be5ece2611345a548e2f86dc622"
         }
       ]
+    },
+    "rk3588-piper-en-2026-09-20": {
+      "soc": "rk3588",
+      "profile": "piper-en",
+      "root": "/",
+      "runtime": {
+        "rknn_toolkit_lite2": "2.3.2"
+      },
+      "runtime_contract": {
+        "asr_path": "qwen3_asr_rknn_encoder_rkllm_decoder_w8a8",
+        "tts_path": "piper_vits_encoder_ort_cpu_flow_decoder_rknn_512mel",
+        "closed_loop_validated": true,
+        "validated_device": "radxa",
+        "validated_at": "2026-09-20",
+        "notes": "Piper en_US/lessac, exported at --seq-len 128 --mel-len 512 (5.94 s per decode). Validated by transcribing the synthesised audio back through the spark trt_edgellm ASR: short and long sentences came back word for word. A sentence longer than one window is rendered in overlapping windows and stitched (see piper.py _decode_mel), measured at 834 frames -> 2 windows with no truncation and no seam artefact. English only: the lessac MODEL_CARD names its dataset licence, the zh_CN huayan voice states \"License: Unknown\".",
+        "env": {
+          "ASR_BACKEND": "qwen3_asr_rk",
+          "ASR_DECODER_TYPE": "rkllm",
+          "ASR_DECODER_QUANT": "w8a8",
+          "ASR_MAX_NEW_TOKENS": "64",
+          "ASR_FINAL_STOP_ON_PUNCT": "1",
+          "ASR_FINAL_STOP_MIN_CHARS": "8",
+          "ASR_FINAL_STOP_MIN_CHUNKS": "2",
+          "QWEN3_ASR_STREAM_TRUE": "1",
+          "QWEN3_ASR_TRUE_ROLL_SEC": "5",
+          "QWEN3_ASR_TRUE_PARTIAL_TOKENS": "8",
+          "QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS": "1500",
+          "QWEN3_ASR_TRUE_PARTIAL_WARMUP": "2",
+          "QWEN3_ASR_VAD_FINAL_ASYNC": "1",
+          "QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S": "2.5",
+          "TTS_BACKEND": "piper_rknn",
+          "PIPER_MODEL_DIR": "/opt/tts/models/piper",
+          "PIPER_LANGUAGES": "en_US",
+          "PIPER_DEFAULT_LANG": "en_US",
+          "PIPER_SEQ_LEN": "256",
+          "RK_ENSURE_MATCHA_RESOURCES": "0"
+        }
+      },
+      "files": [
+        {
+          "path": "opt/asr/models/tokenizer/tokenizer.json",
+          "source_path": "rk3588/opt/asr/models/tokenizer/tokenizer.json",
+          "size_bytes": 11429377,
+          "sha256": "bd2a97b55c8f7f9c328c73ee9b9178771037e9f566dfca8e238a063d41cbac92"
+        },
+        {
+          "path": "opt/asr/models/mel_filters.npy",
+          "source_path": "rk3588/opt/asr/models/mel_filters.npy",
+          "size_bytes": 205952,
+          "sha256": "85ca4058090e9318bab39b79683ba214744304dc9d6f3868ee55fbae6e16c80a"
+        },
+        {
+          "path": "opt/asr/models/embd/decoder_hf.embed_tokens.npy",
+          "source_path": "shared/opt/asr/models/embd/decoder_hf.embed_tokens.npy",
+          "size_bytes": 622329984,
+          "sha256": "dc7fa8078c75467dbb400b214289a69cc7d3624fc944980282a098b5de15ca97"
+        },
+        {
+          "path": "opt/asr/models/vad/silero_vad.onnx",
+          "source_path": "rk3588/opt/asr/models/vad/silero_vad.onnx",
+          "size_bytes": 2313101,
+          "sha256": "6b99cbfd39246b6706f98ec13c7c50c6b299181f2474fa05cbc8046acc274396"
+        },
+        {
+          "path": "opt/asr/models/encoder/rk3588/qwen3_asr_encoder_merged.fp16.15s.rk3588.rknn",
+          "source_path": "rk3588/opt/asr/models/encoder/rk3588/qwen3_asr_encoder_merged.fp16.15s.rk3588.rknn",
+          "size_bytes": 382138290,
+          "sha256": "509af53e61dc7e98a2799381af8a366f84ddedbc14da64a50969f82b9e784d32"
+        },
+        {
+          "path": "opt/asr/models/encoder/rk3588/qwen3_asr_encoder_merged.fp16.4s.rk3588.rknn",
+          "source_path": "rk3588/opt/asr/models/encoder/rk3588/qwen3_asr_encoder_merged.fp16.4s.rk3588.rknn",
+          "size_bytes": 379147310,
+          "sha256": "a39b7f803513cffe944c3006c4018c5aae775ac2c67a7941627e07972147cae8"
+        },
+        {
+          "path": "opt/asr/models/encoder/rk3588/qwen3_asr_encoder_merged.fp16.2s.rk3588.rknn",
+          "source_path": "rk3588/opt/asr/models/encoder/rk3588/qwen3_asr_encoder_merged.fp16.2s.rk3588.rknn",
+          "size_bytes": 378632174,
+          "sha256": "25e0d95ebe8642b06f8657516bc114f9b01aca7d05a440389c2e7d22a1de258e"
+        },
+        {
+          "path": "opt/asr/models/decoder/decoder_qwen3.fp16.rk3588.rkllm",
+          "source_path": "rk3588/opt/asr/models/decoder/decoder_qwen3.fp16.rk3588.rkllm",
+          "size_bytes": 1529742060,
+          "sha256": "8dfcb19073de04d5838f78b3135049af06b863e7a46dbb28c0130db5d2a3bb49"
+        },
+        {
+          "path": "opt/asr/models/decoder/decoder_qwen3.w8a8.rk3588.rkllm",
+          "source_path": "rk3588/opt/asr/models/decoder/decoder_qwen3.w8a8.rk3588.rkllm",
+          "size_bytes": 936052924,
+          "sha256": "ef6bf1946a3074e7828162b0da8d1deda6c4a77d7946df5bdcf4aa5375abe25b"
+        },
+        {
+          "path": "opt/tts/models/piper/en_US/encoder.onnx",
+          "source_path": "shared/opt/tts/models/piper/en_US/encoder.onnx",
+          "size_bytes": 28152628,
+          "sha256": "46cf95f4f72e268df7919553807e2129208f7a02961cd76a22dae7cdc1719951"
+        },
+        {
+          "path": "opt/tts/models/piper/en_US/model.onnx.json",
+          "source_path": "shared/opt/tts/models/piper/en_US/model.onnx.json",
+          "size_bytes": 4885,
+          "sha256": "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0"
+        },
+        {
+          "path": "opt/tts/models/piper/en_US/flow_decoder.rknn",
+          "source_path": "rk3588/opt/tts/models/piper/en_US/flow_decoder.rknn",
+          "size_bytes": 22998506,
+          "sha256": "4cc80bfafa3c0aa2e1ee51ad2cc9b99dd34b1c72ee99b75bdd8ad46ef551a198"
+        }
+      ]
+    },
+    "rk3576-piper-en-2026-09-20": {
+      "soc": "rk3576",
+      "profile": "piper-en",
+      "root": "/",
+      "runtime": {
+        "rknn_toolkit_lite2": "2.3.2"
+      },
+      "runtime_contract": {
+        "asr_path": "qwen3_asr_rknn_encoder_rkllm_decoder_w8a8",
+        "tts_path": "piper_vits_encoder_ort_cpu_flow_decoder_rknn_512mel",
+        "closed_loop_validated": true,
+        "validated_device": "cat-remote",
+        "validated_at": "2026-09-20",
+        "notes": "Piper en_US/lessac, exported at --seq-len 128 --mel-len 512 (5.94 s per decode). Validated by transcribing the synthesised audio back through the spark trt_edgellm ASR: short and long sentences came back word for word. A sentence longer than one window is rendered in overlapping windows and stitched (see piper.py _decode_mel), measured at 834 frames -> 2 windows with no truncation and no seam artefact. English only: the lessac MODEL_CARD names its dataset licence, the zh_CN huayan voice states \"License: Unknown\".",
+        "env": {
+          "ASR_BACKEND": "qwen3_asr_rk",
+          "ASR_DECODER_TYPE": "rkllm",
+          "ASR_DECODER_QUANT": "w8a8",
+          "ASR_MAX_NEW_TOKENS": "64",
+          "ASR_FINAL_STOP_ON_PUNCT": "1",
+          "ASR_FINAL_STOP_MIN_CHARS": "8",
+          "ASR_FINAL_STOP_MIN_CHUNKS": "2",
+          "QWEN3_ASR_STREAM_TRUE": "1",
+          "QWEN3_ASR_TRUE_ROLL_SEC": "5",
+          "QWEN3_ASR_TRUE_PARTIAL_TOKENS": "8",
+          "QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS": "1500",
+          "QWEN3_ASR_TRUE_PARTIAL_WARMUP": "2",
+          "QWEN3_ASR_VAD_FINAL_ASYNC": "0",
+          "QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S": "2.5",
+          "TTS_BACKEND": "piper_rknn",
+          "PIPER_MODEL_DIR": "/opt/tts/models/piper",
+          "PIPER_LANGUAGES": "en_US",
+          "PIPER_DEFAULT_LANG": "en_US",
+          "PIPER_SEQ_LEN": "256",
+          "RK_ENSURE_MATCHA_RESOURCES": "0"
+        }
+      },
+      "files": [
+        {
+          "path": "opt/asr/models/tokenizer/tokenizer.json",
+          "source_path": "rk3576/opt/asr/models/tokenizer/tokenizer.json",
+          "size_bytes": 11429377,
+          "sha256": "bd2a97b55c8f7f9c328c73ee9b9178771037e9f566dfca8e238a063d41cbac92"
+        },
+        {
+          "path": "opt/asr/models/mel_filters.npy",
+          "source_path": "rk3576/opt/asr/models/mel_filters.npy",
+          "size_bytes": 205952,
+          "sha256": "85ca4058090e9318bab39b79683ba214744304dc9d6f3868ee55fbae6e16c80a"
+        },
+        {
+          "path": "opt/asr/models/embd/decoder_hf.embed_tokens.npy",
+          "source_path": "shared/opt/asr/models/embd/decoder_hf.embed_tokens.npy",
+          "size_bytes": 622329984,
+          "sha256": "dc7fa8078c75467dbb400b214289a69cc7d3624fc944980282a098b5de15ca97"
+        },
+        {
+          "path": "opt/asr/models/vad/silero_vad.onnx",
+          "source_path": "rk3576/opt/asr/models/vad/silero_vad.onnx",
+          "size_bytes": 2313101,
+          "sha256": "6b99cbfd39246b6706f98ec13c7c50c6b299181f2474fa05cbc8046acc274396"
+        },
+        {
+          "path": "opt/asr/models/encoder/rk3576/qwen3_asr_encoder_merged.fp16.4s.rk3576.rknn",
+          "source_path": "rk3576/opt/asr/models/encoder/rk3576/qwen3_asr_encoder_merged.fp16.4s.rk3576.rknn",
+          "size_bytes": 387855918,
+          "sha256": "316e37b28b545318f72c6f6e87e169735723de310234942511e744f91e98bf55"
+        },
+        {
+          "path": "opt/asr/models/encoder/rk3576/qwen3_asr_encoder_merged.fp16.2s.rk3576.rknn",
+          "source_path": "rk3576/opt/asr/models/encoder/rk3576/qwen3_asr_encoder_merged.fp16.2s.rk3576.rknn",
+          "size_bytes": 386182062,
+          "sha256": "0a2cc99ebc42e856a8e21a9f3d8e3c488ba212303fa6961a877c5ca90475a38a"
+        },
+        {
+          "path": "opt/asr/models/rkllm/decoder_qwen3.w4a16_g128.rk3576.rkllm",
+          "source_path": "rk3576/opt/asr/models/rkllm/decoder_qwen3.w4a16_g128.rk3576.rkllm",
+          "size_bytes": 795088292,
+          "sha256": "de7ec58ebf15811e70e4262e87aabbd66509bb1db2740d1a329b38616e8dbaf5"
+        },
+        {
+          "path": "opt/asr/models/rkllm/decoder_qwen3.w8a8.rk3576.rkllm",
+          "source_path": "rk3576/opt/asr/models/rkllm/decoder_qwen3.w8a8.rk3576.rkllm",
+          "size_bytes": 945098540,
+          "sha256": "bb2b4d94feac13eb2307ed39c376f8bf4ea7b39e2698d3d6db24ad3256958e70"
+        },
+        {
+          "path": "opt/tts/models/piper/en_US/encoder.onnx",
+          "source_path": "shared/opt/tts/models/piper/en_US/encoder.onnx",
+          "size_bytes": 28152628,
+          "sha256": "46cf95f4f72e268df7919553807e2129208f7a02961cd76a22dae7cdc1719951"
+        },
+        {
+          "path": "opt/tts/models/piper/en_US/model.onnx.json",
+          "source_path": "shared/opt/tts/models/piper/en_US/model.onnx.json",
+          "size_bytes": 4885,
+          "sha256": "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0"
+        },
+        {
+          "path": "opt/tts/models/piper/en_US/flow_decoder.rknn",
+          "source_path": "rk3576/opt/tts/models/piper/en_US/flow_decoder.rknn",
+          "size_bytes": 20074346,
+          "sha256": "06d9d849508f91f0978d12d5e93fb4161710f06b1a1cf913f2cbd4dd20874261"
+        }
+      ]
     }
   }
 }

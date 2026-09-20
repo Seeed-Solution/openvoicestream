@@ -130,7 +130,7 @@
     "status": "candidate_pinned",
     "upstream_sha": "71dd1bae032e70771265917ec74d3ff4cad07a10",
     "submodule_path": "third_party/jetson-voice-engine",
-    "submodule_sha": "02604bf6a0fcd8b7d36ff43c7e1577ef6499cac4",
+    "submodule_sha": "cac7b496f0eff904bc8f24e3a0d5a542080b65e3",
     "overlay": "engine-overlay-v010",
     "manifest_contracts": {
       "customvoice-v010.toml": "366854db8b489a5b0378f2339d2313ffe42130addb20fc24f12d110ed1259206",

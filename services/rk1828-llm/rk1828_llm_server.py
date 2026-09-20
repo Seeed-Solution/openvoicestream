@@ -18,6 +18,7 @@ import argparse
 import codecs
 import json
 import logging
+import math
 import os
 import queue
 import re
@@ -46,6 +47,54 @@ _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 # truncate every call it asks for.
 TOOL_MIN_MAX_TOKENS = 320
 
+# Model init pushes ~3.2 GB over PCIe to the EP, so the READY handshake is slow
+# by nature and the ceiling has to be a deployment knob: a slower disk or a
+# bigger model needs more, and a host/client runtime skew needs LESS (it never
+# becomes ready at all, and every attempt degrades the EP from 8 cores to 4 —
+# see BUILD.md 'Single-EP exclusivity').
+READY_TIMEOUT_S = 180.0
+START_ATTEMPTS = 3
+# After the last attempt, wait before exiting. The container's restart policy
+# would otherwise re-enter this loop immediately and keep hammering a card that
+# cannot load, forever, at three failed loads per cycle.
+FAIL_COOLDOWN_S = 300.0
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a positive, finite float from the environment.
+
+    ``float()`` happily returns nan/inf, and both compare False against ``<= 0``,
+    so an explicit isfinite check is what keeps a typo from disabling the
+    timeout entirely.
+    """
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        val = float(raw)
+    except ValueError:
+        LOG.warning("%s=%r is not a number; using %s", name, raw, default)
+        return default
+    if not math.isfinite(val) or val <= 0:
+        LOG.warning("%s=%r is not a positive finite number; using %s", name, raw, default)
+        return default
+    return val
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        val = int(raw)
+    except ValueError:
+        LOG.warning("%s=%r is not an integer; using %s", name, raw, default)
+        return default
+    if val < 1:
+        LOG.warning("%s=%r must be >= 1; using %s", name, raw, default)
+        return default
+    return val
+
 
 class WorkerError(RuntimeError):
     pass
@@ -67,8 +116,8 @@ class Qwen3Worker:
         model_dir: str,
         core_mask: str = "ff",
         max_context: int = 2048,
-        start_attempts: int = 3,
-        ready_timeout: float = 180.0,
+        start_attempts: int = START_ATTEMPTS,
+        ready_timeout: float = READY_TIMEOUT_S,
     ) -> None:
         self.binary = binary
         self.model_dir = model_dir
@@ -97,8 +146,17 @@ class Qwen3Worker:
                 if attempt < self.start_attempts:
                     time.sleep(2.0 * attempt)
         raise WorkerError(
-            f"RK1828 worker failed to start after {self.start_attempts} attempts: {last} "
-            "-- EP may be degraded; a clean host reboot is likely required"
+            f"RK1828 worker failed to start after {self.start_attempts} attempts "
+            f"(ready_timeout={self.ready_timeout:g}s each): {last}\n"
+            "  If every attempt timed out after the SAME duration and the worker's "
+            "last line was 'init qwen3 llm model', the model never loaded at all: "
+            "the usual cause is a host/client RKNN3 runtime skew (the image's "
+            "librknn3_api*.so vs the host's rknn3 package). The worker then blocks "
+            "in read() on @transfer_proxy3 with no error. Compare the versions the "
+            "entrypoint logs at startup, and mount the host's lib dir read-only.\n"
+            "  A genuinely slow load (attempt 2 faster than attempt 1) instead needs "
+            "a higher RK1828_READY_TIMEOUT.\n"
+            "  Otherwise the EP may be degraded; a clean host reboot is likely required."
         )
 
     def _spawn(self) -> None:
@@ -669,13 +727,32 @@ def main() -> None:
     )
 
     global WORKER
+    ready_timeout = _env_float("RK1828_READY_TIMEOUT", READY_TIMEOUT_S)
+    start_attempts = _env_int("RK1828_START_ATTEMPTS", START_ATTEMPTS)
     WORKER = Qwen3Worker(
         binary=args.binary,
         model_dir=args.model_dir,
         core_mask=args.core_mask,
         max_context=args.max_context,
+        start_attempts=start_attempts,
+        ready_timeout=ready_timeout,
     )
-    WORKER.start()
+    LOG.info(
+        "worker start: attempts=%d ready_timeout=%gs max_context=%d core_mask=%s",
+        start_attempts, ready_timeout, args.max_context, args.core_mask,
+    )
+    try:
+        WORKER.start()
+    except WorkerError as exc:
+        LOG.error("%s", exc)
+        cooldown = _env_float("RK1828_FAIL_COOLDOWN_S", FAIL_COOLDOWN_S)
+        LOG.error(
+            "sleeping %gs before exit so the restart policy does not immediately "
+            "load the model again (set RK1828_FAIL_COOLDOWN_S=1 to opt out)",
+            cooldown,
+        )
+        time.sleep(cooldown)
+        raise SystemExit(1)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 

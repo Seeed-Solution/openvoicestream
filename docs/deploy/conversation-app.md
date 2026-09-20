@@ -20,13 +20,28 @@ Both composes run four services: `profile-init` (one-shot), `speech`, `llm`,
   XVF3800 channel layouts are covered by
   `deploy/conversation/audio_profiles.yaml` (6-channel Flex and 4-mic 2-channel
   variants, with per-layout makeup gain).
-* **RK1828 card (RK target only)**: the driver and firmware live on the HOST,
-  not in any image. Verify exactly the checks listed in
-  `deploy/docker-compose.rk3588-ha.yml` lines 13-20:
-  * `lspci | grep 182a` → expect `0001:11:00.0 ... Device 182a`
-  * `systemctl is-active rknn3.service` → expect `active`
-  * `ls /dev/pcie-rkep-*` → expect the char device
-  * NB the `pcie_rkep` module does NOT persist across reboot; make it durable.
+* **RK1828 card (RK target only)**: the driver, the EP firmware and the
+  userspace runtime live on the HOST, not in any image. One script checks all of
+  it, and installs or persists what it can:
+
+  ```bash
+  sudo deploy/scripts/rk1828-host-bringup.sh --check   # read-only verification
+  sudo deploy/scripts/rk1828-host-bringup.sh          # also load/persist/install
+  sudo deploy/scripts/rk1828-host-bringup.sh --sdk ~/RK182X_RM182XMC0
+  ```
+
+  It covers the card on the bus, the `pcie_rkep` module (which does **not**
+  persist across reboot), the EP firmware, `rknn3.service`, the `/dev/pcie-rkep-*`
+  char device, and the userspace runtime — `librknn3_api{,_rkcp}.so` plus
+  `rknn3_transfer_proxy`, printing their version. When the runtime is missing it
+  installs `rknn3-rk182x-m2` from apt, or runs the vendor installer given
+  `--sdk`.
+
+  The version matters: the LLM container mounts the host's `/usr/lib` read-only
+  and copies that client lib over its bundled one, because a client from a
+  different generation than the host's proxy makes model init **block with no
+  error** until the READY timeout. See *Runtime alignment* in
+  `services/rk1828-llm/BUILD.md` for the signature and the 2026-09-17 case.
 * **Orin NX**: JetPack 6.2 with the NVIDIA container runtime; the compose
   bind-mounts the host CUDA/TensorRT libraries read-only.
 * Docker Engine + the compose plugin on the device.

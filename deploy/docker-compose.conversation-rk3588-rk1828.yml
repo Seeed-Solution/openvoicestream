@@ -10,7 +10,13 @@
 #   agent        — mic/speaker client running `ovs-agent run conversation`
 #
 # ── IMAGE DEFAULTS ────────────────────────────────────────────────────────
-#   speech: sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260913.3
+#   speech: sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260919-envownership
+#     Thin overlay on rk-20260913.3 replacing only server/core/profile_loader.py:
+#     operator env ownership is derived from what the shipped profiles/leaves
+#     declare plus the selected profile's own keys, instead of a hand-kept prefix
+#     table that silently let a profile win (WHISPER_* 2026-08-28,
+#     PIPER_* 2026-09-18). index sha256:81e51b3ec91f36dc6a7262bdc0916ae1009c48d60d1f1ff3d510968c28c3eed2
+#     linux/arm64 sha256:52939b54c565763474…  See deploy/IMAGE-TAGS.md.
 #     sha256:d1677071dff68d0be3a3edd26d5959b4598a502ad05162901e509a706723794a
 #     (linux/arm64, per `docker manifest inspect` recorded in the solution on
 #     2026-09-13; not re-verified here). Carries the RK profile fix that raised
@@ -49,7 +55,7 @@ services:
   # path this compose does not pin; the repo test suite is what guarantees
   # every profile the matrix names exists.
   profile-init:
-    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260913.3}
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260919-envownership}
     container_name: conversational-voice-profile-init
     init: true
     network_mode: none
@@ -68,7 +74,7 @@ services:
     restart: "no"
 
   speech:
-    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260913.3}
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260919-envownership}
     container_name: conversational-voice-speech
     privileged: true
     init: true
@@ -99,6 +105,15 @@ services:
       # profile is not silently overridden by a value pinned in compose.
       OVS_PROFILE: ${OVS_PROFILE:-rk3588-default}
       OVS_PROFILE_DEFAULT: rk3588-default
+      # Not read by the server -- the profile arrives through the resolved
+      # ovs.env that profile-init writes. It is declared here so that changing
+      # the language from device management changes THIS service's config too,
+      # which makes compose recreate it. Without it the container is only
+      # restarted as a side effect of its dependency being recreated (verified:
+      # restart does re-source ovs.env, so it works today), and that leaves the
+      # reconfigure path depending on compose's dependent-restart semantics
+      # rather than on something this file states outright.
+      LANGUAGE: ${LANGUAGE:-zh}
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
       # Operator/deploy-time override for the ASR backend's own endpoint
       # threshold (ms). 0 / unset = keep the profile value (1500 ms in
@@ -124,7 +139,10 @@ services:
   # see deploy/docker-compose.rk3588-ha.yml lines 13-20 — lspci shows the
   # 182a device, rknn3.service is active, /dev/pcie-rkep-* exists.
   llm:
-    image: ${LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-rk1828:20260731-kvreuse}
+    # 20260919-hostruntime.2: thin overlay on 20260731-kvreuse (staged RKNN3 worker
+    # binary + libs byte-identical). Adds the host-runtime alignment below and
+    # the configurable READY timeout. See deploy/IMAGE-TAGS.md for the digests.
+    image: ${LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-rk1828:20260919-hostruntime.2}
     container_name: conversational-voice-llm
     privileged: true
     init: true
@@ -132,6 +150,16 @@ services:
     volumes:
       - /dev:/dev
       - rk1828-llm-models:/opt/llm/models
+      # The image's RKNN3 client lib must be the same generation as the host's
+      # rknn3_transfer_proxy and EP firmware — they ship in one host package and
+      # only speak to each other. A skew makes model init block in read() with
+      # no error until the READY timeout (2026-09-17: image 1.0.4 vs host 1.1.0,
+      # every attempt dying at exactly 179.6 s). The entrypoint copies the host's
+      # librknn3_api{,_rkcp}.so over the bundled pair when this is mounted, so
+      # the client tracks whatever the host has installed. The whole dir is
+      # mounted, not the two files: a bind mount of a file that does not exist on
+      # the host makes docker CREATE A DIRECTORY at that host path.
+      - /usr/lib:/opt/rk1828/host-lib:ro
     environment:
       RK1828_ARTIFACT_AUTO_DOWNLOAD: "1"
       RK1828_ARTIFACT_REPO_ID: harvestsu/seeed-local-voice-rk-artifacts
@@ -139,6 +167,13 @@ services:
       RK1828_MAX_CONTEXT: "8192"
       RK1828_CORE_MASK: ff
       RK1828_PORT: "1828"
+      # Seconds the supervisor waits for the worker's READY handshake, per
+      # attempt. Model init pushes ~3.2 GB over PCIe; 180 s covers a cold read
+      # at the ~44 MB/s an eMMC/SD rootfs gives. Raise it for slower storage.
+      RK1828_READY_TIMEOUT: ${RK1828_READY_TIMEOUT:-180}
+      # Failed loads degrade the EP from 8 cores to 4, so do not add attempts
+      # hoping one sticks — a load that fails identically every time will not.
+      RK1828_START_ATTEMPTS: ${RK1828_START_ATTEMPTS:-3}
       # Internal service: the agent calls it on 127.0.0.1. Loopback by default
       # so the local LLM is not an open OpenAI-compatible endpoint on the LAN.
       RK1828_HOST: ${RK1828_HOST:-127.0.0.1}

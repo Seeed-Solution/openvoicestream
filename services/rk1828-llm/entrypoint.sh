@@ -28,6 +28,89 @@ if ! compgen -G '/dev/pcie-rkep-*' >/dev/null; then
   exit 1
 fi
 
+# ── runtime alignment: prefer the HOST's RKNN3 client libs ────────────────
+# The client lib in this image and the host's rknn3_transfer_proxy + EP
+# firmware ship in ONE package, so they only speak to each other when they are
+# the same generation. When they are not, the failure is silent and expensive:
+# the worker connects to @transfer_proxy3, sends its init request, and blocks in
+# read() forever — no error, no log line, just the supervisor's READY timeout
+# three times over (observed 2026-09-17: image 1.0.4 against a host on 1.1.0,
+# five attempts all timing out at exactly 179.6 s, EP memory untouched).
+#
+# So the host's copy wins whenever it is available: it is by construction in
+# lockstep with the proxy and the firmware, which the image cannot be. The
+# bundled copy stays as the fallback for hosts that do not expose /usr/lib.
+# Higher runtime loads lower-version models (confirmed by Rockchip 2026-09-18),
+# so moving the client up does NOT require re-exporting the 3.2 GB artifacts.
+HOST_LIB_DIR="${RK1828_HOST_LIB_DIR:-/opt/rk1828/host-lib}"
+LIB_DIR=/opt/rk1828/lib
+
+# The version string is in the binary; no `strings` in this image, so grep -a.
+lib_version() {
+  [ -f "$1" ] || { printf 'absent'; return; }
+  v=$(grep -a -o -m1 'librknn3_api version: [0-9][0-9.]*' "$1" 2>/dev/null | head -1)
+  printf '%s' "${v:-unknown}"
+}
+
+log "bundled RKNN3 client: $(lib_version "${LIB_DIR}/librknn3_api_rkcp.so")" \
+    "(md5 $(md5sum "${LIB_DIR}/librknn3_api_rkcp.so" 2>/dev/null | cut -c1-12))"
+
+host_rkcp="${HOST_LIB_DIR}/librknn3_api_rkcp.so"
+host_shim="${HOST_LIB_DIR}/librknn3_api.so"
+
+if [ -f "${host_rkcp}" ] && [ -f "${host_shim}" ]; then
+  log "host RKNN3 client:    $(lib_version "${host_rkcp}")" \
+      "(md5 $(md5sum "${host_rkcp}" 2>/dev/null | cut -c1-12))"
+  # Compare BOTH files: the shim and the backend are versioned together, and a
+  # shim-only difference would otherwise be skipped here and then show up as the
+  # same silent init hang this whole block exists to prevent.
+  if cmp -s "${host_rkcp}" "${LIB_DIR}/librknn3_api_rkcp.so" \
+     && cmp -s "${host_shim}" "${LIB_DIR}/librknn3_api.so"; then
+    log "host and bundled client are identical; keeping bundled"
+  elif [ "${RK1828_PREFER_HOST_RUNTIME:-1}" = "1" ]; then
+    # Copy rather than symlink: the binary's rpath is $ORIGIN/lib and the shim
+    # dlopen()s the rkcp backend from that same dir, so both files must land
+    # there together. The mount stays read-only; only this layer is written.
+    #
+    # Checked explicitly, NOT as `cp && log`: under `set -e` a failing left-hand
+    # side of an AND-list does not exit the shell, so a read-only layer or a
+    # partial copy would leave a mismatched (or half-replaced) pair in place and
+    # the service would start straight into the 180 s init hang. Refuse instead.
+    if cp -f "${host_shim}" "${host_rkcp}" "${LIB_DIR}/"; then
+      log "using the HOST RKNN3 client (copied over the bundled one)"
+    else
+      log "FATAL: could not copy the host RKNN3 client into ${LIB_DIR}."
+      log "  The bundled client is a different generation than this host's"
+      log "  proxy/firmware, so starting now would block in model init with no"
+      log "  error. Check that ${LIB_DIR} is writable in this container, or set"
+      log "  RK1828_PREFER_HOST_RUNTIME=0 to run with the bundled client anyway."
+      exit 1
+    fi
+  else
+    log "WARNING: host client differs from bundled, but RK1828_PREFER_HOST_RUNTIME=0"
+    log "  If model init hangs until the READY timeout, this is the reason."
+  fi
+elif [ -f "${host_rkcp}" ] || [ -f "${host_shim}" ]; then
+  # Half a pair is a broken host mount, not a usable fallback: the shim and the
+  # backend are versioned together. Refuse — UNLESS the operator has already
+  # said not to use the host copy at all, in which case the half pair is
+  # irrelevant and failing here would block a deployment that would have run.
+  if [ "${RK1828_PREFER_HOST_RUNTIME:-1}" = "1" ]; then
+    log "FATAL: ${HOST_LIB_DIR} has only one half of the RKNN3 client pair."
+    log "  librknn3_api.so (the dlopen shim) and librknn3_api_rkcp.so (the backend)"
+    log "  are versioned together and must both come from the host."
+    log "  Set RK1828_PREFER_HOST_RUNTIME=0 to run with the bundled client instead."
+    exit 1
+  fi
+  log "WARNING: ${HOST_LIB_DIR} has only half the client pair, but"
+  log "  RK1828_PREFER_HOST_RUNTIME=0 — running with the bundled client."
+else
+  log "WARNING: no host RKNN3 client at ${HOST_LIB_DIR} — using the bundled one."
+  log "  Mount the host's lib dir read-only (see deploy/docker-compose.conversation-rk3588-rk1828.yml)."
+  log "  Without it, a host whose rknn3 package is a different generation makes"
+  log "  model init block forever with no error — see BUILD.md 'Runtime alignment'."
+fi
+
 # ── artifact pull ─────────────────────────────────────────────────────────
 if [ "${RK1828_ARTIFACT_AUTO_DOWNLOAD:-1}" = "1" ]; then
   if [ ! -f "${MANIFEST}" ]; then

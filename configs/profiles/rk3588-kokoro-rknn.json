@@ -2,6 +2,7 @@
   "name": "rk3588-kokoro-rknn",
   "description": "RK3588 multilingual TTS via Kokoro hybrid (CPU prefix ONNX + RKNN decoder-front + CPU tail ONNX), paired with Qwen3 ASR (RKNN encoder + RKLLM decoder W8A8). Replaces Matcha TTS with Kokoro for higher-quality multilingual output.",
   "asr_backend": "rk.asr",
+  "asr_model_id": "qwen3-asr",
   "tts_backend": "rk.tts",
   "execution_policy": {
     "mode": "serialized",

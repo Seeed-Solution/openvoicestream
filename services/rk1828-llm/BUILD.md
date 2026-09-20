@@ -137,12 +137,59 @@ so a container replacement does not re-download 3.2 GB.
 | `RK1828_MAX_CONTEXT` | `8192` | verified; a runtime parameter, no re-export needed |
 | `RK1828_CORE_MASK` | `ff` | 8 cores |
 | `RK1828_PORT` | `1828` | |
+| `RK1828_HOST_LIB_DIR` | `/opt/rk1828/host-lib` | where the host's `/usr/lib` is mounted; see *Runtime alignment* |
+| `RK1828_PREFER_HOST_RUNTIME` | `1` | `0` keeps the bundled client lib even when the host has a different one |
+| `RK1828_READY_TIMEOUT` | `180` | seconds per READY attempt. Was hardcoded until 2026-09-18 |
+| `RK1828_START_ATTEMPTS` | `3` | do not raise it to paper over a load that fails identically each time |
+| `RK1828_FAIL_COOLDOWN_S` | `300` | sleep before exiting after the last attempt, so the restart policy does not re-enter the loop immediately |
 
 The entrypoint verifies file SIZES, not just existence — a half-finished download
 would otherwise be treated as present and fail model init with something far less
 obvious. It also refuses to start on an incomplete set, because the four files are
 a matched export and a mismatched pair surfaces as a firmware-level `ACK_FAIL`
 that looks like a hardware fault.
+
+## Runtime alignment (host ↔ image ↔ model)
+
+Three things have versions and only two of the three pairings are free:
+
+| pairing | rule | evidence |
+|---|---|---|
+| runtime ↔ model | a **higher** runtime loads a **lower**-version model, so bumping the client does not require re-exporting the 3.2 GB artifacts | Rockchip, 2026-09-18 |
+| client lib ↔ host proxy + EP firmware | must be the **same generation**; they ship in one host package | 2026-09-17 failure below |
+| model ↔ model | the four artifact files are one matched export, all-or-nothing | `entrypoint.sh` size/set check |
+
+So the image cannot pin the client lib and be portable: the host's copy is the
+one in lockstep with the proxy and the firmware. `entrypoint.sh` therefore copies
+`librknn3_api.so` + `librknn3_api_rkcp.so` from `RK1828_HOST_LIB_DIR` over the
+bundled pair at startup, and both composes mount the host's `/usr/lib` there
+read-only. The bundled pair stays as the fallback for a host that does not expose
+it. The whole dir is mounted rather than the two files because a bind mount of a
+file the host does not have makes docker **create a directory** at that host path.
+
+### The failure this prevents (2026-09-17, recomputer-rk3588-devkit)
+
+| | radxa (works) | devkit (hung) |
+|---|---|---|
+| host proxy | `Transfer version 1.0.4 (8ab764c@2026-05-13)` | `1.1.0 (13b774e@2026-08-13)` |
+| host `librknn3_api_rkcp.so` | 8990352 B, md5 `79dad96c…` — **byte-identical to the image's bundled copy** | 9078912 B |
+| install | manual, no dpkg record | apt `rknn3-rk182x-m2` 1.1.0 |
+| kernel / OS | 6.1.84-8-rk2410 / Debian 12 | 6.1.172-vendor-seeed-rk3588 / Armbian 26.04 |
+
+Diagnostic signature of a skew — worth recognising, because nothing logs it:
+
+* every start attempt times out after the **same** duration (measured: 179.6 s,
+  spread < 60 ms across five attempts). A genuinely slow load gets faster on
+  attempt 2 once the page cache is warm.
+* the worker's last line is `[server] --> init qwen3 llm model`.
+* the worker sits in `read()` on fd 5 = `socket:[…]` to the abstract socket
+  `@transfer_proxy3`, kernel stack `unix_stream_recvmsg`, both queues empty.
+* RSS ~50 MB and ~0.5 s of CPU — the 3.2 GB was never read.
+* `rknn-smi info -t memory` shows the EP untouched (5087 of 5120 MB free).
+
+Storage was ruled out on that box, so do not start there: `dd` of the 2.43 GB
+weight file on the eMMC/SD rootfs gave **44 MB/s** cold, i.e. ~74 s for the whole
+3.22 GB set — 106 s of headroom inside the 180 s ceiling.
 
 ## Host prerequisites — the image is NOT self-contained
 
@@ -244,11 +291,13 @@ plus KV 8192 × 144 KB = 1,208 MB). Consequences:
 
 * An RK1828-hosted TTS cannot run at the same time as this. That is why the voice
   image runs TTS on the RK3588's own NPU.
-* There is **no way to measure EP memory**: `rknn-smi` is non-functional on this
-  host (fails as root, fails when the EP is idle — suspected host/EP firmware
-  version skew, `rc_cc_version=30301` vs `ep_cc_version=30201`). Model-load
-  success is the only available signal, and **failed loads degrade the EP from 8
-  cores to 4**, so do not probe by trial and error.
+* EP memory observability **depends on the runtime generation**: `rknn-smi` is
+  non-functional on V1.0.4 (radxa: fails as root, fails when the EP is idle —
+  suspected host/EP firmware skew, `rc_cc_version=30301` vs `ep_cc_version=30201`)
+  but works on the 1.1.0 package (devkit, 2026-09-18: `info -t memory` reports
+  `Total DDR 5120.00 MB / Free 5087.34`, confirming the ~5 GB figure above).
+  Where it does not work, model-load success is the only signal — and **failed
+  loads degrade the EP from 8 cores to 4**, so do not probe by trial and error.
 * **Never run `rknn-smi reset`** — it can wedge the card into a boot state that a
   host reboot may not recover, and the card has its own 12 V supply so it does not
   power-cycle with the host.

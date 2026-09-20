@@ -2,6 +2,7 @@
   "name": "rk3576-multilang",
   "description": "Multilang preset on Rockchip RK3576: Qwen3 ASR (RKNN encoder + RKLLM decoder W8A8) + Matcha hybrid TTS (ORT acoustic + RKNN Vocos). W8A8 is the default RK3576 decoder after the 2026-06-10 highperf long-dictation and V2V recheck.",
   "asr_backend": "rk.asr",
+  "asr_model_id": "qwen3-asr",
   "tts_backend": "rk.tts",
   "execution_policy": {
     "mode": "serialized",

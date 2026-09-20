@@ -2,6 +2,7 @@
   "name": "jetson-qwen3asr-moss-nx",
   "description": "Qwen3 ASR (TRT-Edge-LLM worker, multilingual) + MOSS-TTS-Nano 0.1B TTS (C++ TRT path) on Jetson Orin NX. Composes jetson-qwen3asr-matcha-nx's ASR half with jetson-moss-tts-nano-trt's TTS half. TTS is forced to MONO (channels=1) so the moss backend downmixes its native interleaved stereo before the v2v wire (which carries sample_rate only, no channel field) — the reachy client plays mono, no pitch-doubling/echo.",
   "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr",
   "tts_backend": "jetson.moss_tts_nano",
   "tts_model_id": "moss-tts-nano-v1",
   "execution_policy": {

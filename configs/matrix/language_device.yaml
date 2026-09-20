@@ -252,14 +252,18 @@ cells:
 
   - device: rk3576
     group: en
-    status: untested
-    ovs_profile: rk3576-default
+    status: measured
+    ovs_profile: rk3576-piper
     asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
-    tts: {backend: rk.tts, model: matcha-icefall-zh-en, quant: ORT acoustic + RKNN Vocos}
+    tts: {backend: rk.tts, model: piper-en-us-lessac, quant: ORT encoder + RKNN flow_decoder 512mel}
     env: {}
     evidence:
-      - configs/profiles/rk3576-default.json:2 - profile validated on the zh V2V recheck; English was not scored on it
-      - docs/perf/whisper-cross-device-20260827.md:58 - RK3576 English is measured only on the Whisper path (base/10s hybrid, 11.37% short), which is ASR-only
+
+      - 'run on cat-remote 2026-09-20 with OVS_PROFILE=rk3576-piper: a 3.84 s corpus recording (bench/perf/corpus/short/en_short_01.wav) transcribed word for word by the in-service ASR, answered by a cloud LLM, and spoken back by Piper; the reply audio transcribed back word for word through the spark trt_edgellm ASR'
+
+      - TTS first frame within 10 ms of the reply text; one decode of a full sentence is 291 ms for 5.2 s of audio (RTF 0.056), measured on the same board
+
+      - 'send vad=none: the RK ASR backend owns endpointing, and a client-side VAD races it and silently truncates the turn (observed here: 1.20 s of a 3.84 s utterance)'
     planned_alternative:
       description: Whisper base/10s RKNN encoder + ONNX KV decoder ASR + Kokoro ConvOnly TTS, per spec section 3
       asr_profile: rk3576-whisper
@@ -299,14 +303,18 @@ cells:
 
   - device: rk3588
     group: en
-    status: untested
-    ovs_profile: rk3588-default
+    status: measured
+    ovs_profile: rk3588-piper
     asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
-    tts: {backend: rk.tts, model: matcha-icefall-zh-en, quant: ORT acoustic + RKNN Vocos}
+    tts: {backend: rk.tts, model: piper-en-us-lessac, quant: ORT encoder + RKNN flow_decoder 512mel}
     env: {}
     evidence:
-      - configs/profiles/rk3588-default.json:2 - closed-loop validation was on the zh short set; English was not scored on it
-      - docs/perf/whisper-cross-device-20260827.md:53 - RK3588 English is measured only on the Whisper path (base/20s hybrid, 7.58% long), which is ASR-only
+
+      - 'run on radxa 2026-09-20 with OVS_PROFILE=rk3588-piper: a 3.84 s corpus recording (bench/perf/corpus/short/en_short_01.wav) transcribed word for word by the in-service ASR, answered by a cloud LLM, and spoken back by Piper; the reply audio transcribed back word for word through the spark trt_edgellm ASR'
+
+      - TTS first frame within 10 ms of the reply text; one decode of a full sentence is 190 ms for 5.2 s of audio (RTF 0.036), measured on the same board
+
+      - 'send vad=none: the RK ASR backend owns endpointing, and a client-side VAD races it and silently truncates the turn (observed here: 1.20 s of a 3.84 s utterance)'
     planned_alternative:
       description: Whisper base hybrid ASR + Kokoro RKNN TTS, per spec section 3
       asr_profile: rk3588-whisper

@@ -779,18 +779,21 @@
     const W = cv.width, H = cv.height;
     ctx.clearRect(0, 0, W, H);
     const buf = sparkData[kind];
+    // The canvas is authored at 2x its CSS box (128x40 -> 64x20), so strokes
+    // are doubled here to land on 1px / 1.5px once scaled down.
     if (!buf || buf.length === 0) {
-      ctx.strokeStyle = "#3a4258"; ctx.lineWidth = 1;
+      ctx.strokeStyle = "#3a4258"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
       return;
     }
     const maxV = Math.max(1, ...buf);
-    ctx.strokeStyle = "#5cdbd3"; ctx.lineWidth = 1;
+    ctx.strokeStyle = "#5cdbd3"; ctx.lineWidth = 3;
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
     ctx.beginPath();
     const step = buf.length > 1 ? W / (buf.length - 1) : W;
     for (let i = 0; i < buf.length; i++) {
       const x = i * step;
-      const y = H - (buf[i] / maxV) * (H - 2) - 1;
+      const y = H - (buf[i] / maxV) * (H - 6) - 3;
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
@@ -830,6 +833,8 @@
   function renderErrors() {
     errCount.textContent = errors.length;
     errDot.classList.toggle("hidden", errors.length === 0);
+    // Red frame only while there is something to look at.
+    errCount.closest(".card").classList.toggle("has-errors", errors.length > 0);
     errList.innerHTML = "";
     for (let i = errors.length - 1; i >= 0; i--) {
       const e = errors[i];

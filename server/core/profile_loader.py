@@ -23,16 +23,129 @@ logger = logging.getLogger(__name__)
 # Module state
 # ---------------------------------------------------------------------------
 
-# Adding a backend with a new env prefix means adding it HERE too. A prefix
-# that is missing does not fail loudly: the profile simply overwrites the
-# operator's value and nothing is logged, so `-e WHISPER_LANGUAGE=zh` on the
-# container reads back as the profile's `en` with no indication why. Measured
-# 2026-08-28 on RK3588, where exactly that happened.
+# Families of keys the operator owns, matched by prefix. This table only has to
+# cover cross-backend infrastructure: per-backend keys are DERIVED below from
+# what the profiles and the leaf registry declare, so adding a backend no longer
+# means remembering to edit a list here.
+#
+# It used to: a missing prefix does not fail loudly, the profile simply
+# overwrites the operator's value and nothing is logged. `-e WHISPER_LANGUAGE=zh`
+# on the container read back as the profile's `en` with no indication why
+# (measured 2026-08-28 on RK3588), and `PIPER_*` set in compose was silently
+# taken over by the profile the same way (measured 2026-09-18).
+# Kept in full on purpose: derivation only ever WIDENS ownership. Dropping a
+# family here would silently un-protect an operator key that no shipped profile
+# happens to declare, which is the same failure in the other direction.
 _OPERATOR_KEY_PREFIXES: tuple[str, ...] = (
     "OVS_", "LANGUAGE_MODE", "MODEL_DIR", "ASR_", "TTS_", "EDGE_LLM_",
     "QWEN3_", "KOKORO_", "MATCHA_", "RK_", "RKLLM_", "SHERPA_",
     "STREAMING_", "VOCOS_", "HF_", "CUDA_", "TRT_", "NVIDIA_", "WHISPER_",
 )
+
+
+# Process-level variables that are never configuration, however they appear in a
+# profile. LD_LIBRARY_PATH is the one that matters: the image sets it
+# (Dockerfile.rk) and configs/profiles/jetson-qwen3asr-moss-nx.json deliberately
+# replaces it to point the MOSS worker at its own libs. Treating it as
+# operator-owned would keep the image value and break that profile.
+_PROCESS_VARS: frozenset[str] = frozenset({
+    "PATH", "LD_LIBRARY_PATH", "LD_PRELOAD", "PYTHONPATH", "PYTHONHOME",
+    "HOME", "HOSTNAME", "PWD", "SHLVL", "TERM", "TZ", "USER", "SHELL", "LANG",
+})
+
+
+def _declared_backend_keys() -> frozenset[str]:
+    """Every env key any shipped profile or leaf declares, by exact name.
+
+    This is the self-maintaining half of operator ownership. A key a profile
+    writes is by definition a key an operator may want to override, so the
+    profiles themselves are the registry — no prefix has to be predicted.
+
+    Deliberately tolerant: this runs at import, before logging is configured
+    and in contexts (tests, tools, a trimmed image) where the config tree may
+    be absent or partly unreadable. A failure here must not stop the process;
+    it only falls back to prefix matching, which is the pre-2026-09 behaviour.
+    """
+    keys: set[str] = set()
+    # Inlined rather than calling _project_root(): this runs at module import,
+    # above that definition.
+    root = Path(__file__).resolve().parents[2]
+
+    def _candidates(subdir: str, pattern: str) -> list[Path]:  # noqa: D401
+        # ``._name.yaml`` AppleDouble sidecars are binary and DO ship inside the
+        # RK speech image (rk-20260913.3 carries one per leaf file — its build
+        # context was copied from macOS). Reading one raised UnicodeDecodeError
+        # at import and took the whole service down with it, so they are skipped
+        # by name as well as guarded by the handlers below.
+        try:
+            return sorted(
+                p for p in (root / "configs" / subdir).glob(pattern)
+                if not p.name.startswith("._")
+            )
+        except OSError:
+            # An unreadable or vanished config dir must not take the process
+            # down from module import; prefix matching still covers ownership.
+            return []
+
+    for path in _candidates("profiles", "*.json"):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                doc = json.load(f)
+            # Syntactically valid but structurally wrong JSON (a top-level list,
+            # or env: "string") would raise AttributeError/TypeError here, which
+            # at module import means the service never starts. Shape-check.
+            block = doc.get("env") if isinstance(doc, dict) else None
+            if isinstance(block, dict):
+                keys.update(str(k) for k in block)
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+    # Leaf runtime_env, read without a YAML dependency at import time: the
+    # registry loader lives in leaf_composition, importing it here would make
+    # profile_loader depend on it (and on PyYAML) on every startup path.
+    for path in _candidates("leaves", "*.yaml"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        in_env = False
+        env_indent = 0
+        for raw in text.splitlines():
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            indent = len(raw) - len(raw.lstrip())
+            if stripped in ("runtime_env:", "runtime_env: {}"):
+                in_env = True
+                env_indent = indent
+                continue
+            if in_env:
+                if indent <= env_indent:
+                    in_env = False
+                elif ":" in stripped:
+                    name = stripped.split(":", 1)[0].strip().strip("\"'")
+                    if name.replace("_", "").isalnum() and name.upper() == name:
+                        keys.add(name)
+    return frozenset(keys) - _PROCESS_VARS
+
+
+_DECLARED_BACKEND_KEYS: frozenset[str] = _declared_backend_keys()
+
+
+def is_operator_key(name: str, *, declared: frozenset[str] | None = None) -> bool:
+    """Whether ``name`` is a key the operator owns (profiles never clobber it).
+
+    ``declared`` adds the keys of a profile that is not part of the shipped
+    tree — one selected through ``OVS_PROFILE_JSON`` or bind-mounted into the
+    image. Without it, an out-of-tree profile for a backend the tree does not
+    know yet would still silently win over the operator's env, which is the
+    exact case measured on 2026-09-18 (a mounted rk3588-piper.json against
+    ``PIPER_*`` in compose).
+    """
+    if name in _PROCESS_VARS:
+        return False
+    if name.startswith(_OPERATOR_KEY_PREFIXES) or name in _DECLARED_BACKEND_KEYS:
+        return True
+    return bool(declared) and name in declared
 
 
 def _snapshot_operator_env() -> dict[str, str]:
@@ -59,7 +172,21 @@ def _snapshot_operator_env() -> dict[str, str]:
     """
     return {
         k: v for k, v in os.environ.items()
-        if k.startswith(_OPERATOR_KEY_PREFIXES) and v != ""
+        if is_operator_key(k) and v != ""
+    }
+
+
+def _snapshot_env_at_import() -> dict[str, str]:
+    """Every non-empty, non-process env value present at import.
+
+    Superset of the operator snapshot, kept because ownership for an
+    out-of-tree profile can only be decided once that profile is loaded — by
+    then ``apply_profile`` has to be able to read back what the operator
+    originally set, and this is the only record of it.
+    """
+    return {
+        k: v for k, v in os.environ.items()
+        if v != "" and k not in _PROCESS_VARS
     }
 
 
@@ -72,6 +199,17 @@ def _snapshot_operator_keys() -> frozenset[str]:
 # 两者不可能漂移。
 _OPERATOR_SNAPSHOT: dict[str, str] = _snapshot_operator_env()
 _OPERATOR_KEYS: frozenset[str] = frozenset(_OPERATOR_SNAPSHOT)
+_ENV_AT_IMPORT: dict[str, str] = _snapshot_env_at_import()
+
+# Operator keys discovered at apply time rather than at import: keys an
+# out-of-tree profile declares that the operator had already set. They MUST
+# persist once discovered. Keeping them only for the one call that found them
+# left the key in ``_APPLIED_KEYS`` but out of the next call's ``eff_operator``,
+# so switching to a profile that does not declare it restored the operator's
+# value in step 0 and then deleted it in step 1's stale-clear — the operator's
+# env silently became unset. Reproduced 2026-09-19 with a mounted
+# rk3588-piper.json owning PIPER_MODEL_DIR.
+_EXTRA_OPERATOR_KEYS: set[str] = set()
 
 # 当前被 profile_owned_env 压过的 operator key。交还时据此还原。
 _OWNED_OVERRIDES: set[str] = set()
@@ -324,7 +462,33 @@ def apply_profile(
         # profile carries the COMPLETE set of values for those keys; partial
         # profiles that rely on baked defaults must NOT list them.
         owned = {str(k) for k in (profile.get("profile_owned_env") or [])}
-        eff_operator = _OPERATOR_KEYS - owned
+
+        # Keys THIS profile declares that the operator had already set at
+        # import, but that no shipped profile/leaf declares — i.e. a profile
+        # loaded from OVS_PROFILE_JSON or bind-mounted for a backend the tree
+        # does not carry yet. Without this they are not in _OPERATOR_KEYS, so
+        # the loop below would overwrite the operator's value and log nothing.
+        # Measured 2026-09-18: a mounted rk3588-piper.json silently beat
+        # PIPER_MODEL_DIR from compose.
+        declared_here = frozenset(new_env)
+        extra_operator = {
+            k for k in declared_here
+            if k in _ENV_AT_IMPORT
+            and k not in _OPERATOR_KEYS
+            and k not in _EXTRA_OPERATOR_KEYS
+            and is_operator_key(k, declared=declared_here)
+        }
+        if extra_operator:
+            for k in sorted(extra_operator):
+                _OPERATOR_SNAPSHOT.setdefault(k, _ENV_AT_IMPORT[k])
+            _EXTRA_OPERATOR_KEYS.update(extra_operator)
+            logger.info(
+                "Profile %r declares operator-set keys the shipped tree does not "
+                "know (%s); treating them as operator-owned. Ship a profile or "
+                "leaf that declares them to make this permanent.",
+                derived["OVS_PROFILE_NAME"], ", ".join(sorted(extra_operator)),
+            )
+        eff_operator = (_OPERATOR_KEYS | frozenset(_EXTRA_OPERATOR_KEYS)) - owned
 
         # 0. 交还所有权：上一个 profile 用 profile_owned_env 压过、而这个 profile
         #    不再拥有的 operator key，必须还原成导入时的 operator 取值。不能靠
@@ -402,7 +566,8 @@ def apply_profile(
                 from server.core.engine_resolver import resolve_all
                 injected = resolve_all(profile, kind=kind)
                 _APPLIED_KEYS.update(
-                    k for k in injected if k not in _OPERATOR_KEYS
+                    k for k in injected
+                    if k not in _OPERATOR_KEYS and k not in _EXTRA_OPERATOR_KEYS
                 )
             except Exception:
                 logger.exception(

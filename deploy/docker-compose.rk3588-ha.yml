@@ -49,7 +49,10 @@
 services:
   # ── local LLM on the RK1828 accelerator card ─────────────────────────────
   llm:
-    image: ${LLM_IMAGE:-edge-llm-rk1828:20260731-kvreuse}
+    # 20260919-hostruntime.2, not 20260731-kvreuse: the host-lib mount and the
+    # RK1828_READY_TIMEOUT/START_ATTEMPTS below only exist in that image. Left
+    # on the old tag they would be mounted and set but never read.
+    image: ${LLM_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-rk1828:20260919-hostruntime.2}
     container_name: ovs-llm
     privileged: true          # needs the PCIe EP char device
     init: true
@@ -57,6 +60,14 @@ services:
     volumes:
       - /dev:/dev
       - rk1828-llm-models:/opt/llm/models
+      # The container's RKNN3 client lib must be the same generation as this
+      # host's rknn3_transfer_proxy + EP firmware (one package, they only speak
+      # to each other). The entrypoint copies the host pair over its bundled one
+      # when this is mounted. Without it, a host on a different generation makes
+      # model init block in read() with no error until the READY timeout.
+      # The dir is mounted, not the two files: a bind mount of a file the host
+      # does not have makes docker create a DIRECTORY at that host path.
+      - /usr/lib:/opt/rk1828/host-lib:ro
     environment:
       - RK1828_ARTIFACT_AUTO_DOWNLOAD=${RK1828_ARTIFACT_AUTO_DOWNLOAD:-1}
       - RK1828_ARTIFACT_REPO_ID=${RK1828_ARTIFACT_REPO_ID:-harvestsu/seeed-local-voice-rk-artifacts}
@@ -74,6 +85,12 @@ services:
       - RK1828_MAX_CONTEXT=${RK1828_MAX_CONTEXT:-8192}
       - RK1828_CORE_MASK=${RK1828_CORE_MASK:-ff}
       - RK1828_PORT=1828
+      # Per-attempt ceiling for the worker's READY handshake. 180 s covers a
+      # cold ~3.2 GB read at the ~44 MB/s an eMMC/SD rootfs gives; raise it for
+      # slower storage. Do NOT raise RK1828_START_ATTEMPTS to paper over a load
+      # that fails identically every time — failed loads degrade the EP 8 -> 4.
+      - RK1828_READY_TIMEOUT=${RK1828_READY_TIMEOUT:-180}
+      - RK1828_START_ATTEMPTS=${RK1828_START_ATTEMPTS:-3}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:1828/health"]
