@@ -2,6 +2,7 @@
   "name": "rk3576-piper",
   "description": "Rockchip RK3576 English profile: same Qwen3 ASR as rk3576-default, with Piper VITS replacing Matcha for TTS. Piper's English is the reason this exists -- the voice is en_US/lessac, whose MODEL_CARD names its dataset licence (the zh_CN huayan voice states \"License: Unknown\", so Chinese stays on Matcha). The decoder is exported at a fixed 512 mel frames = 5.94 s per decode; longer sentences are rendered in overlapping windows and stitched, so the window bounds cost per call, not sentence length. Measured 2026-09-20: 190 ms for 5.28 s of audio on RK3588 (RTF 0.036), 291 ms on RK3576, and the synthesised audio transcribes back word for word through the spark trt_edgellm ASR.",
   "asr_backend": "rk.asr",
+  "asr_model_id": "qwen3-asr",
   "tts_backend": "rk.tts",
   "execution_policy": {
     "mode": "serialized",

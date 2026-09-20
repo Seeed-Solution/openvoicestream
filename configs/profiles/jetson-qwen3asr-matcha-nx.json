@@ -2,6 +2,7 @@
   "name": "jetson-qwen3asr-matcha-nx",
   "description": "Multilang preset on Jetson Orin NX/AGX: Qwen3 ASR (TRT-Edge-LLM worker) for multilingual input + Matcha TTS (ORT-CPU duration/encoder + TRT estimator + TRT vocos) for zh+en output. Lighter than voice_clone (talker not loaded), supports multi-stream.",
   "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr",
   "tts_backend": "jetson.matcha_trt",
   "execution_policy": {
     "mode": "concurrent",

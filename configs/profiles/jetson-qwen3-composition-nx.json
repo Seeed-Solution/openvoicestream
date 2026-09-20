@@ -2,6 +2,7 @@
   "name": "jetson-qwen3-composition-nx",
   "description": "Composition-mode Qwen3 ASR + Qwen3 TTS N1 profile for Orin NX (profiling device). The leaf registry (configs/leaves/) supplies the EDGE_LLM_* engine path + backend-mode env and the union-pull artifact file list; this profile carries only the operator-owned boot env (language mode, backends, worker config, artifact set/root, TTS tuning). It deliberately OMITS required_engines: the leaf env sets the Qwen3 engine paths and the engine_resolver only acts on profile.required_engines, so the resolver runs as a no-op here.",
   "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr",
   "tts_backend": "jetson.trt_edge_llm",
   "execution_policy": {
     "mode": "concurrent",

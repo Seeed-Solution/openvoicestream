@@ -2,6 +2,7 @@
   "name": "rk3576-default",
   "description": "Rockchip RK3576 release profile: Qwen3 ASR on RKNN/RKLLM W8A8 plus Matcha hybrid TTS (ORT acoustic + RKNN Vocos). W8A8 is the default RK3576 decoder after the 2026-06-10 highperf long-dictation and V2V recheck.",
   "asr_backend": "rk.asr",
+  "asr_model_id": "qwen3-asr",
   "tts_backend": "rk.tts",
   "execution_policy": {
     "mode": "serialized",

@@ -2,6 +2,7 @@
   "name": "jetson-multilang-highperf",
   "description": "Qwen3 ASR + Qwen3 TTS high-performance dual-resident profile for OpenVoiceStream. Engine paths use ${QWEN3_ARTIFACT_ROOT} for portability when /opt/models needs sudo.",
   "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr",
   "tts_backend": "jetson.trt_edge_llm",
   "execution_policy": {
     "mode": "serialized",
