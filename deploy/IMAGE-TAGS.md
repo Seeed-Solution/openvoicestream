@@ -29,7 +29,8 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `openvoicestream:rk-20260919-envownership` (speech) | working tree — `server/core/profile_loader.py` md5 `eb4756e7…` | `0.0.15a0` (inherited, unchanged) | 2026-09-19 | macbook (arm64, thin overlay) | index `sha256:c17693df0363a22a3e5d76d344d00b65e3e2a41ac50409f203ea4fb26da7ac7e` |
 | `edge-llm-rk1828:20260918-hostruntime` (superseded by `20260919-hostruntime`) | working tree on `a8cddf3` — the two changed files only (`entrypoint.sh` md5 `c515e16d…`, `rk1828_llm_server.py` md5 `a66de901…`) | n/a | 2026-09-18 | macbook (arm64, thin overlay) | index `sha256:cc270b1ca173f9ab1e6476d14c7e256d6ce43a567eca1ffbfa9909e5d30efdbe`, linux/arm64 `sha256:4b91b9b3144936ac33ba27dd8b1e1d70515563e50303930a299228ab74824485` |
 | `openvoicestream:rk-20260920-piper-en` (speech, superseded by `rk-20260920-piper-en.2`) | recorded after the fact from the image itself — four files over `rk-20260919-envownership`: `configs/profiles/rk3588-piper.json` + `rk3576-piper.json` (= `38341b3`, i.e. without the `asr_model_id` line `3c23458` added), `deploy/artifacts/rk_manifest.json` (= HEAD), `rkvoice_stream/backends/tts/piper.py` (= rkvoice-stream `3e935dd`) | `0.0.15a0` (inherited) | 2026-09-20 05:45Z (layer timestamps) | macbook (arm64, thin overlay) | index `sha256:47966ea63759bf3727d05f1645032248c0367683a0f1625a6635b772f48f0456`, linux/arm64 `sha256:3235c329d33ae563beccad85dc7340cabcfb99578869ffce78866f4856417e85` |
-| `openvoicestream:rk-20260920-piper-en.2` (speech) | two files over `rk-20260920-piper-en`, byte-identical to rkvoice-stream main `5978d04`: `backends/asr/qwen3/streaming.py` md5 `6833d738…`, `backends/tts/piper.py` md5 `5809d480…` | `0.0.15a0` (inherited) | 2026-09-20 | macbook (arm64, thin overlay) | index `sha256:301a8105e18423abd40f83b694a1cfe9f58d44393e174814616c5c85ce429b62`, linux/arm64 `sha256:20f06d70b8006a8f2e37b84e1c45d01c95f5fdd9a1d07bc33b1a42076ee0e16b` |
+| `openvoicestream:rk-20260920-piper-en.2` (speech, superseded by `rk-20260921-twosentence`) | two files over `rk-20260920-piper-en`, byte-identical to rkvoice-stream main `5978d04`: `backends/asr/qwen3/streaming.py` md5 `6833d738…`, `backends/tts/piper.py` md5 `5809d480…` | `0.0.15a0` (inherited) | 2026-09-20 | macbook (arm64, thin overlay) | index `sha256:301a8105e18423abd40f83b694a1cfe9f58d44393e174814616c5c85ce429b62`, linux/arm64 `sha256:20f06d70b8006a8f2e37b84e1c45d01c95f5fdd9a1d07bc33b1a42076ee0e16b` |
+| `openvoicestream:rk-20260921-twosentence` (speech) | nine files over `rk-20260920-piper-en.2`, byte-identical to main `967d120`: the seven `configs/profiles/rk35{76,88}-*.json` Qwen3-ASR profiles, `deploy/artifacts/rk_manifest.json`, `server/core/rk_profile_contract.py` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:f05c121d6bb7128e78c47739d5300d6c12b28308c49136e0a58bf6ed1506a81d`, linux/arm64 `sha256:eb05622a4815373eceef86f5dbf6244e9749d42dbb6270e865c8146d106cbc29` |
 | `rpi-hailo` (local, not pushed) | `4d66f475` + `final-hailo` stage | `0.0.12a0` baked | 2026-09-09 | harvest-pi | `sha256:f6d9bf16557a3a561968e2c942cfcc13112489faafe667a1df95bf5bc4700f65` (local image ID, 657 MB) |
 
 `rpi-hailo` — `Dockerfile.rpi --target final-hailo`, built on `harvest-pi`
@@ -214,4 +215,45 @@ base). The Piper profiles in this lineage are the `38341b3` copies, without the
 
 `rk-20260920-piper-en` was pushed without an entry here; its row above is
 reconstructed from `docker history` and file md5s, not from a build log.
+
+`openvoicestream:rk-20260921-twosentence` — a **thin overlay** on
+`rk-20260920-piper-en.2` that sets `ASR_FINAL_STOP_ON_PUNCT=0` for RK3588 and
+RK3576: the seven RK Qwen3-ASR profiles, the four artifact sets that repeat the
+key in `rk_manifest.json` (`RK_ARTIFACT_CONTRACT_STRICT` refuses to start when a
+set and its profile disagree) and `rk_profile_contract.py`.
+
+With the stop on, the final decode is aborted at the first sentence terminator,
+so an utterance of two sentences came back as its first: "They ship today. Do you
+want one?" -> "They ship today." Measured 2026-09-21, W8A8, the same audio decoded
+with the stop on and off in one process (`bench/perf/corpus` short + long plus
+four two-sentence clips):
+
+| | RK3588 (radxa) | RK3576 (cat-remote) |
+|---|---|---|
+| two English sentences, WER | 71.4% / 60.0% -> 14.3% / 0.0% | 57.1% / 60.0% -> 0.0% / 0.0% |
+| 10 single sentences | 17.9% -> 17.2% | 14.0% -> 14.0% |
+| 10 long clips | 16.7% -> 16.6% | 16.5% -> 15.9% |
+| garbage / prompt leaks, stop off | 0 of 24 | 0 of 24 |
+| finalize cost of stop off | inside the 50-100 ms embed-cache order effect | +70-90 ms, both run orders |
+
+Every single-sentence decode ends on EOS with the same token count (+-1 on RK3588,
+identical on RK3576): the stop saved the EOS token. The redundant Chinese
+continuation the 2026-06-02 RK3576 runs reported did not reproduce.
+
+Verified in the image: the nine files match main, all seven profiles read `"0"`,
+the contract verifies for both platforms and reports a mismatch when the value is
+put back to `1`. Verified as a running service on radxa (a temporary container
+from this image on port 8631, same volumes and env as the live one): startup logs
+`RK profile contract verified … 'ASR_FINAL_STOP_ON_PUNCT': '0'` and
+`RKLLM decoder loaded … final_stop_on_punct=False`; through `/asr/stream?vad=none`
+both two-sentence clips come back as one whole final.
+
+The profiles are main's copies, so this image also gains the `asr_model_id` line
+from `3c23458` that the `rk-20260920-piper-en` lineage lacked.
+
+Not measured: silence, noise and very short audio with the stop off (the decode
+now ends on EOS or `ASR_MAX_NEW_TOKENS=64`), and the worst-case finalize time if
+EOS is missed. `/asr/stream` in its default open-mic mode still cuts at 400 ms
+pauses and emits one final per segment; that is the endpoint's documented
+behaviour, not something this image changes.
 
