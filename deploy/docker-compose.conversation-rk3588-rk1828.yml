@@ -10,13 +10,17 @@
 #   agent        — mic/speaker client running `ovs-agent run conversation`
 #
 # ── IMAGE DEFAULTS ────────────────────────────────────────────────────────
-#   speech: sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260919-envownership
-#     Thin overlay on rk-20260913.3 replacing only server/core/profile_loader.py:
-#     operator env ownership is derived from what the shipped profiles/leaves
-#     declare plus the selected profile's own keys, instead of a hand-kept prefix
-#     table that silently let a profile win (WHISPER_* 2026-08-28,
-#     PIPER_* 2026-09-18). index sha256:81e51b3ec91f36dc6a7262bdc0916ae1009c48d60d1f1ff3d510968c28c3eed2
-#     linux/arm64 sha256:52939b54c565763474…  See deploy/IMAGE-TAGS.md.
+#   speech: sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260920-piper-en.2
+#     Thin overlay on rk-20260920-piper-en replacing two rkvoice-stream modules
+#     (suharvest/rkvoice-stream main @ 5978d04): asr/qwen3/streaming.py -- an
+#     utterance longer than the 5 s rolling window no longer comes back as its
+#     last 5 s -- and tts/piper.py -- English pauses at "," and ".".
+#     index sha256:301a8105e18423abd40f83b694a1cfe9f58d44393e174814616c5c85ce429b62
+#     linux/arm64 sha256:20f06d70b8006a8f2e37b84e1c45d01c95f5fdd9a1d07bc33b1a42076ee0e16b
+#     Lineage: rk-20260913.3 -> rk-20260919-envownership (profile_loader.py, operator
+#     env ownership derived from the shipped profiles/leaves) -> rk-20260920-piper-en
+#     (Piper profiles + manifest + piper.py) -> this. See deploy/IMAGE-TAGS.md.
+#     rk-20260913.3 itself:
 #     sha256:d1677071dff68d0be3a3edd26d5959b4598a502ad05162901e509a706723794a
 #     (linux/arm64, per `docker manifest inspect` recorded in the solution on
 #     2026-09-13; not re-verified here). Carries the RK profile fix that raised
@@ -55,7 +59,7 @@ services:
   # path this compose does not pin; the repo test suite is what guarantees
   # every profile the matrix names exists.
   profile-init:
-    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260919-envownership}
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260920-piper-en.2}
     container_name: conversational-voice-profile-init
     init: true
     network_mode: none
@@ -74,7 +78,7 @@ services:
     restart: "no"
 
   speech:
-    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260919-envownership}
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260920-piper-en.2}
     container_name: conversational-voice-speech
     privileged: true
     init: true
