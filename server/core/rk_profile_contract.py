@@ -28,7 +28,27 @@ RK_RELEASE_PROFILES = frozenset(
 
 _COMMON_EXPECTED: dict[str, str] = {
     "ASR_MAX_NEW_TOKENS": "64",
-    # ASR_FINAL_STOP_ON_PUNCT is per platform, below.
+    # Off. The stop ends the final decode at the first sentence terminator, so
+    # an utterance of two sentences came back as its first: "They ship today. Do
+    # you want one?" -> "They ship today."
+    #
+    # Measured 2026-09-21 on both platforms (W8A8; bench/perf/corpus short + long
+    # plus four two-sentence clips, the same audio decoded with the stop on and
+    # off in one process):
+    #                            RK3588 (radxa)        RK3576 (cat-remote)
+    #   two English sentences    71.4/60.0 -> 14.3/0.0  57.1/60.0 -> 0.0/0.0  % WER
+    #   10 single sentences      17.9 -> 17.2           14.0 -> 14.0          % err
+    #   10 long clips            16.7 -> 16.6           16.5 -> 15.9          % err
+    #   garbage / prompt leaks   0 of 24                0 of 24   (stop off)
+    # Every single-sentence decode ends on EOS with the same token count (+-1 on
+    # RK3588, identical on RK3576), so what the stop saved was the EOS token:
+    # 70-90 ms on RK3576, measured in both run orders; on RK3588 it sits inside
+    # the 50-100 ms embed-cache order effect. The redundant Chinese continuation
+    # the 2026-06-02 RK3576 runs reported (zh_short_02) did not reproduce: 16
+    # tokens either way. The stop was adopted on a single-sentence corpus
+    # (docs/perf/qwen3-asr-rk-streaming-ab-20260601.md), where the truncation
+    # cannot show; the long-dictation profile had already turned it off.
+    "ASR_FINAL_STOP_ON_PUNCT": "0",
     "ASR_FINAL_STOP_MIN_CHARS": "8",
     "ASR_FINAL_STOP_MIN_CHUNKS": "2",
     "ASR_NPU_CORE_MASK": "NPU_CORE_1",
@@ -66,11 +86,6 @@ _PLATFORM_EXPECTED: dict[str, dict[str, str]] = {
     # endpoint path; keep its measured synchronous close-out recipe.
     "rk3576": {
         "QWEN3_ASR_VAD_FINAL_ASYNC": "0",
-        # Kept on: the 2026-06-02 RK3576 W8A8 runs saw redundant continuation
-        # after a complete Chinese sentence, which this stop cuts. The RK3588
-        # measurement below has not been repeated on RK3576; it truncates a
-        # two-sentence utterance here exactly as it did there.
-        "ASR_FINAL_STOP_ON_PUNCT": "1",
         "MATCHA_MIN_MEL_FRAMES": "96",
         "VOCOS_FRAMES": "600",
     },
@@ -78,33 +93,12 @@ _PLATFORM_EXPECTED: dict[str, dict[str, str]] = {
     # improve dialogue latency.
     "rk3588": {
         "QWEN3_ASR_VAD_FINAL_ASYNC": "1",
-        # Off. The stop ends the final decode at the first sentence terminator,
-        # so an utterance of two sentences came back as its first: "They ship
-        # today. Do you want one?" -> "They shipped today."
-        #
-        # Measured on RK3588 W8A8 (radxa, 2026-09-21, bench/perf/corpus short +
-        # long plus four two-sentence clips, same audio decoded with the stop on
-        # and off):
-        #   two English sentences   71.4% / 60.0% WER on  ->  14.3% / 0.0% off
-        #   10 single sentences     every decode ends on EOS with the same
-        #                           token count (+-1); 17.9% on -> 17.2% off
-        #   10 long clips           16.7% on -> 16.6% off
-        #   trailing garbage / prompt leaks with the stop off: 0 of 24
-        #   finalize time           whichever ran first was 50-100 ms slower
-        #                           (embed-cache order effect, reversed when the
-        #                           order was); on vs off is inside that noise
-        # What the stop saved was the EOS token. It was adopted on a
-        # single-sentence corpus (docs/perf/qwen3-asr-rk-streaming-ab-20260601.md),
-        # where the truncation cannot show; the long-dictation profile had
-        # already turned it off for this reason.
-        "ASR_FINAL_STOP_ON_PUNCT": "0",
         "MATCHA_MIN_MEL_FRAMES": "72",
         "VOCOS_FRAMES": "256",
     },
 }
 
-_PROFILE_KEYS = (
-    *_COMMON_EXPECTED, "QWEN3_ASR_VAD_FINAL_ASYNC", "ASR_FINAL_STOP_ON_PUNCT")
+_PROFILE_KEYS = (*_COMMON_EXPECTED, "QWEN3_ASR_VAD_FINAL_ASYNC")
 
 
 def _profile_name(profile: Mapping[str, object] | None) -> str:

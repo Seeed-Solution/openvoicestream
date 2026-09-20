@@ -8,7 +8,7 @@ def _profile(device: str = "rk3576") -> dict:
     env = {
         "RK_PLATFORM": device,
         "ASR_MAX_NEW_TOKENS": "64",
-        "ASR_FINAL_STOP_ON_PUNCT": "1" if device == "rk3576" else "0",
+        "ASR_FINAL_STOP_ON_PUNCT": "0",
         "ASR_FINAL_STOP_MIN_CHARS": "8",
         "ASR_FINAL_STOP_MIN_CHUNKS": "2",
         "ASR_NPU_CORE_MASK": "NPU_CORE_1",
@@ -86,16 +86,15 @@ def test_non_release_profile_is_not_subject_to_contract():
     assert status["verified"] is True
 
 
-def test_final_punctuation_stop_is_a_per_platform_decision():
-    # RK3588: off -- it cut a two-sentence utterance to its first sentence and
-    # saved nothing measurable. RK3576: still on, pending its own measurement.
-    for device, expected, wrong in (("rk3588", "0", "1"), ("rk3576", "1", "0")):
+def test_final_punctuation_stop_is_off_on_both_platforms():
+    # It cut a two-sentence utterance to its first sentence and saved one EOS
+    # token; measured on RK3588 and RK3576 (see rk_profile_contract.py).
+    for device in ("rk3588", "rk3576"):
         profile = _profile(device)
         status = runtime_status(profile, profile["env"])
         assert status["verified"] is True
-        assert status["settings"]["ASR_FINAL_STOP_ON_PUNCT"] == expected
+        assert status["settings"]["ASR_FINAL_STOP_ON_PUNCT"] == "0"
 
-        runtime = dict(profile["env"], ASR_FINAL_STOP_ON_PUNCT=wrong)
-        drifted = runtime_status(profile, runtime)
+        drifted = runtime_status(profile, dict(profile["env"], ASR_FINAL_STOP_ON_PUNCT="1"))
         assert drifted["verified"] is False
         assert "ASR_FINAL_STOP_ON_PUNCT" in drifted["mismatches"]

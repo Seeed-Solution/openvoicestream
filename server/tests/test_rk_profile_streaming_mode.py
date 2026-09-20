@@ -60,10 +60,8 @@ def test_rk_qwen3_asr_release_profiles_use_optimized_w8a8_defaults():
         assert env["ASR_DECODER_QUANT"] == "w8a8"
         assert env["ASR_ENABLED_CPUS"] == "4"
         assert env["ASR_MAX_NEW_TOKENS"] == "64"
-        # Off on RK3588 (cut two-sentence utterances, saved only the EOS
-        # token); still on for RK3576 until it is measured there.
-        assert env["ASR_FINAL_STOP_ON_PUNCT"] == (
-            "0" if name.startswith("rk3588-") else "1")
+        # Off: it cut two-sentence utterances and saved one EOS token.
+        assert env["ASR_FINAL_STOP_ON_PUNCT"] == "0"
         assert env["QWEN3_ASR_TRUE_ROLL_SEC"] == "5"
         assert env["QWEN3_ASR_TRUE_PARTIAL_TOKENS"] == "8"
 
