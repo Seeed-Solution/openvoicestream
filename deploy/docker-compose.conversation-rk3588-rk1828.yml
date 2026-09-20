@@ -105,6 +105,15 @@ services:
       # profile is not silently overridden by a value pinned in compose.
       OVS_PROFILE: ${OVS_PROFILE:-rk3588-default}
       OVS_PROFILE_DEFAULT: rk3588-default
+      # Not read by the server -- the profile arrives through the resolved
+      # ovs.env that profile-init writes. It is declared here so that changing
+      # the language from device management changes THIS service's config too,
+      # which makes compose recreate it. Without it the container is only
+      # restarted as a side effect of its dependency being recreated (verified:
+      # restart does re-source ovs.env, so it works today), and that leaves the
+      # reconfigure path depending on compose's dependent-restart semantics
+      # rather than on something this file states outright.
+      LANGUAGE: ${LANGUAGE:-zh}
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
       # Operator/deploy-time override for the ASR backend's own endpoint
       # threshold (ms). 0 / unset = keep the profile value (1500 ms in
