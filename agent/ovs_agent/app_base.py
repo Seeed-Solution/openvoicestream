@@ -3321,6 +3321,26 @@ class BaseApp:
                 logger.info("asr utterance assembled from segments: %r", full_text)
             self._last_user_utterance_text = full_text
             self._cancel_wake_command_timeout()
+            # A new user turn supersedes the previous reply. The LLM task is
+            # cancelled further down, but a reply that has already been fully
+            # synthesized keeps playing from the local buffer, and the new
+            # reply queues behind it. This happens whenever the FSM is not in
+            # SPEAKING while that audio plays (e.g. a VAD segment that started
+            # just before playback ends mid-reply and moves SPEAKING ->
+            # THINKING), because both barge-in paths require SPEAKING.
+            # Measured on rk3588 (2026-09-21): five user turns in 15 s while
+            # one 20-sentence reply kept playing; "stop" never interrupted it.
+            # Done before re-arming playback below: stop_playback latches
+            # discard, arm_for_next_turn clears it for the new reply.
+            if (
+                getattr(self.audio, "is_playing", False)
+                and self._barge_in_enabled()
+            ):
+                logger.info(
+                    "new user turn while the previous reply is still playing; "
+                    "interrupting it"
+                )
+                await self._interrupt_current_turn_for_barge_in()
             # Re-enable speaker playback for the next turn. stop_playback
             # latched discard=True on the prior barge-in / sleep so SLV's
             # tail-end TTS didn't keep playing; clear that now so the new

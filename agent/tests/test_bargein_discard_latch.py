@@ -290,3 +290,49 @@ async def test_cancelled_response_done_preserves_barged_in():
         response={"id": "resp_old", "status": "cancelled"},
     ))
     assert app._state == ConvState.BARGED_IN
+
+
+
+@pytest.mark.asyncio
+async def test_new_user_turn_interrupts_a_reply_still_playing():
+    """Regression (rk3588, 2026-09-21): a reply that had finished synthesizing
+    kept playing from the local buffer while the FSM sat in THINKING, and each
+    new user turn queued its reply behind it. A real final must cut the old
+    reply first, then re-arm playback for the new one."""
+    app = _make_app()
+    await app._dispatch_one(TTSAudio(pcm=b"\x01\x00" * 8, sample_rate=24000))
+    assert app.audio.is_playing
+    app._state = ConvState.THINKING      # the state that disabled barge-in
+
+    async def _noop(text: str) -> None:
+        return None
+
+    app.on_user_utterance = _noop  # type: ignore[assignment]
+    await app._dispatch_one(ASRFinal(text="Stop, please answer in one sentence.",
+                                     duplicate_of_streamed=False))
+
+    assert app.audio.is_playing is False, "old reply must be cut"
+    assert app.slv.aborted == 1
+    assert app.audio.discard is False, "new reply must be audible (re-armed)"
+    if app._llm_turn_task is not None:
+        await asyncio.wait_for(app._llm_turn_task, timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_new_user_turn_keeps_playback_when_barge_in_disabled():
+    """Interpretation/transcription modes overlap playback on purpose."""
+    app = _make_app()
+    await app._dispatch_one(TTSAudio(pcm=b"\x01\x00" * 8, sample_rate=24000))
+    app._state = ConvState.THINKING
+    app._barge_in_enabled = lambda: False  # type: ignore[assignment]
+
+    async def _noop(text: str) -> None:
+        return None
+
+    app.on_user_utterance = _noop  # type: ignore[assignment]
+    await app._dispatch_one(ASRFinal(text="next sentence", duplicate_of_streamed=False))
+
+    assert app.audio.is_playing is True
+    assert app.slv.aborted == 0
+    if app._llm_turn_task is not None:
+        await asyncio.wait_for(app._llm_turn_task, timeout=1.0)
