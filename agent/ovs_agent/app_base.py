@@ -431,6 +431,7 @@ class BaseApp:
         # On fire, force state back to IDLE so the next user turn isn't
         # blocked. Configurable via ``thinking_timeout_s`` (default 20s).
         self._thinking_watchdog_task: asyncio.Task | None = None
+        self._bargein_eos_task: asyncio.Task | None = None
         self._playback_drain_task: asyncio.Task | None = None
         # silero-primary stall fallback (config.vad_stall_eos_ms): reset on
         # every real asr_partial; forces a single asr_eos if silero goes quiet
@@ -1328,6 +1329,7 @@ class BaseApp:
             await self.shutdown()
 
     async def shutdown(self) -> None:
+        self._cancel_bargein_eos_fallback()
         # 0. cancel any in-flight LLM turn
         if self._llm_turn_task is not None and not self._llm_turn_task.done():
             self._llm_turn_task.cancel()
@@ -1973,7 +1975,7 @@ class BaseApp:
         except Exception:
             logger.exception("mic pump crashed")
 
-    async def send_asr_eos_once(self) -> bool:
+    async def send_asr_eos_once(self, *, only_on_ws: object = None) -> bool:
         """Send asr_eos to SLV at most once per turn.
 
         Returns True if this call actually sent the EOS, False if it
@@ -1989,7 +1991,10 @@ class BaseApp:
             return False
         self._eos_sent_this_turn = True
         try:
-            await self.slv.asr_eos()
+            if only_on_ws is None:
+                await self.slv.asr_eos()
+            else:
+                await self.slv.asr_eos(only_on_ws=only_on_ws)
         except Exception:
             logger.exception("asr_eos send failed")
             # Don't clear the flag — even on failure we don't want to
@@ -2631,6 +2636,91 @@ class BaseApp:
         # thing the barge-in is meant to capture. It is still cleared on
         # dispatch, sleep, wake-command completion and session close, so it
         # cannot glue onto an unrelated next turn.
+        self._arm_bargein_eos_fallback()
+
+    def _arm_bargein_eos_fallback(self) -> None:
+        """Close the kept ASR utterance if no client VAD segment will.
+
+        With client-VAD-driven EOS the only thing that ends an utterance is a
+        VAD speech→silence edge. A partial-driven barge-in can fire after that
+        edge has already passed: measured on rk3588 (2026-09-21) a VAD segment
+        started 148 ms into playback (rejected as echo), ended at +955 ms
+        (suppressed as an echo segment, no asr_eos), and the ASR partial for
+        the same audio fired barge-in 170 ms later. The server kept the
+        utterance (keep_asr=1), no new VAD segment started, nobody sent
+        asr_eos, and the turn sat in BARGED_IN until the server's 45 s
+        per-turn deadline.
+
+        So when barge-in lands while client VAD is not inside a segment, wait
+        one silence window; if the user has not started a segment by then,
+        send asr_eos ourselves. A segment that does start cancels this and
+        ends through the normal VAD path.
+        """
+        self._cancel_bargein_eos_fallback()
+        cfg = getattr(self, "config", None)
+        if cfg is None or not getattr(cfg, "client_vad_drive_eos", False):
+            return
+        if getattr(self, "_vad_state", "idle") == "speech":
+            return
+        # Bound to the SLV connection that holds the kept utterance: an EOS
+        # sent after a reconnect would land on a fresh session (and
+        # _send_json would auto-connect a dead transport to deliver it).
+        self._bargein_eos_task = asyncio.create_task(
+            self._bargein_eos_fallback(
+                float(cfg.client_vad_silence_ms) / 1000.0,
+                getattr(self.slv, "_ws", None),
+            ),
+            name="bargein-eos-fallback",
+        )
+
+    def _cancel_bargein_eos_fallback(self) -> None:
+        task = getattr(self, "_bargein_eos_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+        self._bargein_eos_task = None
+
+    # Upper bound on how long sub-threshold VAD activity may keep deferring
+    # the fallback; the server's per-turn deadline (45 s) is the backstop.
+    _BARGEIN_EOS_MAX_DEFER_S = 5.0
+
+    async def _bargein_eos_fallback(self, delay_s: float, owner_ws: object) -> None:
+        deferred_s = 0.0
+        try:
+            while True:
+                await asyncio.sleep(delay_s)
+                if getattr(self, "_vad_state", "idle") == "speech":
+                    return
+                if getattr(self, "_state", ConvState.IDLE) != ConvState.BARGED_IN:
+                    return
+                # Speech below client_vad_speech_min_ms leaves _vad_state
+                # "idle" while _vad_speech_ms accumulates: the start of a
+                # segment, not silence.
+                if (
+                    getattr(self, "_vad_speech_ms", 0) > 0
+                    and deferred_s < self._BARGEIN_EOS_MAX_DEFER_S
+                ):
+                    deferred_s += delay_s
+                    continue
+                break
+        except asyncio.CancelledError:
+            return
+        if owner_ws is None or getattr(self.slv, "_ws", None) is not owner_ws:
+            logger.info(
+                "barge-in: SLV connection changed; not sending asr_eos for "
+                "the old utterance"
+            )
+            return
+        logger.info(
+            "barge-in: no client VAD segment within %.0fms; closing the kept "
+            "ASR utterance -> asr_eos",
+            (delay_s + deferred_s) * 1000,
+        )
+        await self.send_asr_eos_once(only_on_ws=owner_ws)
+        # An (empty) asr_final can land while the EOS is in flight and already
+        # recover the FSM; only claim THINKING if nothing moved it.
+        if getattr(self, "_state", ConvState.IDLE) == ConvState.BARGED_IN:
+            self._set_state(ConvState.THINKING)
+            self._arm_thinking_watchdog()
 
     def _arm_thinking_watchdog(self) -> None:
         """Re-arm the THINKING-state watchdog.
@@ -2795,6 +2885,7 @@ class BaseApp:
                     self._vad_silence_ms = 0
                     self._vad_eos_sent = False
                     self._vad_echo_segment = False
+                    self._cancel_bargein_eos_fallback()
                     logger.info("client VAD: speech started")
                     if (
                         getattr(self, "_state", ConvState.IDLE) == ConvState.THINKING

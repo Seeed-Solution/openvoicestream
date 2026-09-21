@@ -146,3 +146,156 @@ async def test_reply_boundary_hook_fires_on_every_reply_start():
     await client.speak("Done.")
     await client.create_response()
     assert len(fired) == 4
+
+
+class _EosSLV(_RecordingSLV):
+    def __init__(self) -> None:
+        super().__init__()
+        self.eos = 0
+        self._ws = object()
+        self.on_eos = None
+
+    async def asr_eos(self, *, only_on_ws=None) -> None:
+        if only_on_ws is not None and only_on_ws is not self._ws:
+            return
+        self.eos += 1
+        if self.on_eos is not None:
+            self.on_eos()
+
+
+class _Cfg:
+    client_vad_drive_eos = True
+    client_vad_silence_ms = 20
+    thinking_timeout_s = 60.0
+
+
+def _make_eos_app(vad_state: str) -> BaseApp:
+    app = _make_app()
+    app.slv = _EosSLV()
+    app.config = _Cfg()
+    app._vad_state = vad_state
+    app._state = ConvState.BARGED_IN
+    app._thinking_watchdog_task = None
+    return app
+
+
+async def _drain(app: BaseApp) -> None:
+    for name in ("_bargein_eos_task", "_asr_watchdog_task", "_thinking_watchdog_task"):
+        task = getattr(app, name, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_partial_bargein_after_vad_segment_ended_closes_kept_utterance():
+    """rk3588 2026-09-21: echo VAD segment ended (eos suppressed), the ASR
+    partial of that audio fired barge-in 170 ms later, keep_asr kept the
+    utterance, and nothing ever sent asr_eos — the turn hit the server's 45 s
+    per-turn deadline. With VAD outside a segment the agent must close it."""
+    app = _make_eos_app(vad_state="idle")
+
+    await app._interrupt_current_turn_for_barge_in()
+    await asyncio.sleep(0.1)
+
+    assert app.slv.eos == 1
+    assert app._state == ConvState.THINKING
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_bargein_eos_fallback_yields_to_a_new_vad_segment():
+    app = _make_eos_app(vad_state="idle")
+
+    await app._interrupt_current_turn_for_barge_in()
+    # The user keeps talking: the VAD speech-start path cancels the fallback
+    # and the segment ends through the normal speech→silence edge.
+    app._vad_state = "speech"
+    app._cancel_bargein_eos_fallback()
+    await asyncio.sleep(0.1)
+
+    assert app.slv.eos == 0
+    assert app._state == ConvState.BARGED_IN
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_bargein_inside_a_vad_segment_leaves_eos_to_vad():
+    app = _make_eos_app(vad_state="speech")
+
+    await app._interrupt_current_turn_for_barge_in()
+    await asyncio.sleep(0.1)
+
+    assert app.slv.eos == 0
+    assert getattr(app, "_bargein_eos_task", None) is None
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_bargein_eos_fallback_waits_for_sub_threshold_speech():
+    """Codex review of #115: speech below client_vad_speech_min_ms keeps
+    _vad_state "idle" while _vad_speech_ms accumulates — not silence."""
+    app = _make_eos_app(vad_state="idle")
+    app._vad_speech_ms = 100
+
+    await app._interrupt_current_turn_for_barge_in()
+    await asyncio.sleep(0.1)
+    assert app.slv.eos == 0, "EOS must not cut off a segment still qualifying"
+
+    app._vad_speech_ms = 0          # the blip died out without a segment
+    await asyncio.sleep(0.1)
+    assert app.slv.eos == 1
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_bargein_eos_fallback_not_sent_to_a_new_connection():
+    app = _make_eos_app(vad_state="idle")
+
+    await app._interrupt_current_turn_for_barge_in()
+    app.slv._ws = object()          # SLV reconnected: kept utterance is gone
+    await asyncio.sleep(0.1)
+
+    assert app.slv.eos == 0
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_bargein_eos_fallback_does_not_undo_empty_final_recovery():
+    app = _make_eos_app(vad_state="idle")
+
+    def _empty_final_recovers() -> None:
+        app._state = ConvState.IDLE
+
+    app.slv.on_eos = _empty_final_recovers
+    await app._interrupt_current_turn_for_barge_in()
+    await asyncio.sleep(0.1)
+
+    assert app.slv.eos == 1
+    assert app._state == ConvState.IDLE
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_session_bound_eos_is_dropped_if_ws_replaced_while_waiting_for_lock():
+    """Codex re-review of #115: the ownership check must sit under the send
+    lock. Reproduction: the EOS waits on the lock, a reconnect swaps the WS,
+    the lock is released — the new session must not receive the EOS."""
+    client, old_ws = _client_with_ws()
+    new_ws = _FakeWS()
+
+    await client._send_lock.acquire()
+    send = asyncio.create_task(client.asr_eos(only_on_ws=old_ws))
+    await asyncio.sleep(0)          # EOS is now queued on the lock
+    client._ws = new_ws             # reconnect replaced the session
+    client._send_lock.release()
+    await send
+
+    assert old_ws.sent == [] and new_ws.sent == []
+
+
+@pytest.mark.asyncio
+async def test_session_bound_eos_is_sent_on_its_own_ws():
+    client, ws = _client_with_ws()
+    await client.asr_eos(only_on_ws=ws)
+    await client.asr_eos()          # unbound callers are unchanged
+    assert [m["type"] for m in ws.sent] == ["asr_eos", "asr_eos"]
