@@ -152,9 +152,13 @@ class _EosSLV(_RecordingSLV):
     def __init__(self) -> None:
         super().__init__()
         self.eos = 0
+        self._ws = object()
+        self.on_eos = None
 
     async def asr_eos(self) -> None:
         self.eos += 1
+        if self.on_eos is not None:
+            self.on_eos()
 
 
 class _Cfg:
@@ -221,4 +225,49 @@ async def test_bargein_inside_a_vad_segment_leaves_eos_to_vad():
 
     assert app.slv.eos == 0
     assert getattr(app, "_bargein_eos_task", None) is None
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_bargein_eos_fallback_waits_for_sub_threshold_speech():
+    """Codex review of #115: speech below client_vad_speech_min_ms keeps
+    _vad_state "idle" while _vad_speech_ms accumulates — not silence."""
+    app = _make_eos_app(vad_state="idle")
+    app._vad_speech_ms = 100
+
+    await app._interrupt_current_turn_for_barge_in()
+    await asyncio.sleep(0.1)
+    assert app.slv.eos == 0, "EOS must not cut off a segment still qualifying"
+
+    app._vad_speech_ms = 0          # the blip died out without a segment
+    await asyncio.sleep(0.1)
+    assert app.slv.eos == 1
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_bargein_eos_fallback_not_sent_to_a_new_connection():
+    app = _make_eos_app(vad_state="idle")
+
+    await app._interrupt_current_turn_for_barge_in()
+    app.slv._ws = object()          # SLV reconnected: kept utterance is gone
+    await asyncio.sleep(0.1)
+
+    assert app.slv.eos == 0
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_bargein_eos_fallback_does_not_undo_empty_final_recovery():
+    app = _make_eos_app(vad_state="idle")
+
+    def _empty_final_recovers() -> None:
+        app._state = ConvState.IDLE
+
+    app.slv.on_eos = _empty_final_recovers
+    await app._interrupt_current_turn_for_barge_in()
+    await asyncio.sleep(0.1)
+
+    assert app.slv.eos == 1
+    assert app._state == ConvState.IDLE
     await _drain(app)
