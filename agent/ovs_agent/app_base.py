@@ -2082,6 +2082,49 @@ class BaseApp:
             self._server_loop_enabled(),
         )
 
+    def _default_mode_tool_allow(self) -> "set[str] | None | bool":
+        """Tool set the first turn will send, resolved exactly like
+        ``ModeContext`` does per turn (app_mode.py): the mode's config
+        override, else the mode object's attribute; ``None`` there means
+        "use the global ``tools_enabled`` / ``tools_default_allowlist``".
+
+        The mode is the one the ModeManager actually started (it falls back
+        to the first registered mode when ``default_mode`` is missing), or
+        ``config.default_mode`` for apps without one.
+
+        Returns False (no tools), None (every registered tool) or the
+        allow-listed names.
+        """
+        cfg = self.config
+        manager = getattr(self, "modes", None)
+        mode = getattr(manager, "_current", None)
+        if mode is None and manager is not None:
+            registered = getattr(manager, "_modes", None) or {}
+            mode = registered.get(getattr(cfg, "default_mode", None) or "chat")
+            if mode is None and registered:
+                mode = next(iter(registered.values()))
+        mode_name = getattr(mode, "name", None) or getattr(cfg, "default_mode", None) or "chat"
+        overrides = getattr(cfg, "mode_overrides", None) or {}
+        mode_cfg = overrides.get(mode_name) if isinstance(overrides, dict) else None
+        mode_cfg = mode_cfg if isinstance(mode_cfg, dict) else {}
+
+        def _resolve(key: str):
+            if key in mode_cfg:
+                return mode_cfg[key]
+            if mode is not None:
+                return getattr(mode, key, None)
+            return None
+
+        enabled = _resolve("tools_enabled")
+        if enabled is None:
+            enabled = getattr(cfg, "tools_enabled", False)
+        if not bool(enabled):
+            return False
+        allow = _resolve("tools_allowlist")
+        if allow is None:
+            allow = getattr(cfg, "tools_default_allowlist", []) or []
+        return set(allow) if allow else None
+
     async def _maybe_run_llm_warmup(self) -> None:
         """Warm the local LLM backend's prefix KV cache + CUDA graph.
 
@@ -2101,11 +2144,23 @@ class BaseApp:
         # EdgeLLMBackend warms both the prefix KV cache and the TRT-LLM CUDA
         # graph; other backends inherit the default no-op.
         try:
+            # Warm with the tool set the turns will actually send. Warming
+            # with every registered tool when turns send none is not just a
+            # cache miss: a runtime that keeps tools registered across
+            # requests (RK1828 worker) then renders the tool preamble into
+            # every tool-less turn, and the model "calls" set_mode as plain
+            # text that reaches TTS (rk3588 devkit, 2026-09-21: prefill 220 vs
+            # 28 tokens for the same tool-less request).
             tools_payload = None
+            allow = self._default_mode_tool_allow()
             registry = getattr(self, "tool_registry", None)
-            if registry is not None and hasattr(registry, "list_openai_tools"):
+            if (
+                allow is not False
+                and registry is not None
+                and hasattr(registry, "list_openai_tools")
+            ):
                 try:
-                    tools_payload = registry.list_openai_tools(allow=None) or None
+                    tools_payload = registry.list_openai_tools(allow=allow) or None
                 except Exception:
                     logger.debug("warmup: tool_registry lookup failed", exc_info=True)
                     tools_payload = None
