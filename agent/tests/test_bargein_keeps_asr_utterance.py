@@ -146,3 +146,79 @@ async def test_reply_boundary_hook_fires_on_every_reply_start():
     await client.speak("Done.")
     await client.create_response()
     assert len(fired) == 4
+
+
+class _EosSLV(_RecordingSLV):
+    def __init__(self) -> None:
+        super().__init__()
+        self.eos = 0
+
+    async def asr_eos(self) -> None:
+        self.eos += 1
+
+
+class _Cfg:
+    client_vad_drive_eos = True
+    client_vad_silence_ms = 20
+    thinking_timeout_s = 60.0
+
+
+def _make_eos_app(vad_state: str) -> BaseApp:
+    app = _make_app()
+    app.slv = _EosSLV()
+    app.config = _Cfg()
+    app._vad_state = vad_state
+    app._state = ConvState.BARGED_IN
+    app._thinking_watchdog_task = None
+    return app
+
+
+async def _drain(app: BaseApp) -> None:
+    for name in ("_bargein_eos_task", "_asr_watchdog_task", "_thinking_watchdog_task"):
+        task = getattr(app, name, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_partial_bargein_after_vad_segment_ended_closes_kept_utterance():
+    """rk3588 2026-09-21: echo VAD segment ended (eos suppressed), the ASR
+    partial of that audio fired barge-in 170 ms later, keep_asr kept the
+    utterance, and nothing ever sent asr_eos — the turn hit the server's 45 s
+    per-turn deadline. With VAD outside a segment the agent must close it."""
+    app = _make_eos_app(vad_state="idle")
+
+    await app._interrupt_current_turn_for_barge_in()
+    await asyncio.sleep(0.1)
+
+    assert app.slv.eos == 1
+    assert app._state == ConvState.THINKING
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_bargein_eos_fallback_yields_to_a_new_vad_segment():
+    app = _make_eos_app(vad_state="idle")
+
+    await app._interrupt_current_turn_for_barge_in()
+    # The user keeps talking: the VAD speech-start path cancels the fallback
+    # and the segment ends through the normal speech→silence edge.
+    app._vad_state = "speech"
+    app._cancel_bargein_eos_fallback()
+    await asyncio.sleep(0.1)
+
+    assert app.slv.eos == 0
+    assert app._state == ConvState.BARGED_IN
+    await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_bargein_inside_a_vad_segment_leaves_eos_to_vad():
+    app = _make_eos_app(vad_state="speech")
+
+    await app._interrupt_current_turn_for_barge_in()
+    await asyncio.sleep(0.1)
+
+    assert app.slv.eos == 0
+    assert getattr(app, "_bargein_eos_task", None) is None
+    await _drain(app)
