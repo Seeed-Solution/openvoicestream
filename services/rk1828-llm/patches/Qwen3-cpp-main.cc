@@ -38,8 +38,11 @@ bool first_decode = true;
 // ── RK1828 Qwen3 LLM server mode (opt-in via trailing "-" argv) ──────────
 // Modelled 1:1 on the already-shipped gemma4 / Qwen3-TTS server modes.
 //
-//   argv (server) : <model_dir> [--core-mask <hex>] [--max-context <n>]
-//                   [--device-id <id>] -
+//   argv (server) : <model_dir> [--model-name <stem>] [--core-mask <hex>]
+//                   [--max-context <n>] [--kv-checkpoint-interval <n>]
+//                   [--kv-checkpoint-count <n>] [--device-id <id>] -
+//                   <stem> defaults to Qwen3-4B; Qwen3.5 exports load the same
+//                   way (identical RKNN3 LLM API), e.g. --model-name Qwen3.5-4B
 //   argv (one-shot, unchanged):
 //                   <model_path> <weight_path> <tokenizer_path>
 //                   <embedding_path> <core_mask> <prompt>
@@ -68,6 +71,7 @@ bool first_decode = true;
 //            shared EP cannot do safely under concurrency -- it stays 0 here.
 //   stdout : per generated token  [uint32 LE len][utf8 token bytes]
 //            per request end      [uint32 LE 0xFFFFFFFE]  (EOS sentinel)
+//            failed request       [uint32 LE 0xFFFFFFFD]  then the EOS sentinel
 //   EOF on stdin -> clean exit.
 //
 // stdout discipline: the real stdout fd is dup'd to g_frame_fd BEFORE model
@@ -76,6 +80,11 @@ bool first_decode = true;
 // channel (a single stray byte desyncs the reader into a GB-sized read).
 #define QWEN3_LLM_PROTOCOL_VERSION 1
 static const uint32_t LLM_END_OF_STREAM = 0xFFFFFFFEu;
+// Sent before the EOS frame when the request failed (rknn3_session_run != 0),
+// so the client can tell a failure from an empty answer. Measured on the rk3588
+// devkit (2026-09-21): a prompt longer than the model's KV cache fails the run,
+// and without this marker the client got HTTP 200 with empty content.
+static const uint32_t LLM_REQUEST_FAILED = 0xFFFFFFFDu;
 static std::string g_last_tools;
 static bool        g_kv_reuse = true;  // RK1828_KV_REUSE=0 disables prefix reuse
 static bool g_server_mode = false;
@@ -102,6 +111,12 @@ static void emit_token_frame(const std::string& piece)
   uint32_t len = (uint32_t)piece.size();
   frame_write_all(&len, sizeof(len));
   frame_write_all(piece.data(), piece.size());
+}
+
+static void emit_failed_frame()
+{
+  uint32_t marker = LLM_REQUEST_FAILED;
+  frame_write_all(&marker, sizeof(marker));
 }
 
 static void emit_eos_frame()
@@ -239,6 +254,12 @@ int embed_callback(void* userdata, int32_t* tokens, uint64_t num_tokens, void* e
     }
 
     for (int n = 0; n < num_tokens; n++) {
+        // Same guard as the model zoo's Qwen3.5 demo: a token id outside the
+        // embedding table would read past the mmap.
+        if (tokens[n] < 0 || tokens[n] >= embed_info->vocab_size) {
+            printf("embed_callback: token id %d out of range [0, %d)\n", tokens[n], embed_info->vocab_size);
+            return -1;
+        }
         memcpy((unsigned char*)embed + n * embed_info->embedding_dim * sizeof(float16), embed_info->embedding_data + tokens[n] * embed_info->embedding_dim,
                 embed_info->embedding_dim * sizeof(float16));
     }
@@ -364,7 +385,9 @@ static void server_reset_kvcache(rknn_qwen3_llm_context* llm_ctx,
     }
 }
 
-static int run_server(const std::string& model_dir, uint32_t core_mask, int32_t max_context_len)
+static int run_server(const std::string& model_dir, const std::string& model_name,
+                      uint32_t core_mask, int32_t max_context_len,
+                      int64_t ckpt_interval, int64_t ckpt_count)
 {
     // Re-route stdout FIRST, before any model init chatter: dup the real stdout
     // for raw frames, point the C stdout FILE* at stderr.
@@ -378,10 +401,14 @@ static int run_server(const std::string& model_dir, uint32_t core_mask, int32_t 
         return -1;
     }
 
-    std::string model_path     = join_path(model_dir, "Qwen3-4B.rknn");
-    std::string weight_path    = join_path(model_dir, "Qwen3-4B.weight");
-    std::string tokenizer_path = join_path(model_dir, "Qwen3-4B.tokenizer.gguf");
-    std::string embedding_path = join_path(model_dir, "Qwen3-4B.embed.bin");
+    // The four files of one export share a stem (the model zoo writes
+    // <name>.rknn / .weight / .tokenizer.gguf / .embed.bin). Qwen3 and Qwen3.5
+    // use the same RKNN3 LLM API, so the model is chosen here, not by a
+    // separate binary.
+    std::string model_path     = join_path(model_dir, (model_name + ".rknn").c_str());
+    std::string weight_path    = join_path(model_dir, (model_name + ".weight").c_str());
+    std::string tokenizer_path = join_path(model_dir, (model_name + ".tokenizer.gguf").c_str());
+    std::string embedding_path = join_path(model_dir, (model_name + ".embed.bin").c_str());
 
     int ret = 0;
     rknn_qwen3_llm_context rknn_app_ctx;
@@ -401,8 +428,8 @@ static int run_server(const std::string& model_dir, uint32_t core_mask, int32_t 
     embedding_info.fd = -1;
     embedding_info.embedding_data = NULL;
 
-    fprintf(stderr, "[server] model_dir=%s core_mask=0x%x max_context_len=%d\n",
-            model_dir.c_str(), core_mask, max_context_len);
+    fprintf(stderr, "[server] model_dir=%s model_name=%s core_mask=0x%x max_context_len=%d\n",
+            model_dir.c_str(), model_name.c_str(), core_mask, max_context_len);
 
     tokenizer = new Tokenizer(TOKENIZER_BACKEND_LLAMA, tokenizer_path.c_str());
     if (!tokenizer) {
@@ -464,6 +491,26 @@ static int run_server(const std::string& model_dir, uint32_t core_mask, int32_t 
         const char* v = getenv("RK1828_KV_REUSE");
         if (v && v[0] == '0') g_kv_reuse = false;
         fprintf(stderr, "[server] kv prefix reuse: %s\n", g_kv_reuse ? "on" : "off");
+    }
+
+    // Linear-attention models (Qwen3.5) do not reuse a shared prompt prefix on
+    // their own: without checkpoints every request re-prefills the whole
+    // system prompt (rk3588 devkit, 2026-09-21: 1687 ms TTFT on every request
+    // vs 132 ms for Qwen3-4B). SAVE_CHECKPOINT snapshots the state every
+    // <interval> tokens and later requests resume from the last snapshot inside
+    // the shared prefix (RKNN3 V1.1.0 dev guide 4.2.6). The runtime ignores it
+    // for full-attention models, and aligns/clamps the values itself.
+    if (ckpt_interval > 0 && ckpt_count > 0) {
+        rknn3_kvcache_policy_param kp;
+        memset(&kp, 0, sizeof(kp));
+        kp.save_checkpoint.checkpoint_start_pos      = 0;
+        kp.save_checkpoint.checkpoint_interval       = ckpt_interval;
+        kp.save_checkpoint.max_checkpoint_count      = ckpt_count;
+        kp.save_checkpoint.checkpoint_tail_overwrite = false;
+        int kret = rknn3_session_set_kvcache_policy(rknn_app_ctx.rknn_sess,
+                                                    RKNN3_KVCACHE_POLICY_SAVE_CHECKPOINT, &kp);
+        fprintf(stderr, "[server] kv checkpoint interval=%lld count=%lld ret=%d\n",
+                (long long)ckpt_interval, (long long)ckpt_count, kret);
     }
 
     g_server_mode = true;
@@ -535,6 +582,15 @@ static int run_server(const std::string& model_dir, uint32_t core_mask, int32_t 
             // Re-register tools only when the set actually changes: the runtime
             // re-renders its Jinja template on every call, and the advertised
             // set is stable for a whole session.
+            // LIMITATION (RKNN3 V1.1.0, measured on the rk3588 devkit
+            // 2026-09-21): once a session has registered tools it keeps them.
+            // A later tool-less request is still rendered with the tool
+            // preamble (prefill 189-252 tokens vs 28-29 on a fresh worker) and
+            // the model may "call" tools the client never offered, which the
+            // shim does not parse for that request. Registering "[]" or ""
+            // returns 0 and changes nothing, and there is no unregister API.
+            // So one server must not mix tool and tool-less clients; the
+            // agent's warmup only sends tools its turns send (PR #113).
             if (!req_tools.empty() && req_tools != g_last_tools) {
                 int tret = rknn3_session_set_function_tools(rknn_app_ctx.rknn_sess,
                                                             req_tools.c_str());
@@ -562,7 +618,9 @@ static int run_server(const std::string& model_dir, uint32_t core_mask, int32_t 
             int rc = server_infer(&rknn_app_ctx, req_turns, req_max_new, &perf,
                                   req_keep == 1 ? 1 : 0);
             if (rc != 0) {
-                fprintf(stderr, "[server] req#%d FAILED rc=%d\n", utt, rc);
+                fprintf(stderr, "[server] req#%d FAILED rc=%d prefill_tokens=%d\n",
+                        utt, rc, perf.n_prefill_tokens);
+                emit_failed_frame();
             } else {
                 float ttft_ms = first_token ? (float)(first_token - perf.llm_start_time) / 1000.0f : 0.0f;
                 float dec_ms  = first_token ? (float)(perf.llm_end_time - first_token) / 1000.0f : 0.0f;
@@ -636,6 +694,9 @@ int main(int argc, char **argv)
     if (argc >= 3 && std::string(argv[argc - 1]) == "-")
     {
         std::string model_dir;
+        std::string model_name      = "Qwen3-4B";
+        int64_t     ckpt_interval   = 0;   // 0 = no KV checkpoints
+        int64_t     ckpt_count      = 0;
         uint32_t    core_mask       = 0xff;
         int32_t     max_context_len = MAX_CONTEXT_LEN;
 
@@ -648,6 +709,12 @@ int main(int argc, char **argv)
                 core_mask = (uint32_t)strtoul(argv[++i], NULL, 16);
             } else if (a == "--max-context" && i + 1 < argc - 1) {
                 max_context_len = (int32_t)strtol(argv[++i], NULL, 10);
+            } else if (a == "--model-name" && i + 1 < argc - 1) {
+                model_name = argv[++i];
+            } else if (a == "--kv-checkpoint-interval" && i + 1 < argc - 1) {
+                ckpt_interval = (int64_t)strtoll(argv[++i], NULL, 10);
+            } else if (a == "--kv-checkpoint-count" && i + 1 < argc - 1) {
+                ckpt_count = (int64_t)strtoll(argv[++i], NULL, 10);
             } else if (a == "--device-id" && i + 1 < argc - 1) {
                 ++i;  // device selection is via PCIe enumeration in the runtime
             } else if (model_dir.empty()) {
@@ -655,17 +722,19 @@ int main(int argc, char **argv)
             }
         }
         if (model_dir.empty()) {
-            fprintf(stderr, "server mode usage: %s <model_dir> [--core-mask <hex>] "
-                            "[--max-context <n>] [--device-id <id>] -\n", argv[0]);
+            fprintf(stderr, "server mode usage: %s <model_dir> [--model-name <stem>] "
+                            "[--core-mask <hex>] [--max-context <n>] [--kv-checkpoint-interval <n>] "
+                            "[--kv-checkpoint-count <n>] [--device-id <id>] -\n", argv[0]);
             return -1;
         }
-        return run_server(model_dir, core_mask, max_context_len);
+        return run_server(model_dir, model_name, core_mask, max_context_len,
+                          ckpt_interval, ckpt_count);
     }
 
     if (argc != 7)
     {
         printf("%s <model_path> <weight_path> <tokenizer_path> <embedding_path> <core_mask> <prompt>\n", argv[0]);
-        printf("%s <model_dir> [--core-mask <hex>] [--max-context <n>] [--device-id <id>] -   (server mode)\n", argv[0]);
+        printf("%s <model_dir> [--model-name <stem>] [--core-mask <hex>] [--max-context <n>] [--device-id <id>] -   (server mode)\n", argv[0]);
         return -1;
     }
 
