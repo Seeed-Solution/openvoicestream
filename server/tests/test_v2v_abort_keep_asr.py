@@ -69,3 +69,49 @@ def test_keep_asr_max_s_parsing(monkeypatch, raw, expected):
 
     monkeypatch.setenv("OVS_V2V_ABORT_KEEP_ASR_MAX_S", raw)
     assert appmod._keep_asr_max_s() == expected
+
+
+class _FakeWS:
+    def __init__(self, frames):
+        self._frames = list(frames)
+
+    async def receive(self):
+        return {"text": self._frames.pop(0)}
+
+
+class _FakeAdapter:
+    def __init__(self):
+        self.cancelled = []
+
+    def mark_cancelled(self, reason):
+        self.cancelled.append(reason)
+
+
+def test_realtime_v2_proxy_carries_keep_asr_on_response_cancel():
+    """Server-loop sessions go through _RealtimeV2WebSocketProxy, which
+    rebuilds the frame; it must not drop keep_asr."""
+    import json
+
+    from server import main as appmod
+    from server.core import v2v as v2v_proto
+
+    frames = [
+        json.dumps({"type": "response.cancel", "response_id": "r", "keep_asr": True}),
+        json.dumps({"type": "response.cancel", "response_id": "r"}),
+        json.dumps({"type": "input_audio_buffer.clear", "keep_asr": True}),
+    ]
+    import asyncio
+
+    proxy = appmod._RealtimeV2WebSocketProxy(_FakeWS(frames), _FakeAdapter())
+
+    async def _drain():
+        return [json.loads((await proxy.receive())["text"]) for _ in frames]
+
+    got = asyncio.run(_drain())
+
+    assert got[0] == {"type": v2v_proto.CLIENT_ABORT, "keep_asr": True}
+    assert got[1] == {"type": v2v_proto.CLIENT_ABORT}
+    assert got[2] == {"type": v2v_proto.CLIENT_ABORT}, (
+        "clearing the input buffer is destructive; keep_asr must not apply"
+    )
+

@@ -109,3 +109,20 @@ async def test_abort_frame_carries_keep_asr_only_when_asked():
         "a plain abort (stop / sleep / dashboard) keeps the old semantics"
     )
     assert ws.sent[1] == {"type": "abort", "keep_asr": True}
+
+
+@pytest.mark.asyncio
+async def test_v2_response_cancel_carries_keep_asr():
+    """Realtime V2 is the default protocol (config.realtime_protocol_version=2);
+    the flag must survive there too, not only on the legacy v1 frame."""
+    client, ws = _client_with_ws()
+    client.protocol_version = 2
+    client._active_response_id = "resp_1"
+
+    await client.abort()
+    await client.abort(keep_asr=True)
+
+    assert ws.sent[0] == {"type": "response.cancel", "response_id": "resp_1"}
+    assert ws.sent[1] == {
+        "type": "response.cancel", "response_id": "resp_1", "keep_asr": True,
+    }

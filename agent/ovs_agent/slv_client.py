@@ -928,15 +928,15 @@ class SLVClient:
         ASR), so this degrades to the old behaviour rather than failing.
         """
         if self.protocol_version == 2:
-            await self._send_json({
+            payload: dict[str, object] = {
                 "type": "response.cancel",
                 "response_id": self._active_response_id,
-            })
+            }
         else:
-            payload: dict[str, object] = {"type": CLIENT_ABORT}
-            if keep_asr:
-                payload["keep_asr"] = True
-            await self._send_json(payload)
+            payload = {"type": CLIENT_ABORT}
+        if keep_asr:
+            payload["keep_asr"] = True
+        await self._send_json(payload)
 
     async def asr_eos(self) -> None:
         if self.protocol_version == 2:

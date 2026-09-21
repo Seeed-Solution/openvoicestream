@@ -6099,8 +6099,14 @@ class _RealtimeV2WebSocketProxy:
                 payload = {"type": v2v_proto.CLIENT_ASR_EOS}
             elif typ == v2v_proto.CLIENT_RESPONSE_CANCEL:
                 self._adapter.mark_cancelled("client_cancelled")
+                # Carry keep_asr through: a speech-driven barge-in cancels
+                # the response but keeps the utterance it interrupts with.
+                keep_asr = bool(payload.get("keep_asr"))
                 payload = {"type": v2v_proto.CLIENT_ABORT}
+                if keep_asr:
+                    payload["keep_asr"] = True
             elif typ == v2v_proto.CLIENT_INPUT_AUDIO_BUFFER_CLEAR:
+                # Clearing the input buffer is destructive by definition.
                 payload = {"type": v2v_proto.CLIENT_ABORT}
             elif typ == v2v_proto.CLIENT_SESSION_UPDATE:
                 session = payload.get("session")
