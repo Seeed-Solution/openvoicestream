@@ -429,3 +429,80 @@ def test_conv_state_values():
         ConvState.SLEEPING,
     ]
     assert ConvState.SLEEPING.value == "sleeping"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drive_eos", [True, False])
+async def test_echo_segment_ending_does_not_end_the_reply(drive_eos):
+    """Regression (rk3588, 2026-09-21): a client-VAD segment that began during
+    playback and was rejected by the echo guard used to send asr_eos and flip
+    SPEAKING → THINKING when it ended. Barge-in then stayed disabled for the
+    rest of the reply (both paths require SPEAKING) and a real interruption
+    1.2 s later was ignored."""
+    import time as _time
+
+    app = _fresh_app()
+    speech = {"on": True}
+    eos_calls: list[int] = []
+
+    class _Vad:
+        name = "test"
+        threshold = 0.5
+
+        def is_speech(self, _chunk):
+            return speech["on"]
+
+        def reset(self):
+            pass
+
+    class _Audio:
+        is_playing = True
+
+        async def stop_playback(self):
+            raise AssertionError("echo must not stop playback")
+
+    class _SLV:
+        async def abort(self, *, keep_asr: bool = False):
+            raise AssertionError("echo must not abort")
+
+        async def asr_eos(self):
+            eos_calls.append(1)
+
+    app._client_vad = _Vad()
+    app.audio = _Audio()
+    app.slv = _SLV()
+    app.config.client_vad_speech_min_ms = 100
+    app.config.client_vad_silence_ms = 200
+    app.config.client_vad_drive_eos = drive_eos
+    app.config.barge_in_min_speaking_ms = 500
+    app._state = ConvState.SPEAKING
+    app._speaking_since_ts = _time.monotonic()  # playback just started
+
+    await app._update_vad(b"\x00\x00" * 1600, 100)  # echo onset at ~0 ms
+    assert app._vad_state == "speech"
+    assert app._state == ConvState.SPEAKING
+
+    speech["on"] = False
+    for _ in range(3):  # 300 ms of silence ≥ client_vad_silence_ms
+        await app._update_vad(b"\x00\x00" * 1600, 100)
+
+    assert app._state == ConvState.SPEAKING, "echo segment must not end the reply"
+    assert eos_calls == []
+    assert app._vad_state == "idle"
+
+    # The next real segment, past the echo guard, still barges in.
+    app._speaking_since_ts = _time.monotonic() - 1.0
+    aborts: list[bool] = []
+
+    async def _abort(*, keep_asr: bool = False):
+        aborts.append(keep_asr)
+
+    async def _stop():
+        app.audio.is_playing = False
+
+    app.slv.abort = _abort
+    app.audio.stop_playback = _stop
+    speech["on"] = True
+    await app._update_vad(b"\x00\x00" * 1600, 100)
+    assert app._state == ConvState.BARGED_IN
+    assert aborts == [True]

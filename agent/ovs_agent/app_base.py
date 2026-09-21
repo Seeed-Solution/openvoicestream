@@ -359,6 +359,10 @@ class BaseApp:
         self._vad_speech_ms = 0
         self._vad_silence_ms = 0
         self._vad_eos_sent = False
+        # True while the current client-VAD segment began during playback and
+        # was rejected as a barge-in by the echo guard. Its end must not close
+        # a user turn — see the speech-end branch of _update_vad.
+        self._vad_echo_segment = False
         # ── v2: conversation state machine + observability ──
         # Initial state depends on pipeline_mode: always_on boots IDLE
         # (legacy), wake_word / push_to_talk boot SLEEPING.
@@ -2731,6 +2735,7 @@ class BaseApp:
                     self._vad_state = "speech"
                     self._vad_silence_ms = 0
                     self._vad_eos_sent = False
+                    self._vad_echo_segment = False
                     logger.info("client VAD: speech started")
                     if (
                         getattr(self, "_state", ConvState.IDLE) == ConvState.THINKING
@@ -2775,6 +2780,7 @@ class BaseApp:
                             elapsed_ms,
                             minimum_ms,
                         )
+                        self._vad_echo_segment = True
                     elif self.audio.is_playing:
                         logger.info(
                             "client VAD speech while playback buffered in state=%s; "
@@ -2789,7 +2795,25 @@ class BaseApp:
             if not is_speech:
                 self._vad_silence_ms += chunk_ms
                 if self._vad_silence_ms >= self.config.client_vad_silence_ms:
-                    if not self._vad_eos_sent:
+                    if (
+                        getattr(self, "_vad_echo_segment", False)
+                        and getattr(self, "_state", ConvState.IDLE) == ConvState.SPEAKING
+                    ):
+                        # The segment was rejected as a barge-in (echo guard)
+                        # and the assistant is still talking. Ending it used to
+                        # send asr_eos and flip SPEAKING → THINKING mid-reply,
+                        # which then disabled barge-in for the rest of the reply
+                        # (both barge-in paths require SPEAKING) and let the
+                        # 3 s asr_final watchdog force IDLE while audio still
+                        # played. Measured on rk3588 (2026-09-21): echo VAD at
+                        # +230 ms, speech end at +835 ms, speaking → thinking,
+                        # and an interruption 1.2 s later was ignored.
+                        logger.info(
+                            "client VAD: echo segment ended during playback; "
+                            "not ending a user turn"
+                        )
+                        self._vad_eos_sent = True
+                    elif not self._vad_eos_sent:
                         import time as _t
                         drove_eos = bool(getattr(self.config, "client_vad_drive_eos", False))
                         if drove_eos:
