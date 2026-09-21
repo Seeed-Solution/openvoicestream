@@ -40,3 +40,25 @@ def test_empty_value_is_unset(cfg_path, monkeypatch):
     # compose passes ${VAR:-} through as an empty string
     monkeypatch.setenv("OVS_AGENT_SESSION_MAX_INPUT_TOKENS", "")
     assert load_config(cfg_path).session_max_input_tokens == 7000
+
+
+def test_cli_without_yaml_applies_env(tmp_path, monkeypatch):
+    """Codex review of #116: the CLI builds Config() directly when no YAML
+    exists; the env override must apply there too."""
+    import ovs_agent.cli as cli
+
+    seen = {}
+
+    class _App:
+        def __init__(self, cfg):
+            seen["budget"] = cfg.session_max_input_tokens
+
+        async def run(self):
+            return None
+
+    monkeypatch.setenv("OVS_AGENT_SESSION_MAX_INPUT_TOKENS", "1000")
+    monkeypatch.setattr(cli, "_default_config_path", lambda name: tmp_path / "missing.yaml")
+    monkeypatch.setattr(cli, "_load_app_class", lambda name: _App)
+    monkeypatch.setattr(cli, "_setup_logging", lambda level: None)
+    cli.main(["run", "conversation"])
+    assert seen["budget"] == 1000

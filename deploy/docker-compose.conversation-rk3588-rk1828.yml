@@ -255,12 +255,14 @@ services:
       LLM_BASE_URL: http://127.0.0.1:1828/v1
       LLM_API_KEY: EMPTY
       LLM_MODEL: Qwen3-4B
-      # History trim budget for a 2048-token LLM context. The fixed system
-      # prompt (~1150 real tokens) is not charged against it; trimming keeps
-      # history at <= 0.75 x this value by the agent's estimate, which without
-      # the Qwen tokenizer in the image is chars x 1.5 (over-counts, so the
-      # real prompt stays under ~1700 tokens, leaving room for the reply).
-      OVS_AGENT_SESSION_MAX_INPUT_TOKENS: ${OVS_AGENT_SESSION_MAX_INPUT_TOKENS:-1200}
+      # History trim budget for a 2048-token LLM context. Trim counts only
+      # history (not the ~1150-token system prompt) and keeps it at
+      # <= 0.75 x this value by the agent's estimate, which without the Qwen
+      # tokenizer in the image is chars x 1.5 (over-counts: ~2x for Chinese,
+      # more for English). 1000 keeps real history <= ~360 tokens for Chinese,
+      # so prompt + a full 512-token reply fits in 2048. Known noise: the
+      # startup check logs "FIXED PREFIX ... headroom" at ERROR for this value.
+      OVS_AGENT_SESSION_MAX_INPUT_TOKENS: ${OVS_AGENT_SESSION_MAX_INPUT_TOKENS:-1000}
       SYSTEM_PROMPT: ${SYSTEM_PROMPT:-}
       DEFAULT_MODE: chat
     restart: unless-stopped

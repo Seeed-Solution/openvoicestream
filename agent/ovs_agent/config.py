@@ -557,11 +557,11 @@ def load_config(path: str | Path) -> Config:
         fields = {k: v for k, v in fields.items() if k in known}
     cfg = Config(slv_config=slv_cfg, **fields)
     cfg._source_path = p
-    _apply_session_budget_env(cfg)
+    apply_session_budget_env(cfg)
     return cfg
 
 
-def _apply_session_budget_env(cfg: Config) -> None:
+def apply_session_budget_env(cfg: Config) -> None:
     """``OVS_AGENT_SESSION_MAX_INPUT_TOKENS`` overrides the YAML value.
 
     The history trim budget has to follow the LLM's real context window,
