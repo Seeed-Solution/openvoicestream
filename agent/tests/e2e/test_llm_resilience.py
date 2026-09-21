@@ -55,7 +55,7 @@ class _StubSLV:
     async def send_audio(self, pcm: bytes) -> None: pass
     async def send_text(self, text: str) -> None: self.sent_text.append(text)
     async def flush_tts(self) -> None: self.flush_calls += 1
-    async def abort(self) -> None: self.abort_calls += 1
+    async def abort(self, *, keep_asr: bool = False) -> None: self.abort_calls += 1
     async def asr_eos(self) -> None: pass
 
     async def events(self):  # pragma: no cover - never iterated in tests

@@ -2488,8 +2488,9 @@ class BaseApp:
           2. stop local speaker playback immediately;
           3. send SLV's in-band abort control to cancel the already queued /
              in-flight TTS synthesis;
-          4. keep the SLV WebSocket alive so the user's current speech keeps
-             flowing to ASR without a reconnect gap.
+          4. keep the SLV WebSocket alive **and** the in-flight ASR utterance
+             alive (``abort(keep_asr=True)``) so the user's current speech
+             keeps flowing to ASR without a gap.
 
         The current SLV protocol multiplexes ASR input and TTS output on one
         connection. Closing/reconnecting it here also drops exactly the audio
@@ -2497,6 +2498,14 @@ class BaseApp:
         into a multi-second delayed response. The right control is the in-band
         `abort` frame: SLV cancels current TTS and drains queued sentences
         without tearing down the WebSocket.
+
+        The same reasoning applies one level down. A plain `abort` also makes
+        the server cancel the in-flight ASR utterance, which is exactly the
+        audio we are trying to keep — measured on rk3588 (2026-09-21): the
+        server restarted its ASR stream 0.3 s after barge-in and "Stop,
+        please answer in one sentence." arrived as "One sentence.". So this
+        path sends `keep_asr=True` and, for the same reason, keeps the
+        locally accumulated mid-utterance segments instead of dropping them.
         """
         if self._llm_turn_task is not None and not self._llm_turn_task.done():
             self._llm_turn_task.cancel()
@@ -2518,8 +2527,8 @@ class BaseApp:
         except Exception:
             logger.exception("stop_playback failed during barge-in")
         try:
-            await asyncio.wait_for(self.slv.abort(), timeout=0.5)
-            logger.info("SLV abort sent during barge-in")
+            await asyncio.wait_for(self.slv.abort(keep_asr=True), timeout=0.5)
+            logger.info("SLV abort sent during barge-in (keep_asr=1)")
         except asyncio.TimeoutError:
             logger.warning("SLV abort timed out during barge-in")
         except asyncio.CancelledError:
@@ -2539,8 +2548,13 @@ class BaseApp:
         self._eos_sent_this_turn = False
         self._cancel_asr_watchdog()
         self._first_tts_seen = False
-        # A barge-in abandons whatever the user was mid-way through saying.
-        self._clear_pending_asr_utterance()
+        # NOT cleared here: the pending buffer holds mid-utterance segments of
+        # the barge-in utterance itself (the RK Qwen3-ASR backend emits an
+        # internal final after ~400 ms of silence, well before our asr_eos).
+        # Dropping them loses the head of what the user just said — the very
+        # thing the barge-in is meant to capture. It is still cleared on
+        # dispatch, sleep, wake-command completion and session close, so it
+        # cannot glue onto an unrelated next turn.
 
     def _arm_thinking_watchdog(self) -> None:
         """Re-arm the THINKING-state watchdog.

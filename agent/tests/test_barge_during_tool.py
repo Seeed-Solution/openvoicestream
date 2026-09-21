@@ -43,7 +43,7 @@ class _SpySLV:
         self.tool_results: list[dict] = []
         self._ws = object()
 
-    async def abort(self) -> None:
+    async def abort(self, *, keep_asr: bool = False) -> None:
         self.aborted += 1
 
     async def send_tool_result(self, call_id, name, *, ok, result=None, error=None):

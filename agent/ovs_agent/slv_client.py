@@ -917,14 +917,26 @@ class SLVClient:
             payload["response"] = dict(response)
         await self._send_json(payload)
 
-    async def abort(self) -> None:
+    async def abort(self, *, keep_asr: bool = False) -> None:
+        """Cancel the assistant turn in flight.
+
+        ``keep_asr=True`` asks the server to cancel TTS only and leave the
+        ASR utterance running — what a *speech-driven* barge-in wants, since
+        the in-flight utterance is the one the user is interrupting with.
+        Cancelling it drops everything said before the barge-in threshold
+        fired. Servers that predate the field ignore it (and still cancel
+        ASR), so this degrades to the old behaviour rather than failing.
+        """
         if self.protocol_version == 2:
             await self._send_json({
                 "type": "response.cancel",
                 "response_id": self._active_response_id,
             })
         else:
-            await self._send_json({"type": CLIENT_ABORT})
+            payload: dict[str, object] = {"type": CLIENT_ABORT}
+            if keep_asr:
+                payload["keep_asr"] = True
+            await self._send_json(payload)
 
     async def asr_eos(self) -> None:
         if self.protocol_version == 2:

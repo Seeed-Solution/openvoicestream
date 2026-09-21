@@ -119,7 +119,7 @@ async def test_barge_in_cancels_llm_turn():
     class _SLV:
         reconnects = 0
 
-        async def abort(self):
+        async def abort(self, *, keep_asr: bool = False):
             abort_calls.append(1)
 
         async def reconnect(self):
@@ -175,7 +175,7 @@ async def test_client_vad_does_not_barge_from_stale_playback(state):
             stop_calls.append(1)
 
     class _SLV:
-        async def abort(self):
+        async def abort(self, *, keep_asr: bool = False):
             abort_calls.append(1)
 
     app._client_vad = _Vad()
@@ -212,7 +212,7 @@ async def test_client_vad_barges_only_from_active_speaking_state():
             stop_calls.append(1)
 
     class _SLV:
-        async def abort(self):
+        async def abort(self, *, keep_asr: bool = False):
             abort_calls.append(1)
 
     app._client_vad = _Vad()
@@ -245,7 +245,7 @@ async def test_client_vad_does_not_self_barge_during_initial_echo_guard():
             stop_calls.append(1)
 
     class _SLV:
-        async def abort(self):
+        async def abort(self, *, keep_asr: bool = False):
             abort_calls.append(1)
 
     app._client_vad = _Vad()
@@ -283,7 +283,7 @@ async def test_client_vad_honors_barge_in_disabled():
             stop_calls.append(1)
 
     class _SLV:
-        async def abort(self):
+        async def abort(self, *, keep_asr: bool = False):
             abort_calls.append(1)
 
     app._client_vad = _Vad()
@@ -391,7 +391,7 @@ async def test_sleeping_drops_asr_partial_and_endpoint():
         reconnected = 0
         async def reconnect(self):
             type(self).reconnected += 1
-        async def abort(self):
+        async def abort(self, *, keep_asr: bool = False):
             pass
 
     app.audio = _Audio()
