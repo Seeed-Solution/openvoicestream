@@ -290,3 +290,152 @@ async def test_cancelled_response_done_preserves_barged_in():
         response={"id": "resp_old", "status": "cancelled"},
     ))
     assert app._state == ConvState.BARGED_IN
+
+
+
+
+class _TurnSLV(_FakeSLV):
+    """_FakeSLV plus send_text that fires the reply-text hook like SLVClient."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sent: list[str] = []
+        self.on_reply_text = None
+
+    async def send_text(self, text: str) -> None:
+        if text and self.on_reply_text is not None:
+            self.on_reply_text()
+        self.sent.append(text)
+
+    async def flush_tts(self) -> None:
+        if self.on_reply_text is not None:
+            self.on_reply_text()
+        self.sent.append("<flush>")
+
+
+def _supersede_app():
+    app = _make_app()
+    app.slv = _TurnSLV()
+    app.slv.on_reply_text = app._on_reply_text_sent
+    app._awaiting_new_reply = False
+    app._playback_drain_task = None
+    go = asyncio.Event()
+
+    async def _new_turn(text: str, detected_language=None) -> None:
+        await go.wait()                  # hold the new reply until the test says so
+        await app.slv.send_text("Sure.")
+
+    app.on_user_utterance = _new_turn  # type: ignore[assignment]
+    return app, go
+
+
+OLD = b"\x01\x00" * 8
+NEW = b"\x09\x00" * 8
+
+
+@pytest.mark.asyncio
+async def test_new_user_turn_cuts_the_old_reply_and_plays_the_new_one():
+    """Regression (rk3588, 2026-09-21): a reply that had finished synthesizing
+    kept playing while the FSM sat in THINKING, and each new user turn queued
+    its reply behind it."""
+    app, go = _supersede_app()
+    await app._dispatch_one(TTSAudio(pcm=OLD, sample_rate=24000))
+    app._state = ConvState.THINKING      # the state that disabled barge-in
+
+    await app._dispatch_one(ASRFinal(text="Stop, please answer in one sentence.",
+                                     duplicate_of_streamed=False))
+    assert app.audio.is_playing is False, "old reply must be cut"
+    assert app.slv.aborted == 1
+
+    # Old reply's tail still in flight: dropped, no state flip.
+    await app._dispatch_one(TTSStarted(sentence="old sentence"))
+    await app._dispatch_one(TTSAudio(pcm=OLD, sample_rate=24000))
+    assert app.audio.played == [OLD]
+    assert app._state == ConvState.THINKING
+
+    go.set()
+    await asyncio.wait_for(app._llm_turn_task, timeout=1.0)
+    assert app.slv.sent == ["Sure."]
+    assert app.audio.discard is False, "re-armed once the new reply's text went out"
+
+    await app._dispatch_one(TTSAudio(pcm=NEW, sample_rate=24000))
+    assert app.audio.played == [OLD, NEW], "new reply must be audible"
+    assert app._state == ConvState.SPEAKING
+
+
+@pytest.mark.asyncio
+async def test_superseded_reply_drain_does_not_finish_the_new_turn():
+    """The old reply's tts_done drain would wake on stop_playback and set the
+    new turn to IDLE; a stale tts_done must not start another drain either."""
+    app, go = _supersede_app()
+    await app._dispatch_one(TTSAudio(pcm=OLD, sample_rate=24000))
+    await app._dispatch_one(TTSDone(session_complete=False))
+    drain = app._playback_drain_task
+    assert drain is not None and not drain.done()
+
+    await app._dispatch_one(ASRFinal(text="what else", duplicate_of_streamed=False))
+    await app._dispatch_one(TTSDone(session_complete=False))   # stale
+    await asyncio.sleep(0.05)
+    assert drain.cancelled() or drain.done()
+    assert app._state == ConvState.THINKING, "new turn must not be completed"
+
+    go.set()
+    await asyncio.wait_for(app._llm_turn_task, timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_new_user_turn_keeps_playback_when_barge_in_disabled():
+    """Interpretation/transcription modes overlap playback on purpose."""
+    app, go = _supersede_app()
+    await app._dispatch_one(TTSAudio(pcm=OLD, sample_rate=24000))
+    app._state = ConvState.THINKING
+    app._barge_in_enabled = lambda: False  # type: ignore[assignment]
+
+    await app._dispatch_one(ASRFinal(text="next sentence", duplicate_of_streamed=False))
+    assert app.audio.is_playing is True
+    assert app.slv.aborted == 0
+    go.set()
+    await asyncio.wait_for(app._llm_turn_task, timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_new_user_turn_leaves_server_loop_to_the_server():
+    """In server-loop the client sends no reply text, so a deferred re-arm
+    would never fire; the server interrupts its own response there."""
+    app, go = _supersede_app()
+    app._server_loop_enabled = lambda: True  # type: ignore[assignment]
+    await app._dispatch_one(TTSAudio(pcm=OLD, sample_rate=24000))
+    app._state = ConvState.THINKING
+
+    await app._dispatch_one(ASRFinal(text="next", duplicate_of_streamed=False))
+    assert app._awaiting_new_reply is False
+    assert app.slv.aborted == 0
+    go.set()
+    if app._llm_turn_task is not None:
+        await asyncio.wait_for(app._llm_turn_task, timeout=1.0)
+
+
+
+@pytest.mark.asyncio
+async def test_textless_new_turn_still_completes_after_supersede():
+    """Codex review: a tool-only / empty reply sends no text but still flushes,
+    and the server answers with tts_done. That tts_done belongs to the new
+    turn and must not be dropped, or the FSM sits in THINKING."""
+    app, go = _supersede_app()
+
+    async def _toolonly(text: str, detected_language=None) -> None:
+        await go.wait()
+        await app.slv.flush_tts()
+
+    app.on_user_utterance = _toolonly  # type: ignore[assignment]
+    await app._dispatch_one(TTSAudio(pcm=OLD, sample_rate=24000))
+    app._state = ConvState.THINKING
+    await app._dispatch_one(ASRFinal(text="turn on the light", duplicate_of_streamed=False))
+    assert app._awaiting_new_reply is True
+
+    go.set()
+    await asyncio.wait_for(app._llm_turn_task, timeout=1.0)
+    assert app._awaiting_new_reply is False
+    await app._dispatch_one(TTSDone(session_complete=False))
+    await asyncio.sleep(0.05)
+    assert app._state != ConvState.THINKING, "new turn's tts_done must complete it"

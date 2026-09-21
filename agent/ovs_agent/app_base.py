@@ -251,6 +251,10 @@ class BaseApp:
             slv_config,
             protocol_version=config.realtime_protocol_version,
         )
+        self.slv.on_reply_text = self._on_reply_text_sent
+        # Set when a new user turn cut a reply that was still playing; TTS
+        # events are that reply's tail until the new reply's text goes out.
+        self._awaiting_new_reply = False
         # ``auto`` is deliberately kept as a selector rather than resolved to
         # a PortAudio index once. The same BaseApp is used by multi_mode,
         # translator, caption and robot apps; keeping the selector alive lets
@@ -2928,7 +2932,29 @@ class BaseApp:
                     raise
                 backoff = min(backoff * 2, 5.0)
 
+    def _on_reply_text_sent(self) -> None:
+        """The new reply's first text is going out: from here on, TTS events
+        belong to it, so stop dropping them and make playback audible."""
+        if not getattr(self, "_awaiting_new_reply", False):
+            return
+        self._awaiting_new_reply = False
+        arm = getattr(self.audio, "arm_for_next_turn", None)
+        if callable(arm):
+            arm()
+
     async def _dispatch_one(self, evt) -> None:  # noqa: ANN001
+        # A superseded reply's tail (audio already in flight, its tts_done,
+        # the V2 equivalents) must not play, flip the FSM to SPEAKING, or
+        # start a drain that would complete the NEW turn.
+        if getattr(self, "_awaiting_new_reply", False) and isinstance(
+            evt,
+            (
+                TTSAudio, TTSStarted, TTSSentenceDone, TTSDone,
+                ResponseOutputAudioDone, ResponseDone,
+                AssistantTranscriptDelta, AssistantTranscriptDone,
+            ),
+        ):
+            return
         # #3: a send-path connect() (mic pump reviving a dead WS) opens a fresh
         # session without advertising tools, and events() keeps streaming on it
         # without the dispatch guard ever firing. Re-advertise the moment we see
@@ -3321,16 +3347,56 @@ class BaseApp:
                 logger.info("asr utterance assembled from segments: %r", full_text)
             self._last_user_utterance_text = full_text
             self._cancel_wake_command_timeout()
+            # A new user turn supersedes the previous reply. The LLM task is
+            # cancelled further down, but a reply that has already been fully
+            # synthesized keeps playing from the local buffer, and the new
+            # reply queues behind it. This happens whenever the FSM is not in
+            # SPEAKING while that audio plays (e.g. a VAD segment that started
+            # just before playback ends mid-reply and moves SPEAKING ->
+            # THINKING), because both barge-in paths require SPEAKING.
+            # Measured on rk3588 (2026-09-21): five user turns in 15 s while
+            # one 20-sentence reply kept playing; "stop" never interrupted it.
+            # Done before re-arming playback below: stop_playback latches
+            # discard, arm_for_next_turn clears it for the new reply.
+            superseded = False
+            # Client-loop only: in server-loop the server owns the response
+            # (interrupt_response=True) and no reply text is sent from here,
+            # so the deferred re-arm below would never fire.
+            if (
+                getattr(self.audio, "is_playing", False)
+                and self._barge_in_enabled()
+                and not self._server_loop_enabled()
+            ):
+                logger.info(
+                    "new user turn while the previous reply is still playing; "
+                    "interrupting it"
+                )
+                # Its drain task would otherwise wake on stop_playback and
+                # complete the assistant turn — i.e. set the NEW turn to IDLE.
+                drain_task = getattr(self, "_playback_drain_task", None)
+                if drain_task is not None and not drain_task.done():
+                    drain_task.cancel()
+                await self._interrupt_current_turn_for_barge_in()
+                # Its ResponseDone is dropped as stale below; do not keep
+                # pointing at the superseded response.
+                self._active_response_id = None
+                # Keep the discard latch until the new reply's text goes out
+                # (_on_reply_text_sent): audio still in flight from the old
+                # reply would otherwise play right after re-arming.
+                self._awaiting_new_reply = True
+                superseded = True
             # Re-enable speaker playback for the next turn. stop_playback
             # latched discard=True on the prior barge-in / sleep so SLV's
             # tail-end TTS didn't keep playing; clear that now so the new
             # turn's TTS is actually audible.
-            try:
-                arm = getattr(self.audio, "arm_for_next_turn", None)
-                if callable(arm):
-                    arm()
-            except Exception:  # pragma: no cover - defensive
-                pass
+            if not superseded:
+                self._awaiting_new_reply = False
+                try:
+                    arm = getattr(self.audio, "arm_for_next_turn", None)
+                    if callable(arm):
+                        arm()
+                except Exception:  # pragma: no cover - defensive
+                    pass
             # New utterance round about to begin — clear client VAD state so
             # the next speech_start fires fresh. (getattr-guarded so tests
             # that build BaseApp via __new__ don't have to set every field.)

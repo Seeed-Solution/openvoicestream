@@ -126,3 +126,23 @@ async def test_v2_response_cancel_carries_keep_asr():
     assert ws.sent[1] == {
         "type": "response.cancel", "response_id": "resp_1", "keep_asr": True,
     }
+
+
+
+@pytest.mark.asyncio
+async def test_reply_boundary_hook_fires_on_every_reply_start():
+    """BaseApp ends a superseded reply's tail on this hook; every way a new
+    reply starts on the wire must fire it (Codex review of #111)."""
+    client, ws = _client_with_ws()
+    client.protocol_version = 2
+    client._active_response_id = None
+    fired: list[int] = []
+    client.on_reply_text = lambda: fired.append(1)
+
+    await client.send_text("")            # empty chunk: not a reply start
+    assert fired == []
+    await client.send_text("Sure.")
+    await client.flush_tts()
+    await client.speak("Done.")
+    await client.create_response()
+    assert len(fired) == 4
