@@ -33,12 +33,12 @@
 #     2026-09-13; not re-verified here). Carries the RK profile fix that raised
 #     VAD_ENDPOINT_SILENCE_MS 400 -> 1500 so a mid-sentence pause no longer
 #     splits one utterance into two turns.
-#   agent:  sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.2
+#   agent:  sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.3
 #     Thin overlay on voiceagent-20260914-runtimekws: four agent files from main
-#     @ c03e28f (PRs #110, #111) — barge-in keep_asr, stop-word tail, a new turn
+#     @ 03bc82a (PRs #110, #111, #113) — barge-in keep_asr, stop-word tail, a new turn
 #     cuts a reply still playing, LLM probe via GET /health (the chat probe
 #     evicted the RK1828 prompt cache: TTFT 2.0-2.6 s -> 0.14-0.30 s).
-#     index sha256:921f3f9092dfdff2356ee072d7eb50a48561f93e799832f6e39b231c79d57ac9
+#     index sha256:44edad9f9e80de12a71848a419a85274e6afeb28748954d08d295e104d879352
 #     Its base, voiceagent-20260914-runtimekws:
 #     sha256:a2dc17a304d7941e924d95de0863b53fd3e1869b7caba6ecf64a60e57cfd9569
 #     (linux/arm64, recorded in the solution on 2026-09-13). Accumulates
@@ -208,7 +208,7 @@ services:
     # asr_final segments instead of overwriting the user text, so a backend
     # endpoint that fires on a mid-sentence pause no longer splits one spoken
     # sentence into two LLM turns. Bundles the sherpa-onnx KWS model.
-    image: ${AGENT_IMAGE:-sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.2}
+    image: ${AGENT_IMAGE:-sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.3}
     container_name: conversational-voice-agent
     init: true
     network_mode: host
