@@ -3377,6 +3377,9 @@ class BaseApp:
                 if drain_task is not None and not drain_task.done():
                     drain_task.cancel()
                 await self._interrupt_current_turn_for_barge_in()
+                # Its ResponseDone is dropped as stale below; do not keep
+                # pointing at the superseded response.
+                self._active_response_id = None
                 # Keep the discard latch until the new reply's text goes out
                 # (_on_reply_text_sent): audio still in flight from the old
                 # reply would otherwise play right after re-arming.

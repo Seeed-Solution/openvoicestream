@@ -245,9 +245,9 @@ class SLVClient:
         if protocol_version not in (1, 2):
             raise ValueError("protocol_version must be 1 or 2")
         self.protocol_version = protocol_version
-        # Called before the first byte of assistant reply text goes out
-        # (send_text / speak). BaseApp uses it to know where a superseded
-        # reply ends: anything the server sent before this is stale.
+        # Called when the next reply starts on the wire (send_text, speak,
+        # flush_tts, create_response). BaseApp uses it to know where a
+        # superseded reply ends: anything the server sent before is stale.
         self.on_reply_text: Callable[[], None] | None = None
         # Make sure multi_utterance is on (invariant 1).
         self.config["multi_utterance"] = True
@@ -886,6 +886,9 @@ class SLVClient:
 
     async def flush_tts(self) -> None:
         logger.info("SLV send tts_flush")
+        # A turn that produced no text (tool-only, empty) still flushes, and
+        # the server answers with tts_done: that is the new reply too.
+        self._notify_reply_text()
         await self._send_json({"type": CLIENT_TTS_FLUSH})
 
     async def speak(self, text: str, *, conversation: str = "none") -> None:
@@ -926,6 +929,7 @@ class SLVClient:
         """Start a response after an application-controlled context update."""
         if getattr(self, "protocol_version", 1) != 2:
             raise RuntimeError("response.create requires Realtime V2")
+        self._notify_reply_text()
         payload: dict[str, Any] = {"type": CLIENT_RESPONSE_CREATE}
         if response:
             payload["response"] = dict(response)

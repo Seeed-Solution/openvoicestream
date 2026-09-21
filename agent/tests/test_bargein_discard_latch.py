@@ -307,6 +307,11 @@ class _TurnSLV(_FakeSLV):
             self.on_reply_text()
         self.sent.append(text)
 
+    async def flush_tts(self) -> None:
+        if self.on_reply_text is not None:
+            self.on_reply_text()
+        self.sent.append("<flush>")
+
 
 def _supersede_app():
     app = _make_app()
@@ -408,3 +413,29 @@ async def test_new_user_turn_leaves_server_loop_to_the_server():
     go.set()
     if app._llm_turn_task is not None:
         await asyncio.wait_for(app._llm_turn_task, timeout=1.0)
+
+
+
+@pytest.mark.asyncio
+async def test_textless_new_turn_still_completes_after_supersede():
+    """Codex review: a tool-only / empty reply sends no text but still flushes,
+    and the server answers with tts_done. That tts_done belongs to the new
+    turn and must not be dropped, or the FSM sits in THINKING."""
+    app, go = _supersede_app()
+
+    async def _toolonly(text: str, detected_language=None) -> None:
+        await go.wait()
+        await app.slv.flush_tts()
+
+    app.on_user_utterance = _toolonly  # type: ignore[assignment]
+    await app._dispatch_one(TTSAudio(pcm=OLD, sample_rate=24000))
+    app._state = ConvState.THINKING
+    await app._dispatch_one(ASRFinal(text="turn on the light", duplicate_of_streamed=False))
+    assert app._awaiting_new_reply is True
+
+    go.set()
+    await asyncio.wait_for(app._llm_turn_task, timeout=1.0)
+    assert app._awaiting_new_reply is False
+    await app._dispatch_one(TTSDone(session_complete=False))
+    await asyncio.sleep(0.05)
+    assert app._state != ConvState.THINKING, "new turn's tts_done must complete it"
