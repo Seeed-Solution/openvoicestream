@@ -1,4 +1,5 @@
-"""OpenAI-compatible streaming HTTP shim for Qwen3-4B on the RK1828 PCIe EP.
+"""OpenAI-compatible streaming HTTP shim for an LLM on the RK1828 PCIe EP
+(Qwen3-4B by default; the model is RK1828_MODEL_ID).
 
 Owns one persistent ``rknn_qwen3_demo`` server-mode subprocess (init once) and
 exposes ``POST /v1/chat/completions`` (SSE streaming + non-streaming) and
@@ -36,9 +37,15 @@ from pydantic import BaseModel
 LOG = logging.getLogger("rk1828-llm")
 
 END_OF_STREAM = 0xFFFFFFFE
+# The worker sends this before END_OF_STREAM when the run failed (e.g. the prompt
+# is longer than the model's KV cache). Older workers never send it.
+REQUEST_FAILED = 0xFFFFFFFD
 _LEN = struct.Struct("<I")
 MAX_FRAME_BYTES = 8 * 1024 * 1024  # a bigger length prefix means stdout desync
-MODEL_ID = "Qwen3-4B"
+# The served model: reported as `model` in responses and used as the file stem
+# of its four-file export (<id>.rknn / .weight / .tokenizer.gguf / .embed.bin).
+# Qwen3 and Qwen3.5 exports load through the same worker.
+MODEL_ID = os.environ.get("RK1828_MODEL_ID", "").strip() or "Qwen3-4B"
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 
@@ -118,9 +125,15 @@ class Qwen3Worker:
         max_context: int = 2048,
         start_attempts: int = START_ATTEMPTS,
         ready_timeout: float = READY_TIMEOUT_S,
+        model_name: str = "Qwen3-4B",
+        kv_checkpoint_interval: int = 0,
+        kv_checkpoint_count: int = 0,
     ) -> None:
         self.binary = binary
         self.model_dir = model_dir
+        self.model_name = model_name
+        self.kv_checkpoint_interval = kv_checkpoint_interval
+        self.kv_checkpoint_count = kv_checkpoint_count
         self.core_mask = core_mask
         self.max_context = max_context
         self.start_attempts = start_attempts
@@ -167,10 +180,16 @@ class Qwen3Worker:
         args = [
             self.binary,
             self.model_dir,
+            "--model-name",
+            self.model_name,
             "--core-mask",
             self.core_mask,
             "--max-context",
             str(self.max_context),
+            "--kv-checkpoint-interval",
+            str(self.kv_checkpoint_interval),
+            "--kv-checkpoint-count",
+            str(self.kv_checkpoint_count),
             "-",
         ]
         LOG.info("spawning worker: %s", " ".join(args))
@@ -284,12 +303,24 @@ class Qwen3Worker:
                 self.proc.stdin.flush()
 
                 dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                failed = False
                 while True:
                     (length,) = _LEN.unpack(self._read_exact(4))
+                    if length == REQUEST_FAILED:
+                        # Keep reading to the EOS frame: raising here would leave
+                        # it in the pipe and cut the NEXT request off at once.
+                        failed = True
+                        continue
                     if length == END_OF_STREAM:
                         tail = dec.decode(b"", final=True)
                         if tail:
                             q.put(("text", tail))
+                        if failed:
+                            raise WorkerError(
+                                "generation failed in the worker (rknn3_session_run != 0); "
+                                "the usual cause is a prompt longer than the model's "
+                                f"context ({self.max_context} tokens configured)"
+                            )
                         break
                     if length > MAX_FRAME_BYTES:
                         raise WorkerError(
@@ -420,21 +451,83 @@ class ToolCallSplitter:
         return tail
 
 
+# How the model writes a tool call between <tool_call> tags:
+#   json : {"name": "set_mode", "arguments": {"mode_name": "chat"}}   (Qwen3)
+#   xml  : <function=set_mode>
+#          <parameter=mode_name>
+#          chat
+#          </parameter>
+#          </function>                                               (Qwen3.5)
+# Parsing accepts both; this only decides how earlier calls are written back
+# into the prompt history, which should match what the model itself emits.
+TOOL_CALL_FORMAT = (os.environ.get("RK1828_TOOL_CALL_FORMAT", "") or "json").strip().lower()
+
+_XML_FUNCTION = re.compile(r"<function=([^>\n]+)>(.*?)</function>", re.DOTALL)
+_XML_PARAM = re.compile(r"<parameter=([^>\n]+)>\n?(.*?)\n?</parameter>", re.DOTALL)
+
+
+def _xml_param_value(raw: str):
+    """Qwen3.5 writes parameter values as bare text; numbers, booleans and
+    JSON objects/arrays come out as their literal text."""
+    text = raw.strip()
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def parse_tool_call_body(body: str) -> Optional[tuple]:
+    """(name, arguments_json) from one <tool_call> body in either format."""
+    text = body.strip()
+    if text.startswith("<function="):
+        m = _XML_FUNCTION.search(text)
+        if not m:
+            return None
+        name = m.group(1).strip()
+        args = {k.strip(): _xml_param_value(v) for k, v in _XML_PARAM.findall(m.group(2))}
+        return (name, json.dumps(args, ensure_ascii=False)) if name else None
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(obj, dict) or not obj.get("name"):
+        return None
+    args = obj.get("arguments")
+    if not isinstance(args, str):
+        args = json.dumps(args if args is not None else {}, ensure_ascii=False)
+    return obj["name"], args
+
+
+def render_tool_call(name: str, arguments) -> str:
+    """One call written back into the history, in the model's own format."""
+    if TOOL_CALL_FORMAT == "xml":
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments) if arguments.strip() else {}
+            except ValueError:
+                arguments = {}
+        params = "".join(
+            f"<parameter={k}>\n"
+            f"{v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)}"
+            f"\n</parameter>\n"
+            for k, v in (arguments or {}).items()
+        )
+        return f"{TOOL_OPEN}\n<function={name}>\n{params}</function>\n{TOOL_CLOSE}"
+    return (
+        f"{TOOL_OPEN}\n"
+        + json.dumps({"name": name, "arguments": arguments}, ensure_ascii=False)
+        + f"\n{TOOL_CLOSE}"
+    )
+
+
 def to_openai_tool_calls(bodies: List[str]) -> List[dict]:
     calls: List[dict] = []
     for body in bodies:
-        try:
-            obj = json.loads(body.strip())
-        except ValueError:
+        parsed = parse_tool_call_body(body)
+        if parsed is None:
             LOG.warning("unparseable tool call body: %r", body[:200])
             continue
-        name = obj.get("name")
-        if not name:
-            LOG.warning("tool call without a name: %r", body[:200])
-            continue
-        args = obj.get("arguments")
-        if not isinstance(args, str):
-            args = json.dumps(args if args is not None else {}, ensure_ascii=False)
+        name, args = parsed
         calls.append(
             {
                 "index": len(calls),
@@ -461,15 +554,10 @@ def _render_turn(m: dict) -> str:
         return f"Tool: <tool_response>\n{content}\n</tool_response>"
     if role == "assistant":
         blocks = [
-            f"{TOOL_OPEN}\n"
-            + json.dumps(
-                {
-                    "name": (tc.get("function") or {}).get("name"),
-                    "arguments": (tc.get("function") or {}).get("arguments"),
-                },
-                ensure_ascii=False,
+            render_tool_call(
+                (tc.get("function") or {}).get("name"),
+                (tc.get("function") or {}).get("arguments"),
             )
-            + f"\n{TOOL_CLOSE}"
             for tc in (m.get("tool_calls") or [])
         ]
         return "Assistant: " + "\n".join([content, *blocks]).strip()
@@ -517,7 +605,7 @@ class ChatRequest(BaseModel):
     tool_choice: Optional[Any] = None
 
 
-app = FastAPI(title="RK1828 Qwen3-4B OpenAI shim")
+app = FastAPI(title="RK1828 LLM OpenAI shim")
 WORKER: Optional[Qwen3Worker] = None
 
 
@@ -570,7 +658,10 @@ def chat_completions(req: ChatRequest):
     created = int(time.time())
 
     if not req.stream:
-        text = "".join(WORKER.generate(prompt, max_new, tools=req.tools))
+        try:
+            text = "".join(WORKER.generate(prompt, max_new, tools=req.tools))
+        except WorkerError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
         text = _THINK_RE.sub("", text)
         tool_calls: List[dict] = []
         if req.tools:
@@ -718,6 +809,8 @@ def main() -> None:
     )
     ap.add_argument("--core-mask", default="ff")
     ap.add_argument("--max-context", type=int, default=2048)
+    ap.add_argument("--kv-checkpoint-interval", type=int, default=0)
+    ap.add_argument("--kv-checkpoint-count", type=int, default=0)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=1828)
     args = ap.parse_args()
@@ -736,6 +829,9 @@ def main() -> None:
         max_context=args.max_context,
         start_attempts=start_attempts,
         ready_timeout=ready_timeout,
+        model_name=MODEL_ID,
+        kv_checkpoint_interval=args.kv_checkpoint_interval,
+        kv_checkpoint_count=args.kv_checkpoint_count,
     )
     LOG.info(
         "worker start: attempts=%d ready_timeout=%gs max_context=%d core_mask=%s",
