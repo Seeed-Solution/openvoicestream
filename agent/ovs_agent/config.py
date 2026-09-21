@@ -241,6 +241,10 @@ class Config:
     llm_availability_probe_interval_s: float = 30.0
     llm_availability_probe_timeout_s: float = 5.0
     llm_availability_failures_to_down: int = 3
+    # auto: use GET <root>/health when it reports {"status": ...}, else the
+    # chat probe. health / chat force one. A chat probe evicts the prompt
+    # cache of single-slot local runtimes (RK1828); see llm_availability.py.
+    llm_availability_probe_mode: str = "auto"
     # MED-3: consecutive "unknown" probe results (timeout / connect error)
     # before we transition to UNKNOWN state. UNKNOWN surfaces a grey dot
     # on the dashboard (vs HEALTHY's green) so operators notice a network
