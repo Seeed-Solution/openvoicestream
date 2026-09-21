@@ -393,9 +393,9 @@ def _partial_tail(text: str, sentinel: str) -> int:
 class ToolCallSplitter:
     """Incrementally split a token stream into content text and tool calls.
 
-    Used only when the request carried tools, so a plain chat request streams
-    exactly as before — the measured first-token latency depends on not
-    buffering that path.
+    Runs on every request (see tool_calls_for for why tool-less ones too). It
+    only buffers a trailing partial "<tool_call>" prefix, so text streams
+    through unchanged otherwise — first-token latency depends on that.
 
     Holds back a partial `<tool_call>` prefix so a sentinel straddling two token
     pieces is never leaked to the client as content.
@@ -518,6 +518,28 @@ def render_tool_call(name: str, arguments) -> str:
         + json.dumps({"name": name, "arguments": arguments}, ensure_ascii=False)
         + f"\n{TOOL_CLOSE}"
     )
+
+
+def tool_calls_for(req_tools, splitter: "ToolCallSplitter") -> List[dict]:
+    """OpenAI tool_calls for a finished request.
+
+    A request without tools gets none, even if the model wrote a <tool_call>:
+    the RKNN3 runtime keeps tools registered by an earlier request for the whole
+    session (no unregister API, see BUILD.md), so a tool-less request can still
+    be rendered with the tool preamble and "call" a tool the client never
+    offered. The call text is stripped from the content either way, so it is
+    never spoken or shown.
+    """
+    if req_tools:
+        return to_openai_tool_calls(splitter.bodies)
+    if splitter.bodies:
+        LOG.warning(
+            "dropped %d tool call(s) from a request that carried no tools; "
+            "an earlier request left tools registered in the worker session "
+            "(restart the service to clear them): %r",
+            len(splitter.bodies), splitter.bodies[0][:120],
+        )
+    return []
 
 
 def to_openai_tool_calls(bodies: List[str]) -> List[dict]:
@@ -663,11 +685,9 @@ def chat_completions(req: ChatRequest):
         except WorkerError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         text = _THINK_RE.sub("", text)
-        tool_calls: List[dict] = []
-        if req.tools:
-            splitter = ToolCallSplitter()
-            text = splitter.feed(text) + splitter.flush()
-            tool_calls = to_openai_tool_calls(splitter.bodies)
+        splitter = ToolCallSplitter()
+        text = splitter.feed(text) + splitter.flush()
+        tool_calls: List[dict] = tool_calls_for(req.tools, splitter)
         message: dict = {"role": "assistant", "content": text.strip() or None}
         if tool_calls:
             message["tool_calls"] = tool_calls
@@ -705,7 +725,10 @@ def chat_completions(req: ChatRequest):
             }
         )
         n = 0
-        splitter = ToolCallSplitter() if req.tools else None
+        # Always split, also without tools: see tool_calls_for(). It holds back
+        # at most a partial "<tool_call>" prefix (<= 10 chars), only when a
+        # piece ends in one, so plain replies stream as before.
+        splitter = ToolCallSplitter()
 
         def _content_chunk(text: str) -> str:
             return _sse(
@@ -731,19 +754,17 @@ def chat_completions(req: ChatRequest):
                 if piece in ("<think>", "</think>"):
                     continue
                 n += 1
-                if splitter is not None:
-                    piece = splitter.feed(piece)
-                    if not piece:
-                        continue
+                piece = splitter.feed(piece)
+                if not piece:
+                    continue
                 yield _content_chunk(piece)
-            if splitter is not None:
-                tail = splitter.flush()
-                if tail:
-                    yield _content_chunk(tail)
+            tail = splitter.flush()
+            if tail:
+                yield _content_chunk(tail)
         except Exception as exc:  # noqa: BLE001
             LOG.exception("generation failed")
             yield _sse({"error": {"message": str(exc), "type": "worker_error"}})
-        tool_calls = to_openai_tool_calls(splitter.bodies) if splitter else []
+        tool_calls = tool_calls_for(req.tools, splitter)
         for tc in tool_calls:
             # Emitted whole rather than as name/argument fragments: the call is
             # only recognisable once </tool_call> has arrived, so there is
