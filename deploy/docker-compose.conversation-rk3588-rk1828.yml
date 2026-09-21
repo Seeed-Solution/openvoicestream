@@ -212,7 +212,7 @@ services:
     # asr_final segments instead of overwriting the user text, so a backend
     # endpoint that fires on a mid-sentence pause no longer splits one spoken
     # sentence into two LLM turns. Bundles the sherpa-onnx KWS model.
-    image: ${AGENT_IMAGE:-sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.3}
+    image: ${AGENT_IMAGE:-sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.4}
     container_name: conversational-voice-agent
     init: true
     network_mode: host
