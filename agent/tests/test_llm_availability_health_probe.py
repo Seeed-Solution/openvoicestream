@@ -126,3 +126,25 @@ async def test_recent_real_success_skips_probe_without_double_counting(monkeypat
     assert p.state == AvailabilityState.RECOVERING, (
         "a skipped cycle must not count as a second confirmation"
     )
+
+
+@pytest.mark.asyncio
+async def test_health_503_while_detecting_does_not_latch_chat(monkeypatch):
+    """A server that is still booting answers /health 503 once; detection must
+    retry /health later instead of using the chat probe for the whole session."""
+    calls = {"health": 0}
+
+    def h(req):
+        if req.url.path == "/health":
+            calls["health"] += 1
+            if calls["health"] == 1:
+                return httpx.Response(503, json={"detail": "starting"})
+            return httpx.Response(200, json={"status": "ok"})
+        return _chat_ok()
+
+    p, seen = _plugin(monkeypatch, h)
+    assert await p._probe() is True          # 503 → chat this cycle only
+    assert await p._probe() is True          # /health retried, now confirmed
+    assert await p._probe() is True
+    assert seen == ["GET /health", "POST /v1/chat/completions",
+                    "GET /health", "GET /health"]

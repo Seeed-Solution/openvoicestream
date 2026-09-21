@@ -244,12 +244,20 @@ class LLMAvailabilityPlugin(Plugin):
             # now means the server is unhealthy, not that /health vanished.
             logger.warning("LLM health probe: HTTP %s without a status", r.status_code)
             return False
-        return "unsupported"
+        if r.status_code in (404, 405, 501) or r.status_code == 200:
+            # The endpoint is absent, or answers without a worker status.
+            return "unsupported"
+        # 5xx / other while still detecting (e.g. the server is booting):
+        # say nothing about support yet — probe via chat this cycle and try
+        # /health again next time instead of latching the chat probe.
+        return "undecided"
 
     async def _probe(self) -> bool | None:
         """Health endpoint when the server has one, else a chat request."""
         if self._health_supported is not False:
             result = await self._probe_health()
+            if result == "undecided":
+                return await self._probe_chat()
             if result != "unsupported":
                 return result  # type: ignore[return-value]
             logger.info(
