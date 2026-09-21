@@ -14,7 +14,7 @@ import math
 import os
 import struct
 from dataclasses import dataclass
-from typing import Any, AsyncIterator
+from typing import Callable, Any, AsyncIterator
 
 import websockets
 from websockets.asyncio.client import connect as ws_connect
@@ -245,6 +245,10 @@ class SLVClient:
         if protocol_version not in (1, 2):
             raise ValueError("protocol_version must be 1 or 2")
         self.protocol_version = protocol_version
+        # Called before the first byte of assistant reply text goes out
+        # (send_text / speak). BaseApp uses it to know where a superseded
+        # reply ends: anything the server sent before this is stale.
+        self.on_reply_text: Callable[[], None] | None = None
         # Make sure multi_utterance is on (invariant 1).
         self.config["multi_utterance"] = True
 
@@ -866,9 +870,18 @@ class SLVClient:
                 # picks up from the new chunks.
                 self._ws = None
 
+    def _notify_reply_text(self) -> None:
+        hook = getattr(self, "on_reply_text", None)
+        if hook is not None:
+            try:
+                hook()
+            except Exception:  # pragma: no cover - defensive
+                logger.exception("on_reply_text hook failed")
+
     async def send_text(self, text: str) -> None:
         if text:
             logger.info("SLV send text chunk len=%d", len(text))
+            self._notify_reply_text()
         await self._send_json({"type": CLIENT_TEXT, "text": text})
 
     async def flush_tts(self) -> None:
@@ -879,6 +892,7 @@ class SLVClient:
         """Speak deterministic text without adding it to model history."""
         if not text or not text.strip():
             return
+        self._notify_reply_text()
         if getattr(self, "protocol_version", 1) == 2:
             await self._send_json({
                 "type": CLIENT_DIRECT_SPEAK,
