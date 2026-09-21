@@ -45,7 +45,7 @@ class _SpySLV:
     def is_reconnecting(self) -> bool:
         return False
 
-    async def abort(self) -> None:
+    async def abort(self, *, keep_asr: bool = False) -> None:
         self.abort_count += 1
 
     async def reconnect(self) -> None:

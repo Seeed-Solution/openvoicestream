@@ -110,3 +110,15 @@ async def test_stop_intent_aborts_and_skips_llm():
     app.audio.stop_playback.assert_awaited()
     # State landed in IDLE.
     assert app._state == ConvState.IDLE
+
+
+def test_stop_followed_by_a_new_instruction_is_not_a_stop():
+    """Regression (rk3588, 2026-09-21): a barge-in redirect that opens with
+    "stop" must reach the LLM. Short tails still mean "be quiet"."""
+    app = _stub_app()
+    assert app._is_stop_intent("Stop, please answer in one sentence.") is False
+    assert app._is_stop_intent("stop and tell me about the RK3588") is False
+    # short tails keep the old meaning
+    assert app._is_stop_intent("stop it now") is True
+    assert app._is_stop_intent("Stop talking.") is True
+    assert app._is_stop_intent("stop, please") is True

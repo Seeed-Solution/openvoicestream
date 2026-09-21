@@ -82,7 +82,7 @@ class _FakeSLV:
         self.reconnects = 0
         self.truncations = []
 
-    async def abort(self) -> None:
+    async def abort(self, *, keep_asr: bool = False) -> None:
         self.aborted += 1
 
     async def reconnect(self) -> None:

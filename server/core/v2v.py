@@ -39,6 +39,19 @@ CLIENT_ASR_PREPARE = "asr_prepare"  # precompute ASR final before EOS
 CLIENT_ASR_EOS    = "asr_eos"       # manually finalize ASR (overrides VAD)
 CLIENT_TTS_FLUSH  = "tts_flush"     # flush remaining TTS buffer
 CLIENT_ABORT      = "abort"         # barge-in: cancel current TTS
+# ``abort`` optionally carries ``keep_asr`` (bool, default False).
+#
+# Default (False): the abort also cancels the in-flight ASR utterance —
+# the original semantics, right when the abort has nothing to do with new
+# user speech (user pressed stop, session going to sleep, a stale partial).
+#
+# ``keep_asr: true``: cancel TTS only and leave the ASR stream running.
+# A client sends this for a *speech-driven* barge-in, where the in-flight
+# utterance IS what the user is interrupting with: cancelling it throws
+# away every word spoken before the barge-in threshold fired, so the LLM
+# only ever receives the tail ("Stop, please answer in one sentence." was
+# delivered as "One sentence." on rk3588, 2026-09-21). A server that
+# predates this field ignores it and cancels ASR as before.
 # Idle keepalive. Carries no state and is a no-op for the session — its only
 # job is to be a frame, so the dispatcher's idle watchdog
 # (OVS_V2V_IDLE_TIMEOUT_S) sees traffic and does not reap a live-but-silent

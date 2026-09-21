@@ -16,6 +16,20 @@ Probes hit `/v1/chat/completions` with `max_tokens=1` — NOT `/v1/models`,
 which only returns metadata and would return green even when generation
 is broken (api_server.py:86-96).
 
+...unless the server exposes a ``/health`` that reports worker state
+(``{"status": "ok"}``), in which case that is used instead
+(``llm_availability_probe_mode``: ``auto`` default / ``health`` / ``chat``).
+A local single-slot runtime keeps exactly one prompt prefix in its KV
+cache, and a chat probe replaces it: measured on RK1828 (2026-09-21) the
+next real turn went from 168 ms to 1367 ms TTFT after one probe, and with
+turns more than 30 s apart every turn re-prefilled the whole system prompt
+and history (TTFT 2.0-2.6 s). ``auto`` falls back to the chat probe when
+``/health`` is missing or does not carry a ``status`` field, so cloud
+endpoints keep the old behaviour.
+
+A probe is also skipped when a real request succeeded within the last
+interval: that is stronger evidence than a probe, and it costs nothing.
+
 Probe timeouts return ``None`` (unknown) so a slow LLM doesn't get
 mis-classified as DOWN by probe cadence alone.
 
@@ -109,6 +123,23 @@ class LLMAvailabilityPlugin(Plugin):
             getattr(cfg, "llm_availability_unknowns_to_unknown_state", 3)
         )
 
+        mode = str(
+            getattr(cfg, "llm_availability_probe_mode", "auto") or "auto"
+        ).strip().lower()
+        if mode not in ("auto", "health", "chat"):
+            logger.warning(
+                "llm_availability_probe_mode=%r is not auto/health/chat; using auto",
+                mode,
+            )
+            mode = "auto"
+        self.probe_mode = mode
+        # None = not yet known (auto), True = /health answers with a status,
+        # False = use the chat probe.
+        self._health_supported: bool | None = {
+            "auto": None, "health": True, "chat": False,
+        }[mode]
+        self._last_real_ok_mono: float | None = None
+
         # State.
         self.state: AvailabilityState = AvailabilityState.HEALTHY
         self.consecutive_failures: int = 0
@@ -163,7 +194,85 @@ class LLMAvailabilityPlugin(Plugin):
 
     # ── probe ──────────────────────────────────────────────────────
 
+    def _health_url(self) -> str:
+        root = self.base_url.rstrip("/")
+        if root.endswith("/v1"):
+            root = root[: -len("/v1")]
+        return root + "/health"
+
+    async def _probe_health(self) -> bool | None | str:
+        """GET ``/health``. Returns True/False/None like ``_probe``, or the
+        string ``"unsupported"`` when the endpoint is absent or does not
+        report a status (auto mode then falls back to the chat probe)."""
+        url = self._health_url()
+        try:
+            async with httpx.AsyncClient(timeout=self.probe_timeout_s) as client:
+                r = await client.get(url)
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+            logger.info("LLM health probe unreachable (%s: %s); treated as unknown",
+                        type(e).__name__, e)
+            return None
+        except Exception as e:
+            if not self._health_supported:
+                # Not confirmed yet: an odd error here says nothing about the
+                # LLM, so let auto mode fall back to the chat probe.
+                logger.info("LLM health probe error before detection (%s); "
+                            "falling back to chat probe", e)
+                return "unsupported"
+            logger.warning("LLM health probe error: %s", e)
+            return False
+        body = None
+        if r.status_code == 200:
+            try:
+                body = r.json()
+            except Exception:
+                body = None
+        status = body.get("status") if isinstance(body, dict) else None
+        if isinstance(status, str):
+            if self._health_supported is None:
+                logger.info(
+                    "LLM probe: using %s (reports worker status; does not "
+                    "touch the model's prompt cache)", url,
+                )
+                self._health_supported = True
+            ok = status.strip().lower() in ("ok", "healthy", "ready")
+            if not ok:
+                logger.warning("LLM health probe: status=%r", status)
+            return ok
+        if self._health_supported:
+            # Confirmed earlier (or forced by config): a non-status answer
+            # now means the server is unhealthy, not that /health vanished.
+            logger.warning("LLM health probe: HTTP %s without a status", r.status_code)
+            return False
+        if r.status_code in (404, 405, 501) or r.status_code == 200:
+            # The endpoint is absent, or answers without a worker status.
+            return "unsupported"
+        # 5xx / other while still detecting (e.g. the server is booting):
+        # say nothing about support yet — probe via chat this cycle and try
+        # /health again next time instead of latching the chat probe.
+        return "undecided"
+
     async def _probe(self) -> bool | None:
+        """Health endpoint when the server has one, else a chat request."""
+        if self._health_supported is not False:
+            result = await self._probe_health()
+            if result == "undecided":
+                return await self._probe_chat()
+            if result != "unsupported":
+                return result  # type: ignore[return-value]
+            logger.info(
+                "LLM probe: %s has no status endpoint; using the "
+                "chat/completions probe", self._health_url(),
+            )
+            self._health_supported = False
+        return await self._probe_chat()
+
+    def _recent_real_success(self) -> bool:
+        if self._last_real_ok_mono is None:
+            return False
+        return (time.monotonic() - self._last_real_ok_mono) < self.interval_s
+
+    async def _probe_chat(self) -> bool | None:
         """Run a minimal inference request.
 
         Returns:
@@ -242,9 +351,17 @@ class LLMAvailabilityPlugin(Plugin):
     async def run(self) -> None:
         try:
             while not self._stopped:
-                async with (self._probe_lock or asyncio.Lock()):
-                    result = await self._probe()
-                if result is None:
+                if self._recent_real_success():
+                    # A real turn just proved the LLM works and already fed
+                    # the state machine via report_request_success(); skip
+                    # this cycle without counting it a second time.
+                    result: bool | None | str = "skipped"
+                else:
+                    async with (self._probe_lock or asyncio.Lock()):
+                        result = await self._probe()
+                if result == "skipped":
+                    pass
+                elif result is None:
                     # MED-3: track consecutive unknowns. When the threshold
                     # is reached, transition to UNKNOWN — better than
                     # silently staying HEALTHY during a network partition.
@@ -367,6 +484,7 @@ class LLMAvailabilityPlugin(Plugin):
 
     def report_request_success(self) -> None:
         """A real user-driven LLM request just succeeded — reset failures."""
+        self._last_real_ok_mono = time.monotonic()
         self._advance(True)
 
     async def force_probe(self) -> bool | None:

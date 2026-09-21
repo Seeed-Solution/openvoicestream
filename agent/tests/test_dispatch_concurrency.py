@@ -49,7 +49,7 @@ class _FakeSLV:
         self.aborted = 0
         self.reconnects = 0
 
-    async def abort(self) -> None:
+    async def abort(self, *, keep_asr: bool = False) -> None:
         self.aborted += 1
 
     async def reconnect(self) -> None:

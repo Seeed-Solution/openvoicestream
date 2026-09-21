@@ -86,7 +86,7 @@ class FakeSLV:
     async def flush_tts(self) -> None:
         self.flushed += 1
 
-    async def abort(self) -> None:
+    async def abort(self, *, keep_asr: bool = False) -> None:
         self.aborted += 1
 
     async def reconnect(self) -> None:

@@ -359,6 +359,10 @@ class BaseApp:
         self._vad_speech_ms = 0
         self._vad_silence_ms = 0
         self._vad_eos_sent = False
+        # True while the current client-VAD segment began during playback and
+        # was rejected as a barge-in by the echo guard. Its end must not close
+        # a user turn — see the speech-end branch of _update_vad.
+        self._vad_echo_segment = False
         # ── v2: conversation state machine + observability ──
         # Initial state depends on pipeline_mode: always_on boots IDLE
         # (legacy), wake_word / push_to_talk boot SLEEPING.
@@ -598,9 +602,19 @@ class BaseApp:
                     return remainder or None
         return stripped
 
+    # A prefix match ("stop ...") counts as a stop only while what follows is
+    # a short tail like "please" / "it now" / "talking". A longer tail is a new
+    # instruction that happens to open with "stop": "Stop, please answer in one
+    # sentence." must reach the LLM, not end the turn in silence. Chinese stop
+    # words already match the whole utterance only, so this brings English in
+    # line. Measured on rk3588 (2026-09-21) once barge-in stopped dropping the
+    # head of the utterance: that exact sentence went thinking → idle.
+    _STOP_PREFIX_MAX_TAIL_WORDS = 2
+
     def _is_stop_intent(self, text: str) -> bool:
         """Match per spec: Chinese -> exact full-string; English -> case-
-        insensitive whole-utterance OR word-boundary prefix (>= 2 chars).
+        insensitive whole-utterance OR word-boundary prefix (>= 2 chars)
+        followed by at most ``_STOP_PREFIX_MAX_TAIL_WORDS`` words.
         """
         norm = self._normalise_for_stop(text)
         if not norm:
@@ -631,7 +645,10 @@ class BaseApp:
                     or norm.startswith(wn + "?")
                     or norm.startswith(wn + ".")
                 ):
-                    return True
+                    tail = norm[len(wn):].replace(",", " ").replace(".", " ")
+                    tail = tail.replace("!", " ").replace("?", " ").split()
+                    if len(tail) <= self._STOP_PREFIX_MAX_TAIL_WORDS:
+                        return True
         return False
 
     # ── pipeline_mode: wake / sleep / sleep-timer ──────────────────
@@ -2488,8 +2505,9 @@ class BaseApp:
           2. stop local speaker playback immediately;
           3. send SLV's in-band abort control to cancel the already queued /
              in-flight TTS synthesis;
-          4. keep the SLV WebSocket alive so the user's current speech keeps
-             flowing to ASR without a reconnect gap.
+          4. keep the SLV WebSocket alive **and** the in-flight ASR utterance
+             alive (``abort(keep_asr=True)``) so the user's current speech
+             keeps flowing to ASR without a gap.
 
         The current SLV protocol multiplexes ASR input and TTS output on one
         connection. Closing/reconnecting it here also drops exactly the audio
@@ -2497,6 +2515,14 @@ class BaseApp:
         into a multi-second delayed response. The right control is the in-band
         `abort` frame: SLV cancels current TTS and drains queued sentences
         without tearing down the WebSocket.
+
+        The same reasoning applies one level down. A plain `abort` also makes
+        the server cancel the in-flight ASR utterance, which is exactly the
+        audio we are trying to keep — measured on rk3588 (2026-09-21): the
+        server restarted its ASR stream 0.3 s after barge-in and "Stop,
+        please answer in one sentence." arrived as "One sentence.". So this
+        path sends `keep_asr=True` and, for the same reason, keeps the
+        locally accumulated mid-utterance segments instead of dropping them.
         """
         if self._llm_turn_task is not None and not self._llm_turn_task.done():
             self._llm_turn_task.cancel()
@@ -2518,8 +2544,8 @@ class BaseApp:
         except Exception:
             logger.exception("stop_playback failed during barge-in")
         try:
-            await asyncio.wait_for(self.slv.abort(), timeout=0.5)
-            logger.info("SLV abort sent during barge-in")
+            await asyncio.wait_for(self.slv.abort(keep_asr=True), timeout=0.5)
+            logger.info("SLV abort sent during barge-in (keep_asr=1)")
         except asyncio.TimeoutError:
             logger.warning("SLV abort timed out during barge-in")
         except asyncio.CancelledError:
@@ -2539,8 +2565,13 @@ class BaseApp:
         self._eos_sent_this_turn = False
         self._cancel_asr_watchdog()
         self._first_tts_seen = False
-        # A barge-in abandons whatever the user was mid-way through saying.
-        self._clear_pending_asr_utterance()
+        # NOT cleared here: the pending buffer holds mid-utterance segments of
+        # the barge-in utterance itself (the RK Qwen3-ASR backend emits an
+        # internal final after ~400 ms of silence, well before our asr_eos).
+        # Dropping them loses the head of what the user just said — the very
+        # thing the barge-in is meant to capture. It is still cleared on
+        # dispatch, sleep, wake-command completion and session close, so it
+        # cannot glue onto an unrelated next turn.
 
     def _arm_thinking_watchdog(self) -> None:
         """Re-arm the THINKING-state watchdog.
@@ -2704,6 +2735,7 @@ class BaseApp:
                     self._vad_state = "speech"
                     self._vad_silence_ms = 0
                     self._vad_eos_sent = False
+                    self._vad_echo_segment = False
                     logger.info("client VAD: speech started")
                     if (
                         getattr(self, "_state", ConvState.IDLE) == ConvState.THINKING
@@ -2748,6 +2780,7 @@ class BaseApp:
                             elapsed_ms,
                             minimum_ms,
                         )
+                        self._vad_echo_segment = True
                     elif self.audio.is_playing:
                         logger.info(
                             "client VAD speech while playback buffered in state=%s; "
@@ -2762,7 +2795,25 @@ class BaseApp:
             if not is_speech:
                 self._vad_silence_ms += chunk_ms
                 if self._vad_silence_ms >= self.config.client_vad_silence_ms:
-                    if not self._vad_eos_sent:
+                    if (
+                        getattr(self, "_vad_echo_segment", False)
+                        and getattr(self, "_state", ConvState.IDLE) == ConvState.SPEAKING
+                    ):
+                        # The segment was rejected as a barge-in (echo guard)
+                        # and the assistant is still talking. Ending it used to
+                        # send asr_eos and flip SPEAKING → THINKING mid-reply,
+                        # which then disabled barge-in for the rest of the reply
+                        # (both barge-in paths require SPEAKING) and let the
+                        # 3 s asr_final watchdog force IDLE while audio still
+                        # played. Measured on rk3588 (2026-09-21): echo VAD at
+                        # +230 ms, speech end at +835 ms, speaking → thinking,
+                        # and an interruption 1.2 s later was ignored.
+                        logger.info(
+                            "client VAD: echo segment ended during playback; "
+                            "not ending a user turn"
+                        )
+                        self._vad_eos_sent = True
+                    elif not self._vad_eos_sent:
                         import time as _t
                         drove_eos = bool(getattr(self.config, "client_vad_drive_eos", False))
                         if drove_eos:
