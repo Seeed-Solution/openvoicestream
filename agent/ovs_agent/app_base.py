@@ -598,9 +598,19 @@ class BaseApp:
                     return remainder or None
         return stripped
 
+    # A prefix match ("stop ...") counts as a stop only while what follows is
+    # a short tail like "please" / "it now" / "talking". A longer tail is a new
+    # instruction that happens to open with "stop": "Stop, please answer in one
+    # sentence." must reach the LLM, not end the turn in silence. Chinese stop
+    # words already match the whole utterance only, so this brings English in
+    # line. Measured on rk3588 (2026-09-21) once barge-in stopped dropping the
+    # head of the utterance: that exact sentence went thinking → idle.
+    _STOP_PREFIX_MAX_TAIL_WORDS = 2
+
     def _is_stop_intent(self, text: str) -> bool:
         """Match per spec: Chinese -> exact full-string; English -> case-
-        insensitive whole-utterance OR word-boundary prefix (>= 2 chars).
+        insensitive whole-utterance OR word-boundary prefix (>= 2 chars)
+        followed by at most ``_STOP_PREFIX_MAX_TAIL_WORDS`` words.
         """
         norm = self._normalise_for_stop(text)
         if not norm:
@@ -631,7 +641,10 @@ class BaseApp:
                     or norm.startswith(wn + "?")
                     or norm.startswith(wn + ".")
                 ):
-                    return True
+                    tail = norm[len(wn):].replace(",", " ").replace(".", " ")
+                    tail = tail.replace("!", " ").replace("?", " ").split()
+                    if len(tail) <= self._STOP_PREFIX_MAX_TAIL_WORDS:
+                        return True
         return False
 
     # ── pipeline_mode: wake / sleep / sleep-timer ──────────────────
