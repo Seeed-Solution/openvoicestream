@@ -8,7 +8,7 @@ import logging
 import sys
 from pathlib import Path
 
-from .config import Config, load_config
+from .config import Config, apply_session_budget_env, load_config
 
 
 def _setup_logging(level: str) -> None:
@@ -77,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"config not found: {cfg_path}", file=sys.stderr)
             return 1
         cfg = Config()
+        apply_session_budget_env(cfg)
     else:
         cfg = load_config(cfg_path)
     _setup_logging(cfg.log_level)
