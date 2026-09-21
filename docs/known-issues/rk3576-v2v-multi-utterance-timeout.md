@@ -10,7 +10,7 @@
 并关闭 socket。单句模式下注入的 `{"type":"text"}` 还没进 TTS 缓冲，会话就断了
 （容器日志只有 `v2v stream closed`，没有任何 TTS 活动）。
 
-`bench/perf/measure_v2v_unified.py` 的 `--multi 2`（同一条 wav 间隔 800 ms 重放两次）
+`bench/perf/measure_v2v_unified.py` 的 `--multi 2`（同一条 wav 间隔 `--silence-ms`（默认 700 ms）重放两次）
 就是为绕过这个提前关闭而设计的：靠第二句把会话撑开，让第一句的 TTS 回环跑完。
 
 ## 症状
@@ -31,7 +31,7 @@ stop_to_final_ms     5111 / 5161 / 5128 / 5113 ms   （反常，见下）
 
 ```bash
 python bench/perf/measure_v2v_unified.py \
-  --base-url http://127.0.0.1:8621 \
+  --host 127.0.0.1:8621 \
   --wav bench/perf/corpus/short/zh_short_01.wav \
   --tts --multi 2 --runs 5 --warmup 1
 ```
@@ -49,7 +49,7 @@ RK 上 TTS 合成约 450 ms/句（`final_to_tts_audio_ms`）。第一句的 TTS 
 而 RK 上该前提不成立。这是服务端会话生命周期的产品行为问题，不是 bench 脚本的
 问题——**不要改 `measure_v2v_unified.py` 去"修"它**，改脚本只会把问题盖住。
 
-## 另一个未解释的反常：`stop_to_final` > `stop_to_tts_audio`
+## 另一个未解释的反常：`stop_to_final_ms` > `stop_to_tts_audio_ms`
 
 同一轮里 `stop_to_final_ms`（约 5.1 s）**大于** `stop_to_tts_audio_ms`（约 1.6 s）。
 文字 final 本应先于合成语音出现，这里顺序是反的，说明两个指标在 RK 上走的不是
@@ -59,12 +59,12 @@ RK 上 TTS 合成约 450 ms/句（`final_to_tts_audio_ms`）。第一句的 TTS 
 
 1. 第二句恒 timeout → `summary` 全 "no samples"，脚本给出的 p50/mean 之类聚合值
    在 RK 上没有样本支撑。
-2. `stop_to_final` 与 `stop_to_tts_audio` 互相矛盾，两个数都不能对外引用。
+2. `stop_to_final_ms` 与 `stop_to_tts_audio_ms` 互相矛盾，**聚合值**（p50/mean）都不能对外引用；唯一可用的是第一句的单次 `stop_to_tts_audio_ms`（见下）。
 3. 历史上记入
    `seeed-solutions-hub/.../conversational_voice_ai/model-matrix/rk3576/boundary.zh.yaml`
-   的 `stop_to_tts_audio p50=3782ms`（镜像 `rk-20260903.10`）很可能就是这个超时状态下的
+   的 `stop_to_tts_audio_ms p50=3782ms`（镜像 `rk-20260903.10`）很可能就是这个超时状态下的
    统计产物：本次在 `rk-20260913.3` 上空闲重测，同一指标稳定在约 1.6 s。该 yaml 已按
-   本次重测更正并标注 `stop_to_final` 存疑。
+   本次重测更正并标注 `stop_to_final_ms` 存疑。
 
 唯一目前可用的 RK 侧数字，是**第一句**的 `stop_to_tts_audio_ms` ≈ 1.6 s（n=4，回声模式，
 链路中无对话模型）。
