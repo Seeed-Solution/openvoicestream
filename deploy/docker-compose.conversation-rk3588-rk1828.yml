@@ -181,7 +181,11 @@ services:
       RK1828_ARTIFACT_AUTO_DOWNLOAD: "1"
       RK1828_ARTIFACT_REPO_ID: harvestsu/seeed-local-voice-rk-artifacts
       RK1828_ARTIFACT_PREFIX: rk1828/opt/llm/qwen3-4b
-      RK1828_MAX_CONTEXT: "8192"
+      # The Qwen3-4B export on the artifact repo is built with a 2048-token
+      # KV cache; asking for more makes the runtime fall back to 2048 anyway
+      # (log: "chosen kvcache_buffer_lens: 2048"). Keep this equal to the
+      # export until an 8K export ships.
+      RK1828_MAX_CONTEXT: ${RK1828_MAX_CONTEXT:-2048}
       RK1828_CORE_MASK: ff
       RK1828_PORT: "1828"
       # Seconds the supervisor waits for the worker's READY handshake, per
@@ -251,6 +255,12 @@ services:
       LLM_BASE_URL: http://127.0.0.1:1828/v1
       LLM_API_KEY: EMPTY
       LLM_MODEL: Qwen3-4B
+      # History trim budget for a 2048-token LLM context. The fixed system
+      # prompt (~1150 real tokens) is not charged against it; trimming keeps
+      # history at <= 0.75 x this value by the agent's estimate, which without
+      # the Qwen tokenizer in the image is chars x 1.5 (over-counts, so the
+      # real prompt stays under ~1700 tokens, leaving room for the reply).
+      OVS_AGENT_SESSION_MAX_INPUT_TOKENS: ${OVS_AGENT_SESSION_MAX_INPUT_TOKENS:-1200}
       SYSTEM_PROMPT: ${SYSTEM_PROMPT:-}
       DEFAULT_MODE: chat
     restart: unless-stopped

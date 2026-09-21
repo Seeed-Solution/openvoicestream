@@ -82,7 +82,9 @@ services:
       # 8192 is verified on hardware and costs nothing vs 2048 (TTFT 132 ms,
       # 81.5 tok/s either way). It is a runtime parameter — changing it does NOT
       # require re-exporting the model.
-      - RK1828_MAX_CONTEXT=${RK1828_MAX_CONTEXT:-8192}
+      # The Qwen3-4B export holds a 2048-token KV cache; the runtime falls
+      # back to 2048 for any larger request, so match it.
+      - RK1828_MAX_CONTEXT=${RK1828_MAX_CONTEXT:-2048}
       - RK1828_CORE_MASK=${RK1828_CORE_MASK:-ff}
       - RK1828_PORT=1828
       # Per-attempt ceiling for the worker's READY handshake. 180 s covers a

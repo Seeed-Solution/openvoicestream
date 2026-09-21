@@ -557,4 +557,36 @@ def load_config(path: str | Path) -> Config:
         fields = {k: v for k, v in fields.items() if k in known}
     cfg = Config(slv_config=slv_cfg, **fields)
     cfg._source_path = p
+    _apply_session_budget_env(cfg)
     return cfg
+
+
+def _apply_session_budget_env(cfg: Config) -> None:
+    """``OVS_AGENT_SESSION_MAX_INPUT_TOKENS`` overrides the YAML value.
+
+    The history trim budget has to follow the LLM's real context window,
+    which is a property of the deployment (which LLM container sits behind
+    ``LLM_BASE_URL``), not of the shared agent-config.yaml. Measured on the
+    rk3588 + RK1828 devkit (2026-09-21): the Qwen3-4B export holds 2048
+    tokens, the default 7000 never trimmed, and past ~2200 prompt tokens
+    every reply came back empty. A positive integer sets the budget;
+    ``none`` disables trimming; anything else is ignored with a warning.
+    """
+    raw = os.environ.get("OVS_AGENT_SESSION_MAX_INPUT_TOKENS")
+    if raw is None or not raw.strip():
+        return
+    v = raw.strip().lower()
+    if v == "none":
+        cfg.session_max_input_tokens = None
+        return
+    try:
+        n = int(v)
+    except ValueError:
+        n = 0
+    if n <= 0:
+        logger.warning(
+            "ignoring OVS_AGENT_SESSION_MAX_INPUT_TOKENS=%r (want a positive "
+            "integer or 'none')", raw,
+        )
+        return
+    cfg.session_max_input_tokens = n
