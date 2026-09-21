@@ -7671,9 +7671,11 @@ async def v2v_stream(ws: WebSocket):
                         # RK rolls/commits its window, whisper/sherpa segment).
                         keep_asr = bool(payload.get("keep_asr"))
                         if keep_asr:
+                            # Same units as accepted_audio_s above: the
+                            # counter holds samples at the connection rate.
                             kept_s = int(
                                 state.get("asr_audio_samples_accepted") or 0
-                            ) / float(getattr(asr_be, "sample_rate", 16000) or 16000)
+                            ) / max(float(sample_rate), 1.0)
                             max_keep_s = _keep_asr_max_s()
                             if kept_s > max_keep_s:
                                 logger.info(

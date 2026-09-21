@@ -115,3 +115,12 @@ def test_realtime_v2_proxy_carries_keep_asr_on_response_cancel():
         "clearing the input buffer is destructive; keep_asr must not apply"
     )
 
+
+def test_keep_asr_bound_uses_the_connection_rate():
+    """The accepted-sample counter is at the connection's input rate; dividing
+    by the backend rate turns 2 s of 48 kHz audio into 6 s."""
+    body = _abort_branch()
+    at = body.find("kept_s = ")
+    assert at != -1
+    stmt = body[at: body.find("max_keep_s", at)]
+    assert "sample_rate" in stmt and "asr_be" not in stmt
