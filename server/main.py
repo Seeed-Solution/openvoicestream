@@ -141,6 +141,26 @@ from server.core.logging_config import (  # noqa: E402  (must precede app creati
 setup_logging()
 logger = logging.getLogger(__name__)
 
+
+def _keep_asr_max_s() -> float:
+    """Longest in-flight ASR utterance an ``abort(keep_asr)`` may keep.
+
+    ``OVS_V2V_ABORT_KEEP_ASR_MAX_S`` (default 5.0 s). Non-finite or negative
+    values fall back to the default: ``float("nan") <= 0`` is False, so a
+    plain comparison would let ``nan`` through and silently disable the bound.
+    """
+    import math
+
+    raw = os.getenv("OVS_V2V_ABORT_KEEP_ASR_MAX_S", "")
+    try:
+        value = float(raw) if raw.strip() else 5.0
+    except ValueError:
+        return 5.0
+    if not math.isfinite(value) or value < 0:
+        return 5.0
+    return value
+
+
 app = FastAPI(title="Jetson Speech Service", version="2.0.0")
 
 
@@ -7618,9 +7638,55 @@ async def v2v_stream(ws: WebSocket):
                         while not tts_q.empty():
                             try: tts_q.get_nowait()
                             except asyncio.QueueEmpty: break
-                        # Cancel any in-flight ASR utterance too — spec: barge-in
+                        # Cancel the in-flight ASR utterance too — spec: barge-in
                         # discards pending finals and resets to IDLE.
-                        if asr_manager is not None and state["asr_active"]:
+                        #
+                        # ...unless the client asked us to keep it. In a
+                        # speech-driven barge-in the in-flight utterance is the
+                        # one the user is interrupting WITH, and cancelling it
+                        # discards every word spoken before the client's
+                        # barge-in threshold fired: measured on rk3588
+                        # (2026-09-21), "Stop, please answer in one sentence."
+                        # reached the LLM as "One sentence." because this cancel
+                        # restarted the ASR stream 0.3 s after the barge-in. The
+                        # client says which kind of abort this is; see
+                        # ``keep_asr`` in server/core/v2v.py.
+                        #
+                        # Bounded, because keeping the stream also keeps whatever
+                        # it accumulated while TTS was playing. A speech-driven
+                        # barge-in fires 0.5-2.5 s after the user starts talking
+                        # (echo guard + partial latency; 2.4 s measured on RK),
+                        # so a longer utterance is mostly pre-barge-in audio:
+                        # speaker echo on boards without AEC, or noise. Past the
+                        # bound we cancel as before. This is engine-independent:
+                        # keeping the stream is the same path as a user who kept
+                        # talking, which every ASR engine already handles
+                        # (Jetson TRT rotates segments at segment_cap_sec=5.5 s,
+                        # RK rolls/commits its window, whisper/sherpa segment).
+                        keep_asr = bool(payload.get("keep_asr"))
+                        if keep_asr:
+                            kept_s = int(
+                                state.get("asr_audio_samples_accepted") or 0
+                            ) / float(getattr(asr_be, "sample_rate", 16000) or 16000)
+                            max_keep_s = _keep_asr_max_s()
+                            if kept_s > max_keep_s:
+                                logger.info(
+                                    "v2v abort(keep_asr) ignored: in-flight "
+                                    "utterance is %.1fs > %.1fs, most of it "
+                                    "predates the barge-in; cancelling ASR",
+                                    kept_s, max_keep_s,
+                                )
+                                keep_asr = False
+                            else:
+                                logger.info(
+                                    "v2v abort(keep_asr): TTS cancelled, ASR "
+                                    "utterance kept (%.1fs so far)", kept_s,
+                                )
+                        if (
+                            not keep_asr
+                            and asr_manager is not None
+                            and state["asr_active"]
+                        ):
                             async with coord.acquire("asr"):
                                 await asr_manager.cancel("bargein")
                             state["asr_active"] = False
