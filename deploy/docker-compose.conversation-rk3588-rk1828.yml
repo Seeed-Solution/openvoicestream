@@ -10,7 +10,12 @@
 #   agent        — mic/speaker client running `ovs-agent run conversation`
 #
 # ── IMAGE DEFAULTS ────────────────────────────────────────────────────────
-#   speech: sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260921-twosentence
+#   speech: sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260921-bargein
+#     Thin overlay on rk-20260921-twosentence: server/main.py + server/core/v2v.py
+#     from main @ c6259e0 (PR #110). A barge-in `abort` with keep_asr cancels TTS
+#     only and keeps the utterance the user interrupts with.
+#     index sha256:66c1609280eca64c2e9559f61f047e8d7f593c80d9e136787ac048cdb05fda33
+#     Its base, rk-20260921-twosentence:
 #     Thin overlay on rk-20260920-piper-en.2: ASR_FINAL_STOP_ON_PUNCT=0 in the RK
 #     profiles, their artifact sets and the profile contract (main @ 967d120). The
 #     final decode no longer stops at the first sentence terminator, so "They ship
@@ -28,7 +33,13 @@
 #     2026-09-13; not re-verified here). Carries the RK profile fix that raised
 #     VAD_ENDPOINT_SILENCE_MS 400 -> 1500 so a mid-sentence pause no longer
 #     splits one utterance into two turns.
-#   agent:  sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260914-runtimekws
+#   agent:  sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.2
+#     Thin overlay on voiceagent-20260914-runtimekws: four agent files from main
+#     @ c03e28f (PRs #110, #111) — barge-in keep_asr, stop-word tail, a new turn
+#     cuts a reply still playing, LLM probe via GET /health (the chat probe
+#     evicted the RK1828 prompt cache: TTFT 2.0-2.6 s -> 0.14-0.30 s).
+#     index sha256:921f3f9092dfdff2356ee072d7eb50a48561f93e799832f6e39b231c79d57ac9
+#     Its base, voiceagent-20260914-runtimekws:
 #     sha256:a2dc17a304d7941e924d95de0863b53fd3e1869b7caba6ecf64a60e57cfd9569
 #     (linux/arm64, recorded in the solution on 2026-09-13). Accumulates
 #     mid-utterance asr_final segments; bundles the sherpa-onnx KWS assets.
@@ -61,7 +72,7 @@ services:
   # path this compose does not pin; the repo test suite is what guarantees
   # every profile the matrix names exists.
   profile-init:
-    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260921-twosentence}
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260921-bargein}
     container_name: conversational-voice-profile-init
     init: true
     network_mode: none
@@ -80,7 +91,7 @@ services:
     restart: "no"
 
   speech:
-    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260921-twosentence}
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/openvoicestream:rk-20260921-bargein}
     container_name: conversational-voice-speech
     privileged: true
     init: true
@@ -197,7 +208,7 @@ services:
     # asr_final segments instead of overwriting the user text, so a backend
     # endpoint that fires on a mid-sentence pause no longer splits one spoken
     # sentence into two LLM turns. Bundles the sherpa-onnx KWS model.
-    image: ${AGENT_IMAGE:-sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260914-runtimekws}
+    image: ${AGENT_IMAGE:-sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.2}
     container_name: conversational-voice-agent
     init: true
     network_mode: host
