@@ -33,7 +33,8 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `openvoicestream:rk-20260921-twosentence` (speech, superseded by `rk-20260921-bargein`) | nine files over `rk-20260920-piper-en.2`, byte-identical to main `967d120`: the seven `configs/profiles/rk35{76,88}-*.json` Qwen3-ASR profiles, `deploy/artifacts/rk_manifest.json`, `server/core/rk_profile_contract.py` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:f05c121d6bb7128e78c47739d5300d6c12b28308c49136e0a58bf6ed1506a81d`, linux/arm64 `sha256:eb05622a4815373eceef86f5dbf6244e9749d42dbb6270e865c8146d106cbc29` |
 | `openvoicestream:rk-20260921-bargein` (speech) | two files over `rk-20260921-twosentence`, byte-identical to main `c6259e0` (PR #110): `server/main.py` md5 `c7fb560a…`, `server/core/v2v.py` md5 `6cb9c8c2…` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:66c1609280eca64c2e9559f61f047e8d7f593c80d9e136787ac048cdb05fda33`, linux/arm64 `sha256:8e24d89a35215906df10779de85d0045a83fea0662d8a386a968d74dd34d041f` |
 | `ovs-agent:voiceagent-20260921-bargein` (agent, superseded by `.2` before any compose pointed at it) | four files over `voiceagent-20260914-runtimekws`, byte-identical to main `c6259e0` (PR #110) | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:c02ad611689b579a2df6c244ee443911d79d0d8d2384e32966bd5b6b562ed809`, linux/arm64 `sha256:afb8f4561d4be71d3f0c5f7ef3180bb8e27dcc1722b82a69912b77deaee32530` |
-| `ovs-agent:voiceagent-20260921-bargein.2` (agent) | four files over `voiceagent-20260914-runtimekws`, byte-identical to main `c03e28f` (PRs #110, #111): `agent/ovs_agent/app_base.py` md5 `dde930cb…`, `slv_client.py` md5 `2df4493c…`, `config.py` md5 `ab119e8c…`, `plugins/llm_availability.py` md5 `907eefa9…` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:921f3f9092dfdff2356ee072d7eb50a48561f93e799832f6e39b231c79d57ac9`, linux/arm64 `sha256:1753a7e944e5cb7332f89e9ca0238a19618da7d432efba3798123b5cb7e251c4` |
+| `ovs-agent:voiceagent-20260921-bargein.2` (agent, superseded by `.3`) | four files over `voiceagent-20260914-runtimekws`, byte-identical to main `c03e28f` (PRs #110, #111): `agent/ovs_agent/app_base.py` md5 `dde930cb…`, `slv_client.py` md5 `2df4493c…`, `config.py` md5 `ab119e8c…`, `plugins/llm_availability.py` md5 `907eefa9…` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:921f3f9092dfdff2356ee072d7eb50a48561f93e799832f6e39b231c79d57ac9`, linux/arm64 `sha256:1753a7e944e5cb7332f89e9ca0238a19618da7d432efba3798123b5cb7e251c4` |
+| `ovs-agent:voiceagent-20260921-bargein.3` (agent) | four files over `voiceagent-20260914-runtimekws`, byte-identical to main `03bc82a` (PRs #110, #111, #113): `agent/ovs_agent/app_base.py` md5 `b876e028…`, `slv_client.py` md5 `2df4493c…`, `config.py` md5 `ab119e8c…`, `plugins/llm_availability.py` md5 `907eefa9…` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:44edad9f9e80de12a71848a419a85274e6afeb28748954d08d295e104d879352`, linux/arm64 `sha256:1e576dd2dfd2bd6f923b9884f8d9bfa87586d67292ab524ef88bbe9cf9d4db41` |
 | `rpi-hailo` (local, not pushed) | `4d66f475` + `final-hailo` stage | `0.0.12a0` baked | 2026-09-09 | harvest-pi | `sha256:f6d9bf16557a3a561968e2c942cfcc13112489faafe667a1df95bf5bc4700f65` (local image ID, 657 MB) |
 
 `rpi-hailo` — `Dockerfile.rpi --target final-hailo`, built on `harvest-pi`
@@ -289,3 +290,13 @@ a cloud LLM and 3/3 with the local LLM, and five turns 45 s apart at TTFT
 
 Not verified: the echo-segment path on hardware (no echo segment occurred in the
 runs; unit test only); RK3576 (same server files, not run).
+
+`ovs-agent:voiceagent-20260921-bargein.3` — `.2` plus #113: the LLM warmup sends
+only the tools the turns send. `.2` warmed with every registered tool while the
+conversation turns send none; the RK1828 runtime keeps tools registered for the
+session, so every later turn was rendered with the tool preamble and the model
+sometimes answered with a raw `<tool_call>` that was spoken. Verified on the
+RK3588 + RK1828 devkit with this image: 0 `set_function_tools` calls after the
+agent started (LLM container restarted first to clear the old registration),
+"Listen to me. Switch to transcribe mode." answered in prose, and the turn
+prefilled 1172 tokens instead of ~1830 (the stuck preamble is gone).
