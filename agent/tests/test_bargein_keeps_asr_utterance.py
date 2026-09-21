@@ -155,7 +155,9 @@ class _EosSLV(_RecordingSLV):
         self._ws = object()
         self.on_eos = None
 
-    async def asr_eos(self) -> None:
+    async def asr_eos(self, *, only_on_ws=None) -> None:
+        if only_on_ws is not None and only_on_ws is not self._ws:
+            return
         self.eos += 1
         if self.on_eos is not None:
             self.on_eos()
@@ -271,3 +273,29 @@ async def test_bargein_eos_fallback_does_not_undo_empty_final_recovery():
     assert app.slv.eos == 1
     assert app._state == ConvState.IDLE
     await _drain(app)
+
+
+@pytest.mark.asyncio
+async def test_session_bound_eos_is_dropped_if_ws_replaced_while_waiting_for_lock():
+    """Codex re-review of #115: the ownership check must sit under the send
+    lock. Reproduction: the EOS waits on the lock, a reconnect swaps the WS,
+    the lock is released — the new session must not receive the EOS."""
+    client, old_ws = _client_with_ws()
+    new_ws = _FakeWS()
+
+    await client._send_lock.acquire()
+    send = asyncio.create_task(client.asr_eos(only_on_ws=old_ws))
+    await asyncio.sleep(0)          # EOS is now queued on the lock
+    client._ws = new_ws             # reconnect replaced the session
+    client._send_lock.release()
+    await send
+
+    assert old_ws.sent == [] and new_ws.sent == []
+
+
+@pytest.mark.asyncio
+async def test_session_bound_eos_is_sent_on_its_own_ws():
+    client, ws = _client_with_ws()
+    await client.asr_eos(only_on_ws=ws)
+    await client.asr_eos()          # unbound callers are unchanged
+    assert [m["type"] for m in ws.sent] == ["asr_eos", "asr_eos"]

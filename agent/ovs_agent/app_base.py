@@ -1975,7 +1975,7 @@ class BaseApp:
         except Exception:
             logger.exception("mic pump crashed")
 
-    async def send_asr_eos_once(self) -> bool:
+    async def send_asr_eos_once(self, *, only_on_ws: object = None) -> bool:
         """Send asr_eos to SLV at most once per turn.
 
         Returns True if this call actually sent the EOS, False if it
@@ -1991,7 +1991,10 @@ class BaseApp:
             return False
         self._eos_sent_this_turn = True
         try:
-            await self.slv.asr_eos()
+            if only_on_ws is None:
+                await self.slv.asr_eos()
+            else:
+                await self.slv.asr_eos(only_on_ws=only_on_ws)
         except Exception:
             logger.exception("asr_eos send failed")
             # Don't clear the flag — even on failure we don't want to
@@ -2712,7 +2715,7 @@ class BaseApp:
             "ASR utterance -> asr_eos",
             (delay_s + deferred_s) * 1000,
         )
-        await self.send_asr_eos_once()
+        await self.send_asr_eos_once(only_on_ws=owner_ws)
         # An (empty) asr_final can land while the EOS is in flight and already
         # recover the FSM; only claim THINKING if nothing moved it.
         if getattr(self, "_state", ConvState.IDLE) == ConvState.BARGED_IN:

@@ -817,9 +817,22 @@ class SLVClient:
     # ── send helpers ────────────────────────────────────────────────
 
     async def _send_json(
-        self, payload: dict[str, Any], *, connect_if_dead: bool = True
+        self,
+        payload: dict[str, Any],
+        *,
+        connect_if_dead: bool = True,
+        only_on_ws: Any = None,
     ) -> None:
         async with self._send_lock:
+            if only_on_ws is not None and self._ws is not only_on_ws:
+                # The payload belongs to one WS session (checked under the
+                # send lock, so a reconnect cannot slip in between the check
+                # and the send); a fresh session never saw its utterance.
+                logger.info(
+                    "_send_json: WS session changed — dropping %s",
+                    payload.get("type"),
+                )
+                return
             if self._ws is None:
                 if self._closed:
                     return
@@ -956,11 +969,15 @@ class SLVClient:
             payload["keep_asr"] = True
         await self._send_json(payload)
 
-    async def asr_eos(self) -> None:
+    async def asr_eos(self, *, only_on_ws: Any = None) -> None:
+        """Commit the current utterance. ``only_on_ws`` binds the EOS to that
+        WS session: it is dropped if the connection was replaced or closed."""
         if self.protocol_version == 2:
-            await self._send_json({"type": "input_audio_buffer.commit"})
+            await self._send_json(
+                {"type": "input_audio_buffer.commit"}, only_on_ws=only_on_ws
+            )
         else:
-            await self._send_json({"type": CLIENT_ASR_EOS})
+            await self._send_json({"type": CLIENT_ASR_EOS}, only_on_ws=only_on_ws)
 
     async def truncate_active_response(self, audio_end_ms: int) -> None:
         """Trim unheard assistant audio from provider conversation state."""
