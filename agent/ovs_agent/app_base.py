@@ -2083,24 +2083,44 @@ class BaseApp:
         )
 
     def _default_mode_tool_allow(self) -> "set[str] | None | bool":
-        """Tool set a turn in the default mode sends, resolved like
-        ModeContext does per turn: mode override > global default.
+        """Tool set the first turn will send, resolved exactly like
+        ``ModeContext`` does per turn (app_mode.py): the mode's config
+        override, else the mode object's attribute; ``None`` there means
+        "use the global ``tools_enabled`` / ``tools_default_allowlist``".
+
+        The mode is the one the ModeManager actually started (it falls back
+        to the first registered mode when ``default_mode`` is missing), or
+        ``config.default_mode`` for apps without one.
 
         Returns False (no tools), None (every registered tool) or the
         allow-listed names.
         """
         cfg = self.config
-        mode_name = getattr(cfg, "default_mode", None) or "chat"
+        manager = getattr(self, "modes", None)
+        mode = getattr(manager, "_current", None)
+        if mode is None and manager is not None:
+            registered = getattr(manager, "_modes", None) or {}
+            mode = registered.get(getattr(cfg, "default_mode", None) or "chat")
+            if mode is None and registered:
+                mode = next(iter(registered.values()))
+        mode_name = getattr(mode, "name", None) or getattr(cfg, "default_mode", None) or "chat"
         overrides = getattr(cfg, "mode_overrides", None) or {}
         mode_cfg = overrides.get(mode_name) if isinstance(overrides, dict) else None
         mode_cfg = mode_cfg if isinstance(mode_cfg, dict) else {}
-        if "tools_enabled" in mode_cfg:
-            enabled = bool(mode_cfg["tools_enabled"])
-        else:
-            enabled = bool(getattr(cfg, "tools_enabled", False))
-        if not enabled:
+
+        def _resolve(key: str):
+            if key in mode_cfg:
+                return mode_cfg[key]
+            if mode is not None:
+                return getattr(mode, key, None)
+            return None
+
+        enabled = _resolve("tools_enabled")
+        if enabled is None:
+            enabled = getattr(cfg, "tools_enabled", False)
+        if not bool(enabled):
             return False
-        allow = mode_cfg.get("tools_allowlist")
+        allow = _resolve("tools_allowlist")
         if allow is None:
             allow = getattr(cfg, "tools_default_allowlist", []) or []
         return set(allow) if allow else None

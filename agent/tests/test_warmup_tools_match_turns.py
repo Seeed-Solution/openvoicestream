@@ -75,3 +75,40 @@ async def test_mode_override_wins_over_global_default():
     off.config.mode_overrides = {"chat": {"tools_enabled": False}}
     await off._maybe_run_llm_warmup()
     assert off.llm.tools_seen == [None]
+
+
+
+@pytest.mark.asyncio
+async def test_null_override_inherits_the_global_setting():
+    """A turn treats a present-but-None override as "not set" (Codex review)."""
+    app = _app()
+    app.config.tools_enabled = True
+    app.config.mode_overrides = {"chat": {"tools_enabled": None}}
+    await app._maybe_run_llm_warmup()
+    assert app.tool_registry.allows == [None]
+
+
+class _Mode:
+    def __init__(self, name, **attrs):
+        self.name = name
+        for k, v in attrs.items():
+            setattr(self, k, v)
+
+
+@pytest.mark.asyncio
+async def test_mode_object_defaults_and_actual_startup_mode_are_used():
+    """Turns fall back to attributes on the active mode, and the ModeManager
+    starts the first registered mode when default_mode is missing."""
+    app = _app(); app.config.default_mode = "missing"
+    app.modes = SimpleNamespace(
+        _current=None,
+        _modes={"robot": _Mode("robot", tools_enabled=True, tools_allowlist=["get_time"])},
+    )
+    await app._maybe_run_llm_warmup()
+    assert app.tool_registry.allows == [{"get_time"}]
+
+    started = _app()
+    started.modes = SimpleNamespace(_current=_Mode("chat", tools_enabled=False), _modes={})
+    started.config.tools_enabled = True
+    await started._maybe_run_llm_warmup()
+    assert started.llm.tools_seen == [None]
