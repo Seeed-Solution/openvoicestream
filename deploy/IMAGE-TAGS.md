@@ -299,8 +299,12 @@ itself after one silence window; before, the turn sat in BARGED_IN until the
 server's 45 s per-turn deadline (seen on the RK3588 + RK1828 devkit as
 `asr: per-turn deadline 45s exceeded`). #116: `OVS_AGENT_SESSION_MAX_INPUT_TOKENS`
 sets the history trim budget; the RK1828 compose sets 1000 for the 2048-token
-Qwen3-4B export. Pull-verified (five file md5s, imports); not yet run on a
-device.
+Qwen3-4B export. Pull-verified (five file md5s, imports). Run on RK3576
+(`cat-remote`, cloud LLM, 2026-09-23): boots, one injected turn end to end
+(ASR -> LLM TTFT 2.15 s -> TTS), partial-driven barge-in back to IDLE in
+254 ms. The keep_asr path #115 exists for is still unverified on a device —
+that board's speech image predates keep_asr, so the server ends the utterance
+itself and the fallback never arms.
 
 `ovs-agent:voiceagent-20260921-bargein.3` — `.2` plus #113: the LLM warmup sends
 only the tools the turns send. `.2` warmed with every registered tool while the

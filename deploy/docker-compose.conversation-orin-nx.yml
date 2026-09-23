@@ -14,9 +14,11 @@
 #     # UNVERIFIED digest: the solution compose records no manifest digest for
 #     # this tag; only the tag name is carried verbatim. Run
 #     # `docker manifest inspect <tag>` before pinning production.
-#   agent:  sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.3
-#     Thin overlay on voiceagent-20260914-runtimekws (main @ 03bc82a, PRs #110,
-#     #111, #113). The speech image here predates keep_asr and ignores it.
+#   agent:  sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.4
+#     Thin overlay on voiceagent-20260914-runtimekws (main @ a6aa094, PRs #110,
+#     #111, #113, #115, #116). The speech image here predates keep_asr and
+#     ignores it; #115's fallback then never arms, since the server ends the
+#     utterance on its own.
 #     Its base, voiceagent-20260914-runtimekws:
 #     sha256:a2dc17a304d7941e924d95de0863b53fd3e1869b7caba6ecf64a60e57cfd9569
 #     (linux/arm64, recorded in the solution on 2026-09-13). Accumulates
