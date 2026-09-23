@@ -38,7 +38,8 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 | `openvoicestream:rk-20260921-bargein` (speech) | two files over `rk-20260921-twosentence`, byte-identical to main `c6259e0` (PR #110): `server/main.py` md5 `c7fb560a…`, `server/core/v2v.py` md5 `6cb9c8c2…` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:66c1609280eca64c2e9559f61f047e8d7f593c80d9e136787ac048cdb05fda33`, linux/arm64 `sha256:8e24d89a35215906df10779de85d0045a83fea0662d8a386a968d74dd34d041f` |
 | `ovs-agent:voiceagent-20260921-bargein` (agent, superseded by `.2` before any compose pointed at it) | four files over `voiceagent-20260914-runtimekws`, byte-identical to main `c6259e0` (PR #110) | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:c02ad611689b579a2df6c244ee443911d79d0d8d2384e32966bd5b6b562ed809`, linux/arm64 `sha256:afb8f4561d4be71d3f0c5f7ef3180bb8e27dcc1722b82a69912b77deaee32530` |
 | `ovs-agent:voiceagent-20260921-bargein.2` (agent, superseded by `.3`) | four files over `voiceagent-20260914-runtimekws`, byte-identical to main `c03e28f` (PRs #110, #111): `agent/ovs_agent/app_base.py` md5 `dde930cb…`, `slv_client.py` md5 `2df4493c…`, `config.py` md5 `ab119e8c…`, `plugins/llm_availability.py` md5 `907eefa9…` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:921f3f9092dfdff2356ee072d7eb50a48561f93e799832f6e39b231c79d57ac9`, linux/arm64 `sha256:1753a7e944e5cb7332f89e9ca0238a19618da7d432efba3798123b5cb7e251c4` |
-| `ovs-agent:voiceagent-20260921-bargein.3` (agent) | four files over `voiceagent-20260914-runtimekws`, byte-identical to main `03bc82a` (PRs #110, #111, #113): `agent/ovs_agent/app_base.py` md5 `b876e028…`, `slv_client.py` md5 `2df4493c…`, `config.py` md5 `ab119e8c…`, `plugins/llm_availability.py` md5 `907eefa9…` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:44edad9f9e80de12a71848a419a85274e6afeb28748954d08d295e104d879352`, linux/arm64 `sha256:1e576dd2dfd2bd6f923b9884f8d9bfa87586d67292ab524ef88bbe9cf9d4db41` |
+| `ovs-agent:voiceagent-20260921-bargein.3` (agent, superseded by `.4`) | four files over `voiceagent-20260914-runtimekws`, byte-identical to main `03bc82a` (PRs #110, #111, #113): `agent/ovs_agent/app_base.py` md5 `b876e028…`, `slv_client.py` md5 `2df4493c…`, `config.py` md5 `ab119e8c…`, `plugins/llm_availability.py` md5 `907eefa9…` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:44edad9f9e80de12a71848a419a85274e6afeb28748954d08d295e104d879352`, linux/arm64 `sha256:1e576dd2dfd2bd6f923b9884f8d9bfa87586d67292ab524ef88bbe9cf9d4db41` |
+| `ovs-agent:voiceagent-20260921-bargein.4` (agent) | five files over `voiceagent-20260914-runtimekws`, byte-identical to main `a6aa094` (PRs #110, #111, #113, #115, #116): `agent/ovs_agent/app_base.py` md5 `9db9b387…`, `slv_client.py` md5 `011e37ad…`, `config.py` md5 `834791d3…`, `cli.py` md5 `90a207ce…`, `plugins/llm_availability.py` md5 `907eefa9…` | `0.0.15a0` (inherited) | 2026-09-21 | macbook (arm64, thin overlay) | index `sha256:cfe9c644496402db0c690e7604866500f1c05af908f0d39b381fb89833485d7b`, linux/arm64 `sha256:ac60410f2258fa5b2ac6afb07d6a1966f1f742e1529e2cab1e8f4ccd5efd2619` |
 | `rpi-hailo` (local, not pushed) | `4d66f475` + `final-hailo` stage | `0.0.12a0` baked | 2026-09-09 | harvest-pi | `sha256:f6d9bf16557a3a561968e2c942cfcc13112489faafe667a1df95bf5bc4700f65` (local image ID, 657 MB) |
 
 `rpi-hailo` — `Dockerfile.rpi --target final-hailo`, built on `harvest-pi`
@@ -294,6 +295,20 @@ a cloud LLM and 3/3 with the local LLM, and five turns 45 s apart at TTFT
 
 Not verified: the echo-segment path on hardware (no echo segment occurred in the
 runs; unit test only); RK3576 (same server files, not run).
+
+`ovs-agent:voiceagent-20260921-bargein.4` — `.3` plus #115 and #116. #115: a
+partial-driven barge-in that fires after the client VAD segment already ended
+(an echo segment whose EOS was suppressed) now closes the kept ASR utterance
+itself after one silence window; before, the turn sat in BARGED_IN until the
+server's 45 s per-turn deadline (seen on the RK3588 + RK1828 devkit as
+`asr: per-turn deadline 45s exceeded`). #116: `OVS_AGENT_SESSION_MAX_INPUT_TOKENS`
+sets the history trim budget; the RK1828 compose sets 1000 for the 2048-token
+Qwen3-4B export. Pull-verified (five file md5s, imports). Run on RK3576
+(`cat-remote`, cloud LLM, 2026-09-23): boots, one injected turn end to end
+(ASR -> LLM TTFT 2.15 s -> TTS), partial-driven barge-in back to IDLE in
+254 ms. The keep_asr path #115 exists for is still unverified on a device —
+that board's speech image predates keep_asr, so the server ends the utterance
+itself and the fallback never arms.
 
 `ovs-agent:voiceagent-20260921-bargein.3` — `.2` plus #113: the LLM warmup sends
 only the tools the turns send. `.2` warmed with every registered tool while the

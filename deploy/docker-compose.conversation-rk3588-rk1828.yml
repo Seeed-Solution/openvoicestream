@@ -33,12 +33,15 @@
 #     2026-09-13; not re-verified here). Carries the RK profile fix that raised
 #     VAD_ENDPOINT_SILENCE_MS 400 -> 1500 so a mid-sentence pause no longer
 #     splits one utterance into two turns.
-#   agent:  sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.3
-#     Thin overlay on voiceagent-20260914-runtimekws: four agent files from main
-#     @ 03bc82a (PRs #110, #111, #113) — barge-in keep_asr, stop-word tail, a new turn
-#     cuts a reply still playing, LLM probe via GET /health (the chat probe
-#     evicted the RK1828 prompt cache: TTFT 2.0-2.6 s -> 0.14-0.30 s).
-#     index sha256:44edad9f9e80de12a71848a419a85274e6afeb28748954d08d295e104d879352
+#   agent:  sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.4
+#     Thin overlay on voiceagent-20260914-runtimekws: five agent files from main
+#     @ a6aa094 (PRs #110, #111, #113, #115, #116) — barge-in keep_asr, stop-word
+#     tail, a new turn cuts a reply still playing, LLM probe via GET /health (the
+#     chat probe evicted the RK1828 prompt cache: TTFT 2.0-2.6 s -> 0.14-0.30 s),
+#     a barge-in landing after the VAD segment ended closes the kept utterance
+#     itself (was: the server's 45 s per-turn deadline), and
+#     OVS_AGENT_SESSION_MAX_INPUT_TOKENS sets the history trim budget.
+#     index sha256:cfe9c644496402db0c690e7604866500f1c05af908f0d39b381fb89833485d7b
 #     Its base, voiceagent-20260914-runtimekws:
 #     sha256:a2dc17a304d7941e924d95de0863b53fd3e1869b7caba6ecf64a60e57cfd9569
 #     (linux/arm64, recorded in the solution on 2026-09-13). Accumulates
@@ -212,7 +215,7 @@ services:
     # asr_final segments instead of overwriting the user text, so a backend
     # endpoint that fires on a mid-sentence pause no longer splits one spoken
     # sentence into two LLM turns. Bundles the sherpa-onnx KWS model.
-    image: ${AGENT_IMAGE:-sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.3}
+    image: ${AGENT_IMAGE:-sensecraft-missionpack.seeed.cn/solution/ovs-agent:voiceagent-20260921-bargein.4}
     container_name: conversational-voice-agent
     init: true
     network_mode: host
