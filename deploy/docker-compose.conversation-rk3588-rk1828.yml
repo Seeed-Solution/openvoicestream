@@ -180,8 +180,11 @@ services:
     environment:
       RK1828_ARTIFACT_AUTO_DOWNLOAD: "1"
       RK1828_ARTIFACT_REPO_ID: harvestsu/seeed-local-voice-rk-artifacts
-      RK1828_ARTIFACT_PREFIX: rk1828/opt/llm/qwen3-4b
-      RK1828_MAX_CONTEXT: "8192"
+      # Which model: Qwen3-4B (default) or Qwen3.5-4B. Each has its own
+      # artifact manifest in the image; its download location comes from there.
+      RK1828_MODEL_ID: ${RK1828_MODEL_ID:-Qwen3-4B}
+      # Empty = the model's own default (Qwen3-4B 8192, Qwen3.5-4B 4096).
+      RK1828_MAX_CONTEXT: ${RK1828_MAX_CONTEXT:-}
       RK1828_CORE_MASK: ff
       RK1828_PORT: "1828"
       # Seconds the supervisor waits for the worker's READY handshake, per

@@ -71,7 +71,9 @@ services:
     environment:
       - RK1828_ARTIFACT_AUTO_DOWNLOAD=${RK1828_ARTIFACT_AUTO_DOWNLOAD:-1}
       - RK1828_ARTIFACT_REPO_ID=${RK1828_ARTIFACT_REPO_ID:-harvestsu/seeed-local-voice-rk-artifacts}
-      - RK1828_ARTIFACT_PREFIX=${RK1828_ARTIFACT_PREFIX:-rk1828/opt/llm/qwen3-4b}
+      # Qwen3-4B (default) or Qwen3.5-4B; the download location comes from the
+      # model's manifest in the image.
+      - RK1828_MODEL_ID=${RK1828_MODEL_ID:-Qwen3-4B}
       # Defaults to the mirror, NOT to huggingface.co: verified from a CN device,
       # the origin is unreachable (curl times out, exit 28) while the mirror has
       # these artifacts synced. A default that times out after minutes of
@@ -82,7 +84,8 @@ services:
       # 8192 is verified on hardware and costs nothing vs 2048 (TTFT 132 ms,
       # 81.5 tok/s either way). It is a runtime parameter — changing it does NOT
       # require re-exporting the model.
-      - RK1828_MAX_CONTEXT=${RK1828_MAX_CONTEXT:-8192}
+      # Empty = the model's own default (Qwen3-4B 8192, Qwen3.5-4B 4096).
+      - RK1828_MAX_CONTEXT=${RK1828_MAX_CONTEXT:-}
       - RK1828_CORE_MASK=${RK1828_CORE_MASK:-ff}
       - RK1828_PORT=1828
       # Per-attempt ceiling for the worker's READY handshake. 180 s covers a

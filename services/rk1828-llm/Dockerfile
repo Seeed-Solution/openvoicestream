@@ -65,7 +65,7 @@ RUN chmod +x /opt/rk1828/rknn_qwen3_demo
 
 # ── service code ──────────────────────────────────────────────────────────
 COPY services/rk1828-llm/rk1828_llm_server.py /opt/rk1828-llm/rk1828_llm_server.py
-COPY services/rk1828-llm/artifacts.json       /opt/rk1828-llm/artifacts.json
+COPY services/rk1828-llm/artifacts/           /opt/rk1828-llm/artifacts/
 COPY services/rk1828-llm/entrypoint.sh        /opt/rk1828-llm/entrypoint.sh
 RUN chmod +x /opt/rk1828-llm/entrypoint.sh
 
@@ -80,11 +80,9 @@ RUN mkdir -p /opt/llm/models
 # these artifacts synced. Override to https://huggingface.co elsewhere.
 ENV RK1828_ARTIFACT_AUTO_DOWNLOAD=1 \
     RK1828_ARTIFACT_REPO_ID=harvestsu/seeed-local-voice-rk-artifacts \
-    RK1828_ARTIFACT_PREFIX=rk1828/opt/llm/qwen3-4b \
     HF_ENDPOINT=https://hf-mirror.com \
     RK1828_MODEL_ID=Qwen3-4B \
     RK1828_CORE_MASK=ff \
-    RK1828_MAX_CONTEXT=8192 \
     RK1828_HOST=0.0.0.0 \
     RK1828_PORT=1828
 

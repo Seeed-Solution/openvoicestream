@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "description": "Qwen3.5-4B for the RK1828 PCIe NPU. Rockchip's pre-converted export for RKNN3 V1.1.0 (RKNN3_SDK/rknn3_models/v1.1.0/llm/Qwen3.5-4B, linked from the rknn3-model-zoo README section 2.10), W4A16 group32 per examples/Qwen3_5. The four files are a MATCHED SET from one export. Needs the V1.1.0 runtime on the host (librknn3_api 1.1.0); served by the same worker as Qwen3-4B (--model-name Qwen3.5-4B).",
+  "model_id": "Qwen3.5-4B",
+  "quantization": "w4a16 group32",
+  "target_chip": "rk1828",
+  "source": {
+    "kind": "rockchip-preconverted",
+    "path": "RKNN3_SDK/rknn3_models/v1.1.0/llm/Qwen3.5-4B",
+    "share": "https://console.box.lenovo.com/l/H1fig1",
+    "retrieved": "2026-09-21"
+  },
+  "runtime": {
+    "max_context": 4096,
+    "tool_call_format": "xml",
+    "kv_checkpoint_interval": 128,
+    "kv_checkpoint_count": 32,
+    "note": "Defaults the entrypoint applies for this model; RK1828_MAX_CONTEXT / RK1828_TOOL_CALL_FORMAT / RK1828_KV_CHECKPOINT_INTERVAL / RK1828_KV_CHECKPOINT_COUNT override them."
+  },
+  "files": [
+    {
+      "name": "Qwen3.5-4B.rknn",
+      "size_bytes": 35634424,
+      "sha256": "1ad1dc1ded9ad876b7e6ddbce02465dc776fd539e73fe5febacf3b96d8aedb1f",
+      "md5": "38268f17716adc2af30c34608bd17690",
+      "role": "graph"
+    },
+    {
+      "name": "Qwen3.5-4B.weight",
+      "size_bytes": 2647438336,
+      "sha256": "46d155eece792e7d262857c4006b2ef4e7a00a961bb0c140b26ab37ed10af515",
+      "md5": "56c7b7f6d9686b5a2ba3d9f4a0d332e4",
+      "role": "weights (EP-resident)"
+    },
+    {
+      "name": "Qwen3.5-4B.embed.bin",
+      "size_bytes": 1271398400,
+      "sha256": "c78988d979f52a340f39cd69edd8e4b0a80218a5fa8d95b6158bfce4a3de2a34",
+      "md5": "e16605d4a93c2813ae4f3e04502bd1c9",
+      "role": "embedding table (mmapped on the HOST, does not consume EP memory)"
+    },
+    {
+      "name": "Qwen3.5-4B.tokenizer.gguf",
+      "size_bytes": 10942308,
+      "sha256": "d1efb43984cad436adbee2f0f06019d33ce532b88d909f700a16e160826ab320",
+      "md5": "b74492dc0c201dc6f005e5cd5a090775",
+      "role": "tokenizer"
+    }
+  ],
+  "published_at": null
+}

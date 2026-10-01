@@ -14,6 +14,13 @@
     "note": "8192 loaded first try with no MODEL_SETUP failure and is the recommended default. max_context is a RUNTIME parameter, not compiled into the .rknn — 2048 -> 8192 -> 16384 all needed no re-export. 16384 is ALSO VERIFIED to load (first attempt, READY, TTFT 132 ms / 81.3 tok/s, v2v p50 839 ms — identical to 8192), but it puts EP usage at an estimated ~92% of 5120 MB versus ~71% at 8192. Since this platform gives NO way to measure EP memory and a FAILED load degrades the card from 8 cores to 4, production stays at 8192 for headroom; raise it deliberately if a workload needs the context.",
     "max_context_also_verified": 16384
   },
+  "runtime": {
+    "max_context": 8192,
+    "tool_call_format": "json",
+    "kv_checkpoint_interval": 0,
+    "kv_checkpoint_count": 0,
+    "note": "Defaults the entrypoint applies for this model; RK1828_MAX_CONTEXT / RK1828_TOOL_CALL_FORMAT / RK1828_KV_CHECKPOINT_INTERVAL / RK1828_KV_CHECKPOINT_COUNT override them."
+  },
   "files": [
     {
       "name": "Qwen3-4B.rknn",

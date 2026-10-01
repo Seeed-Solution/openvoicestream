@@ -10,13 +10,45 @@
 set -euo pipefail
 
 MODEL_DIR="${RK1828_MODEL_DIR:-/opt/llm/models}"
-MANIFEST="${RK1828_ARTIFACT_MANIFEST:-/opt/rk1828-llm/artifacts.json}"
+# The served model. Its four-file export is <id>.rknn / .weight /
+# .tokenizer.gguf / .embed.bin, described by artifacts/<id>.json.
+MODEL_ID="${RK1828_MODEL_ID:-Qwen3-4B}"
+MANIFEST="${RK1828_ARTIFACT_MANIFEST:-/opt/rk1828-llm/artifacts/${MODEL_ID}.json}"
 REPO_ID="${RK1828_ARTIFACT_REPO_ID:-harvestsu/seeed-local-voice-rk-artifacts}"
-PREFIX="${RK1828_ARTIFACT_PREFIX:-rk1828/opt/llm/qwen3-4b}"
 ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
 REVISION="${RK1828_ARTIFACT_REVISION:-main}"
 
 log() { printf '[rk1828-llm] %s\n' "$*" >&2; }
+
+# ── model selection ───────────────────────────────────────────────────────
+if [ ! -f "${MANIFEST}" ]; then
+  log "FATAL: no artifact manifest for RK1828_MODEL_ID=${MODEL_ID} (${MANIFEST})."
+  log "  Available: $(ls /opt/rk1828-llm/artifacts 2>/dev/null | sed 's/\.json$//' | tr '\n' ' ')"
+  exit 1
+fi
+manifest_id=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['model_id'])" "${MANIFEST}")
+if [ "${manifest_id}" != "${MODEL_ID}" ]; then
+  log "FATAL: ${MANIFEST} describes ${manifest_id}, not RK1828_MODEL_ID=${MODEL_ID}."
+  exit 1
+fi
+# Per-model runtime defaults from the manifest; an explicitly set env var wins.
+manifest_rt() {
+  python3 -c "
+import json,sys
+print((json.load(open(sys.argv[1])).get('runtime') or {}).get(sys.argv[2], sys.argv[3]))" "${MANIFEST}" "$1" "$2"
+}
+MAX_CONTEXT="${RK1828_MAX_CONTEXT:-$(manifest_rt max_context 8192)}"
+export RK1828_TOOL_CALL_FORMAT="${RK1828_TOOL_CALL_FORMAT:-$(manifest_rt tool_call_format json)}"
+KV_CKPT_INTERVAL="${RK1828_KV_CHECKPOINT_INTERVAL:-$(manifest_rt kv_checkpoint_interval 0)}"
+KV_CKPT_COUNT="${RK1828_KV_CHECKPOINT_COUNT:-$(manifest_rt kv_checkpoint_count 0)}"
+
+# Download location: RK1828_ARTIFACT_PREFIX if set, else the model's own
+# published prefix. Not an image-wide default: one pinned prefix would send
+# every other model's download to the wrong folder.
+PREFIX="${RK1828_ARTIFACT_PREFIX:-$(python3 -c "
+import json,sys
+p=(json.load(open(sys.argv[1])).get('published_at') or {}).get('prefix') or ''
+print(p)" "${MANIFEST}")}"
 
 # ── preflight: the card must already be initialised by the HOST ────────────
 # Failing loudly here beats a confusing MODEL_SETUP failure several minutes in.
@@ -113,10 +145,6 @@ fi
 
 # ── artifact pull ─────────────────────────────────────────────────────────
 if [ "${RK1828_ARTIFACT_AUTO_DOWNLOAD:-1}" = "1" ]; then
-  if [ ! -f "${MANIFEST}" ]; then
-    log "FATAL: artifact manifest ${MANIFEST} missing"
-    exit 1
-  fi
   mkdir -p "${MODEL_DIR}"
   # Read (name, size) pairs from the manifest without pulling in jq.
   python3 - "$MANIFEST" <<'PY' > /tmp/_artifacts.tsv
@@ -137,6 +165,13 @@ PY
         continue
       fi
       log "size mismatch for ${name}: have ${have}, want ${size} — refetching"
+    fi
+    if [ -z "${PREFIX}" ]; then
+      log "FATAL: ${name} is missing and ${MODEL_ID} has no download location"
+      log "  (published_at is empty in ${MANIFEST}). Place the four files in"
+      log "  ${MODEL_DIR} and set RK1828_ARTIFACT_AUTO_DOWNLOAD=0, or set"
+      log "  RK1828_ARTIFACT_PREFIX to where they are published."
+      exit 1
     fi
     url="${ENDPOINT}/${REPO_ID}/resolve/${REVISION}/${PREFIX}/${name}"
     log "fetching ${name} from ${url}"
@@ -175,13 +210,16 @@ import json;print(' '.join(x['name'] for x in json.load(open('${MANIFEST}'))['fi
 done
 [ "${missing}" = "0" ] || { log "FATAL: incomplete artifact set in ${MODEL_DIR}"; exit 1; }
 
-log "serving ${RK1828_MODEL_ID:-Qwen3-4B} on ${RK1828_HOST:-0.0.0.0}:${RK1828_PORT:-1828}" \
-    "(core_mask=${RK1828_CORE_MASK:-ff} max_context=${RK1828_MAX_CONTEXT:-8192})"
+log "serving ${MODEL_ID} on ${RK1828_HOST:-0.0.0.0}:${RK1828_PORT:-1828}" \
+    "(core_mask=${RK1828_CORE_MASK:-ff} max_context=${MAX_CONTEXT}" \
+    "tool_calls=${RK1828_TOOL_CALL_FORMAT} kv_checkpoint=${KV_CKPT_INTERVAL}x${KV_CKPT_COUNT})"
 
 exec /opt/venv/bin/python /opt/rk1828-llm/rk1828_llm_server.py \
   --binary /opt/rk1828/rknn_qwen3_demo \
   --model-dir "${MODEL_DIR}" \
   --core-mask "${RK1828_CORE_MASK:-ff}" \
-  --max-context "${RK1828_MAX_CONTEXT:-8192}" \
+  --max-context "${MAX_CONTEXT}" \
+  --kv-checkpoint-interval "${KV_CKPT_INTERVAL}" \
+  --kv-checkpoint-count "${KV_CKPT_COUNT}" \
   --host "${RK1828_HOST:-0.0.0.0}" \
   --port "${RK1828_PORT:-1828}"
