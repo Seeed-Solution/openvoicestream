@@ -1,0 +1,6 @@
+{"utc": "2026-09-25T05:19:05.138557+00:00", "worker_before": {"55": {"exe": "/work/build/upstream/build/voice-workers/workers/qwen3_asr_worker-scaffold-v2-20260925", "sha": "60353eb1df8388e2319437d3d52089621b3008cbbc8b86581ed0782e18a57e06"}}}
+{"mode": "v2v", "reconnect_after_close_ms": 101.90062993206084}
+{"mode": "v2v", "events": [{"type": "asr_partial", "text": "Go home.", "is_stable": false}, {"type": "asr_final", "text": "Go home."}]}
+{"mode": "asr", "reconnect_after_close_ms": 102.16439212672412}
+{"mode": "asr", "events": [{"type": "partial", "text": "Go home.", "is_final": false, "is_stable": false}, {"type": "partial", "text": "Go home.", "is_final": false, "is_stable": false}, {"type": "final", "text": "Go home.", "is_final": true, "is_stable": true}]}
+{"worker_after": {"55": {"exe": "/work/build/upstream/build/voice-workers/workers/qwen3_asr_worker-scaffold-v2-20260925", "sha": "60353eb1df8388e2319437d3d52089621b3008cbbc8b86581ed0782e18a57e06"}}, "unchanged": true}
