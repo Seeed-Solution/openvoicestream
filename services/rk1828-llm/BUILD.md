@@ -11,9 +11,27 @@ RKNN2 in the voice image. The two cannot share a base image.
 
 | | |
 |---|---|
-| In git | `rk1828_llm_server.py` (the OpenAI shim), `patches/Qwen3-cpp-main.cc` (the server-mode worker source), `artifacts.json`, `entrypoint.sh`, `Dockerfile` |
+| In git | `rk1828_llm_server.py` (the OpenAI shim), `patches/Qwen3-cpp-main.cc` (the server-mode worker source), `artifacts/<model>.json` (one manifest per model), `entrypoint.sh`, `Dockerfile` |
 | **Not** in git | `deploy/rk1828-runtime/` — the compiled worker binary + `librknn3_api.so`. Same policy as `deploy/rk-runtime/`: a staged build artifact with a `MANIFEST.json` for provenance |
 | **Never** anywhere | the model artifacts (3.2 GB). Pulled at runtime, see below |
+
+## Models
+
+One worker binary serves both: Qwen3 and Qwen3.5 use the same RKNN3 LLM API, so
+the model is configuration, not a separate build. Select it with
+`RK1828_MODEL_ID`; each model has `artifacts/<id>.json` with its four files and
+its runtime defaults.
+
+| `RK1828_MODEL_ID` | Source | Context | Tool-call format | KV checkpoints | Measured on rk3588 + RK1828 (2026-09-21) |
+|---|---|---|---|---|---|
+| `Qwen3-4B` (default) | our export, RKNN3 V1.0.4, on HF | 8192 | JSON | off | TTFT 139 ms after the first request, 73 tok/s, tools 6/6 |
+| `Qwen3.5-4B` | Rockchip pre-converted, RKNN3 V1.1.0 (`RKNN3_SDK/rknn3_models/v1.1.0/llm/Qwen3.5-4B`) | 4096 | XML (`<function=…><parameter=…>`) | 128 × 32 | TTFT 315 ms after the first request, 46 tok/s, tools 6/6 |
+
+Same benchmark for both (demo system prompt ~1875 tokens, 10 questions, 6 tool
+cases). Qwen3.5-4B needs the V1.1.0 runtime on the host. It is not published to
+the artifact repo: place the four files in `RK1828_MODEL_DIR` and set
+`RK1828_ARTIFACT_AUTO_DOWNLOAD=0`. Its context is 4096, so lower the agent's
+`session_max_input_tokens` (default 7000) to about 3500 in `agent-config.yaml`.
 
 ## Step 1 — build the worker binary (on an RK1828 host)
 
@@ -33,9 +51,19 @@ cp <repo>/services/rk1828-llm/patches/Qwen3-cpp-main.cc examples/Qwen3/cpp/main.
 **Never call cmake/make directly** — a bare cmake build produces ABI-incompatible
 artifacts.
 
+**Build inside Debian 12** (the image's userland), not on a newer host OS. Built
+on the devkit's Ubuntu (gcc 15) the binary needs `GLIBC_2.38` / `GLIBCXX_3.4.32`
+and exits immediately in the `debian:12` image; gcc 15 also rejects the zoo's
+`utils/image_utils.c` (`-Wincompatible-pointer-types`). A Debian 12 container on
+the RK1828 host works (gcc 12.2, cmake 3.25; this build needs at most
+`GLIBC_2.34`): run the zoo script in it with the repo checkout and the zoo
+mounted.
+
 Protocol implemented by the converted worker (do not redesign it):
 
-* argv: `<model_dir> [--core-mask <hex>] [--max-context <n>] [--device-id <id>] -`
+* argv: `<model_dir> [--model-name <stem>] [--core-mask <hex>] [--max-context <n>]
+  [--kv-checkpoint-interval <n>] [--kv-checkpoint-count <n>] [--device-id <id>] -`
+  — `<stem>` names the four files (`<stem>.rknn` …), default `Qwen3-4B`;
   — the trailing `-` selects server mode; the original 6-arg one-shot path still works.
 * stderr: `READY 1` handshake plus all diagnostics.
 * stdin: one request per line, `<max_new_tokens>\t<escaped prompt>`.
@@ -132,9 +160,13 @@ so a container replacement does not re-download 3.2 GB.
 |---|---|---|
 | `RK1828_ARTIFACT_AUTO_DOWNLOAD` | `1` | `0` = expect models already present |
 | `RK1828_ARTIFACT_REPO_ID` | `harvestsu/seeed-local-voice-rk-artifacts` | |
-| `RK1828_ARTIFACT_PREFIX` | `rk1828/opt/llm/qwen3-4b` | matches the repo's SoC-prefixed layout |
+| `RK1828_MODEL_ID` | `Qwen3-4B` | selects `artifacts/<id>.json` and the file stem |
+| `RK1828_ARTIFACT_PREFIX` | from the model's manifest (`published_at.prefix`) | set only to override; an image-wide value would send other models' downloads to the wrong folder |
 | `HF_ENDPOINT` | `https://huggingface.co` | set a mirror behind the firewall; mirrors may lag |
-| `RK1828_MAX_CONTEXT` | `8192` | verified; a runtime parameter, no re-export needed |
+| `RK1828_MAX_CONTEXT` | from the manifest (8192 / 4096) | a runtime parameter; Qwen3.5-4B warns `No exact kvcache group id` at 8192 |
+| `RK1828_ALLOW_SMALLER_KVCACHE` | unset | `1` = serve when the runtime allocated a smaller KV cache than `RK1828_MAX_CONTEXT`, budgeting requests against the real length; see *The context is what the runtime allocated* |
+| `RK1828_TOOL_CALL_FORMAT` | from the manifest (`json` / `xml`) | parsing accepts both; this sets how history tool calls are written |
+| `RK1828_KV_CHECKPOINT_INTERVAL` / `_COUNT` | from the manifest (0 / 128×32) | linear-attention models only; see below |
 | `RK1828_CORE_MASK` | `ff` | 8 cores |
 | `RK1828_PORT` | `1828` | |
 | `RK1828_HOST_LIB_DIR` | `/opt/rk1828/host-lib` | where the host's `/usr/lib` is mounted; see *Runtime alignment* |
@@ -233,6 +265,72 @@ by hand — but the template is the model's and does not need keeping in sync.
 
 Note the model still emits the call as **text** in the token stream either way,
 so the shim's `ToolCallSplitter` is required regardless.
+
+### Function tools stay registered for the life of the session (V1.1.0)
+
+Measured 2026-09-21: once any request registers tools, every later tool-less
+request is still rendered with the tool preamble (prefill 189–252 tokens instead
+of 28–29) and the model may emit a `<tool_call>` the client never asked for; the
+shim does not parse it for that request, so it reaches the client as text.
+`rknn3_session_set_function_tools(session, "[]")` and `(session, "")` both
+return 0 and change nothing; there is no unregister call. **One server must not
+mix tool and tool-less clients.** The agent's warmup sends only the tools its
+turns send (PR #113), which removed the production symptom.
+
+### The context is what the runtime allocated, not `--max-context`
+
+An export carries a fixed set of kvcache buffer lengths (groups). Session init
+picks the closest group to `max_context_len` and only warns:
+
+```
+W RKNNAPI(24): No exact kvcache group id found for max_context_len=8192
+W RKNNAPI(24): Using closest attention kvcache group_id = 0 for requested max_context_len=8192 (chosen kvcache_buffer_lens: 2048)
+```
+
+rk3588 devkit, 2026-09-21: with that, a prompt of 2041 tokens had 181 ms TTFT
+(prefix reused), 2072 tokens 2.4 s on every turn (reuse lost), and from ~2210
+tokens every reply was empty with 0 decode time and HTTP 200.
+
+Two guards:
+
+1. **Startup.** After init the worker queries the allocated length
+   (`RKNN3_QUERY_KVCACHE_LEN_GROUP_INFO` for the active group id,
+   `RKNN3_QUERY_LLM_CONFIG` for that group's full-attention buffer length) and
+   prints `CONTEXT effective=<n> requested=<m> source=query` before `READY`.
+   The shim also reads the runtime's `chosen kvcache_buffer_lens: N` warning as
+   a fallback for older workers and uses the smaller of the two. If the result
+   is below `RK1828_MAX_CONTEXT` it logs an ERROR with both numbers and
+   **refuses to start** (not retried, then the usual `RK1828_FAIL_COOLDOWN_S`).
+   Fix: re-export with that kvcache length, or set `RK1828_MAX_CONTEXT` to the
+   allocated length. `RK1828_ALLOW_SMALLER_KVCACHE=1` runs with the smaller
+   length instead. `/health` reports `max_context` (budgeted),
+   `requested_max_context` and `context_source` (`runtime_query`,
+   `runtime_log` or `unverified`).
+2. **Per request.** Before running, the worker estimates the prompt as
+   `Tokenize(text)` plus the template/tool-preamble overhead measured on the
+   previous run with the same tool set (the runtime renders the template, so
+   the exact count only exists after a run). If that plus `max_new_tokens`
+   (after the 320 floor for tool requests) exceeds the context, it refuses the
+   request (frame `0xFFFFFFFB`), and the shim answers HTTP 400 with
+   `code: context_length_exceeded` (in a stream: an `error` event). The first
+   request after a load, and the first after a tool-set change, have no
+   measured overhead and are checked on the text alone. Every run also reports
+   its token counts (frame `0xFFFFFFFC`), which fill `usage`, and an empty reply
+   with the prompt at >= 90% of the context is logged as a WARNING.
+
+The shim and the worker must be updated together: an older shim reads the new
+frames as an oversized token frame and reports a stdout desync.
+
+### Qwen3.5: prefix reuse needs KV checkpoints
+
+Qwen3.5 has linear-attention layers, and the automatic prefix cache below does
+not cover them: without checkpoints every request re-prefilled the whole ~1875
+token system prompt (TTFT 1687 ms on every request). With
+`RKNN3_KVCACHE_POLICY_SAVE_CHECKPOINT` (interval 128, 32 slots) later requests
+resume from the last snapshot inside the shared prefix: 315 ms. The first
+request after load is slower (2541 ms) because it also writes the snapshots.
+The runtime ignores the policy for full-attention models (RKNN3 V1.1.0 dev
+guide 4.2.6).
 
 ### KV prefix reuse — free, as long as you stop clearing
 

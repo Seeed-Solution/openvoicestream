@@ -1,42 +1,40 @@
 {
   "schema_version": 1,
-  "description": "RK1828 (RKNN3) LLM worker runtime — staged build artifact, mirroring deploy/rk-runtime/. Rebuild per services/rk1828-llm/BUILD.md.",
-  "toolchain": "RKNN3-toolkit / RKLLM3 V1.0.4",
+  "description": "RK1828 (RKNN3) LLM worker runtime \u2014 staged build artifact, mirroring deploy/rk-runtime/. Rebuild per services/rk1828-llm/BUILD.md.",
+  "toolchain": "RKNN3 V1.1.0 (rknn3-model-zoo ca92e7fe1a418b220985455446a986b80d6a899f 2026-09-09 17:25:48 +0800)",
   "target_chip": "rk1828",
   "host_soc": "rk3588",
   "arch": "aarch64",
-  "built_on_device": "radxa (Radxa ROCK 5T)",
+  "built_on_device": "recomputer-rk3588-devkit, inside a Debian 12 container (gcc 12.2, cmake 3.25) = the image's userland",
   "build_command": "./build-linux.sh -t rk3588 -a aarch64 -d Qwen3",
-  "note": "Layout is load-bearing: the binary's rpath is $ORIGIN/lib, so librknn3_api.so must stay in lib/ next to it. CRITICAL: librknn3_api.so is only a 55 KB dispatch shim that dlopen()s librknn3_api_rkcp.so (search order: ./, ./lib/, /usr/local/lib, /usr/lib, /usr/lib64). Because that is a dlopen and not a link-time dependency, `ldd` on the binary looks perfectly clean when the backend is absent, and the failure surfaces only as `rknn_init fail ret=-1` at model load. The whole lib/ directory must be staged, not just librknn3_api.so.",
+  "note": "Layout is load-bearing: the binary's rpath is $ORIGIN/lib, so librknn3_api.so must stay in lib/ next to it. CRITICAL: librknn3_api.so is only a 55 KB dispatch shim that dlopen()s librknn3_api_rkcp.so (search order: ./, ./lib/, /usr/local/lib, /usr/lib, /usr/lib64). Because that is a dlopen and not a link-time dependency, `ldd` on the binary looks perfectly clean when the backend is absent, and the failure surfaces only as `rknn_init fail ret=-1` at model load. The whole lib/ directory must be staged, not just librknn3_api.so. Build inside Debian 12, not on a newer host OS: a binary built on the devkit's Ubuntu (gcc 15) needs GLIBC_2.38 / GLIBCXX_3.4.32 and does not start in the debian:12 image; this build needs at most GLIBC_2.34.",
   "worker_source": {
     "path": "services/rk1828-llm/patches/Qwen3-cpp-main.cc",
-    "md5": "9d425e223b69f5075072209a46a28a6a",
-    "sha256": "7ea146c10c8fee7afb684c80eb59e9de6e3d5365efde94603464b37067239e2f",
-    "note": "Server-mode conversion of the model zoo's one-shot Qwen3 demo; pristine upstream is main.cc.oneshot.bak on the build device."
+    "md5": "eb763e008399e4b3fa25605b5599b949",
+    "sha256": "4f1dc477cc48fc9ec8e0be85c1a5330d991baea13a675cb37901d1cc5665517d",
+    "commit": "cc91ad2"
   },
   "files": {
     "rknn_qwen3_demo": {
-      "size_bytes": 859984,
-      "md5": "600b33ee59cc8d65ab620d5c891c0d73",
-      "sha256": "7cc56864fede6ff8372bf5d2e6cdb0aa3e4846c253f858dfd5f1902cd1296bf9"
+      "size_bytes": 860096,
+      "md5": "3dadc9af9230b0cab09646de3e0a77e9",
+      "sha256": "f68a450642325dad14e96ac574f8f28aca5568baa4a7e7e21c2c95c33eabdccf"
     },
     "lib/librknn3_api.so": {
-      "size_bytes": 55792,
-      "md5": "eb698d795c2082b96d0a5d9884725525",
-      "sha256": "113ec97719e04f82e51fcb8badeb18461070ac55ca9a5da87f887f3110b4fcbe",
+      "size_bytes": 42016,
+      "md5": "313ebdcadf8d80576bfcd0ec708c9a2d",
+      "sha256": "c6d84cf2104658f11d4d0540250c930e13887cce76d2ccf5d6ffed2ef7efed72",
       "role": "dispatch shim only; dlopen()s librknn3_api_rkcp.so"
     },
     "lib/librknn3_api_rkcp.so": {
-      "size_bytes": 8990352,
-      "md5": "79dad96c2c7edf258c3697ba6a27559e",
-      "sha256": "5ea77749f44be1f0c2ad0347242d4b431d3907d03eac11d265496ddd80cfd210",
-      "role": "the actual RKNN3 implementation, loaded via dlopen at rknn_init; REQUIRED"
+      "size_bytes": 9078912,
+      "md5": "0c2245905b89c20b48d705a82951d847",
+      "sha256": "60eae56c3d3a41ef0e263303ec92c317baeed94254910236848bfee30a049648"
     },
     "lib/librga.so": {
       "size_bytes": 196736,
       "md5": "fac578d390b934ba392b25a855e37875",
-      "sha256": "d0f5ae5c18c4c54ccee1d697b60f94507c5827389bb8fe9d4b0a4cb39cdc5972",
-      "role": "Rockchip RGA; shipped alongside in the model-zoo install tree"
+      "sha256": "d0f5ae5c18c4c54ccee1d697b60f94507c5827389bb8fe9d4b0a4cb39cdc5972"
     }
   }
 }
