@@ -32,10 +32,18 @@ import asyncio
 import logging
 import os
 import time
+from typing import Any
 
 from ovs_agent.audio_io import AudioIO
 
 logger = logging.getLogger(__name__)
+
+# Drop reporting cadence. A tap that silently loses audio looks exactly
+# like a wake word that "just didn't fire", so every drop is counted and
+# the counter is surfaced after this many NEW drops, or after this many
+# seconds since the previous report, whichever comes first.
+_DROP_REPORT_EVERY = int(os.getenv("MIC_TAP_DROP_REPORT_EVERY", "50"))
+_DROP_REPORT_INTERVAL_S = float(os.getenv("MIC_TAP_DROP_REPORT_INTERVAL_S", "30"))
 
 
 class TappedAudioIO(AudioIO):
@@ -53,6 +61,10 @@ class TappedAudioIO(AudioIO):
         """
         super().__init__(*args, **kwargs)
         self._taps: list[asyncio.Queue[bytes]] = []
+        # Per-tap fanout bookkeeping, keyed by id(queue). Kept beside
+        # ``_taps`` rather than in it so the queue objects handed to
+        # consumers stay plain asyncio.Queues.
+        self._tap_stats: dict[int, dict[str, Any]] = {}
         # Echo-suppression state. We can't use ``self.is_playing`` alone
         # because the framework's playback queue drains for hundreds of
         # milliseconds after ``TTSDone`` arrives — that tail is the most
@@ -116,6 +128,9 @@ class TappedAudioIO(AudioIO):
         # Fan out to every tap. list(...) copies the snapshot so a tap
         # registration during iteration can't trip RuntimeError.
         for q in list(self._taps):
+            stats = self._tap_stats.get(id(q))
+            if stats is not None:
+                stats["offered"] += 1
             try:
                 q.put_nowait(data)
             except asyncio.QueueFull:
@@ -125,8 +140,84 @@ class TappedAudioIO(AudioIO):
                     q.put_nowait(data)
                 except Exception:  # pragma: no cover - defensive
                     pass
+                # A dropped chunk is a hole in the consumer's streaming
+                # context (the KWS decoder never sees those samples), so
+                # it is counted and reported whether or not the
+                # oldest-chunk eviction above succeeded.
+                if stats is not None:
+                    stats["dropped"] += 1
+                    self._report_tap_drops(stats)
 
-    async def start_capture_tap(self, maxsize: int = 32) -> "asyncio.Queue[bytes]":
+    def _report_tap_drops(self, stats: dict[str, Any], *, final: bool = False) -> None:
+        """Emit a rate-limited WARN for a tap that is losing mic chunks."""
+        now = time.monotonic()
+        new_drops = stats["dropped"] - stats["reported_dropped"]
+        if not final and (
+            new_drops < _DROP_REPORT_EVERY
+            and (now - stats["last_report_ts"]) < _DROP_REPORT_INTERVAL_S
+        ):
+            return
+        if final and new_drops <= 0:
+            return
+        offered = stats["offered"] or 1
+        logger.warning(
+            "capture tap %s dropped mic audio%s: +%d since last report, "
+            "%d/%d chunks lost (%.2f%%)",
+            stats["name"],
+            " (tap closing)" if final else "",
+            new_drops,
+            stats["dropped"],
+            stats["offered"],
+            100.0 * stats["dropped"] / offered,
+        )
+        stats["reported_dropped"] = stats["dropped"]
+        stats["last_report_ts"] = now
+
+    def tap_stats(self) -> list[dict[str, Any]]:
+        """Snapshot of every live tap's fanout counters.
+
+        Shape per tap: ``name``, ``maxsize``, ``offered`` (chunks handed to
+        the tap), ``dropped`` (chunks the consumer never saw), ``qsize``.
+        """
+        snapshot: list[dict[str, Any]] = []
+        for q in list(self._taps):
+            stats = self._tap_stats.get(id(q))
+            if stats is None:
+                continue
+            offered = stats["offered"]
+            snapshot.append(
+                {
+                    "name": stats["name"],
+                    "maxsize": stats["maxsize"],
+                    "offered": offered,
+                    "dropped": stats["dropped"],
+                    "drop_ratio": (stats["dropped"] / offered) if offered else 0.0,
+                    "qsize": q.qsize(),
+                }
+            )
+        return snapshot
+
+    @staticmethod
+    def _default_tap_name() -> str:
+        """Name a tap after the task that registered it.
+
+        Consumers register their tap from their own listen loop (e.g.
+        ``runtime-kws-run``), so the task name identifies the tap without
+        every caller having to pass one.
+        """
+        try:
+            task = asyncio.current_task()
+        except RuntimeError:  # pragma: no cover - no running loop
+            task = None
+        if task is not None:
+            name = task.get_name()
+            if name:
+                return name
+        return "anonymous"
+
+    async def start_capture_tap(
+        self, maxsize: int = 32, *, name: str | None = None
+    ) -> "asyncio.Queue[bytes]":
         """Return a fresh queue that will receive a copy of every mic chunk.
 
         Caller owns the queue; we keep a reference to fan out into it.
@@ -136,8 +227,21 @@ class TappedAudioIO(AudioIO):
         reSpeaker for us).
         """
         q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=maxsize)
+        self._tap_stats[id(q)] = {
+            "name": name or self._default_tap_name(),
+            "maxsize": maxsize,
+            "offered": 0,
+            "dropped": 0,
+            "reported_dropped": 0,
+            "last_report_ts": time.monotonic(),
+        }
         self._taps.append(q)
-        logger.info("capture tap registered (total=%d)", len(self._taps))
+        logger.info(
+            "capture tap registered: name=%s maxsize=%d (total=%d)",
+            self._tap_stats[id(q)]["name"],
+            maxsize,
+            len(self._taps),
+        )
         return q
 
     def stop_capture_tap(self, q: "asyncio.Queue[bytes]") -> None:
@@ -152,7 +256,23 @@ class TappedAudioIO(AudioIO):
             self._taps.remove(q)
         except ValueError:
             return
-        logger.info("capture tap unregistered (total=%d)", len(self._taps))
+        stats = self._tap_stats.pop(id(q), None)
+        if stats is None:
+            logger.info("capture tap unregistered (total=%d)", len(self._taps))
+            return
+        # Flush whatever the rate limiter was still holding back, so a tap
+        # that dropped fewer than _DROP_REPORT_EVERY chunks and closed
+        # early still leaves a trace.
+        self._report_tap_drops(stats, final=True)
+        offered = stats["offered"] or 1
+        logger.info(
+            "capture tap unregistered: name=%s offered=%d dropped=%d (%.2f%%) (total=%d)",
+            stats["name"],
+            stats["offered"],
+            stats["dropped"],
+            100.0 * stats["dropped"] / offered,
+            len(self._taps),
+        )
 
 
 __all__ = ["TappedAudioIO"]
