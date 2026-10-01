@@ -25,6 +25,7 @@ Backends:
 from __future__ import annotations
 
 import logging
+import math
 import os
 import threading
 from pathlib import Path
@@ -104,6 +105,18 @@ class VADSession:
         """
         raise NotImplementedError
 
+    def process_events(self, samples: np.ndarray) -> list[tuple[str, int]]:
+        """Feed PCM and return ordered ``(event, sample_offset)`` pairs.
+
+        This compatibility default is for older third-party/fake sessions that
+        implement only ``process``.  Concrete streaming VADs override it to
+        preserve every transition within a PCM block.  The offset fallback is
+        the end of the supplied block because an older implementation does not
+        expose the transition position.
+        """
+        event = self.process(samples)
+        return [(event, int(len(samples)))] if event is not None else []
+
     def reset(self) -> None:
         """Reset state (e.g., after a forced finalize)."""
         raise NotImplementedError
@@ -118,13 +131,12 @@ class SileroVADSession(VADSession):
     with every other session in this process (singleton above).
     """
 
-    # silero v5 (the model file we bundle, downloaded from upstream
-    # master `src/silero_vad/data/silero_vad.onnx`) expects exactly 256
-    # samples per step at 16 kHz (16 ms frames). Older silero v4 used
-    # 512 — if you swap the model file via SILERO_VAD_ONNX_PATH and
-    # see "max prob ~0.2 and no events", the window is wrong for that
-    # model.
-    WINDOW_16K = 256
+    # The bundled Silero ONNX graph follows the official 16 kHz wrapper:
+    # 512 samples per step with 64 samples of preceding context.  The
+    # 256-sample step is the 8 kHz protocol, even though this graph accepts
+    # the shorter dynamic input shape without raising an error.
+    WINDOW_16K = 512
+    CONTEXT_16K = 64
 
     def __init__(
         self,
@@ -140,33 +152,39 @@ class SileroVADSession(VADSession):
         # LSTM state: [2 (=h+c), batch=1, hidden=128]
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
         self._threshold = float(threshold)
-        # Silence counter in steps (256 samples = 16 ms at 16 kHz)
-        self._silence_step_threshold = max(1, int(silence_ms / 16))
+        # Silence counter in steps (512 samples = 32 ms at 16 kHz).  Ceil so
+        # an endpoint never fires before the configured silence duration.
+        self._silence_step_threshold = max(1, math.ceil(silence_ms / 32))
         self._silence_steps = 0
         self._in_speech = False
         self._leftover: np.ndarray = np.empty(0, dtype=np.float32)
+        self._context = np.zeros((1, self.CONTEXT_16K), dtype=np.float32)
 
-    def process(self, samples: np.ndarray) -> Optional[str]:
+    def process_events(self, samples: np.ndarray) -> list[tuple[str, int]]:
         if samples.dtype == np.int16:
             samples = samples.astype(np.float32) / 32768.0
         elif samples.dtype != np.float32:
             samples = samples.astype(np.float32)
+        previous_leftover = int(self._leftover.size)
         buf = np.concatenate([self._leftover, samples])
-        event: Optional[str] = None
+        events: list[tuple[str, int]] = []
         i = 0
         while i + self.WINDOW_16K <= len(buf):
             window = buf[i : i + self.WINDOW_16K].reshape(1, -1)
+            model_input = np.concatenate([self._context, window], axis=1)
             out, new_state = self._session.run(
                 None,
-                {"input": window, "state": self._state, "sr": self._sr},
+                {"input": model_input, "state": self._state, "sr": self._sr},
             )
             self._state = new_state
+            self._context = model_input[:, -self.CONTEXT_16K:]
             prob = float(out[0, 0])
             speech = prob >= self._threshold
             if speech:
                 if not self._in_speech:
                     self._in_speech = True
-                    event = self.SPEECH_START
+                    offset = min(max(i + self.WINDOW_16K - previous_leftover, 0), len(samples))
+                    events.append((self.SPEECH_START, int(offset)))
                 self._silence_steps = 0
             else:
                 if self._in_speech:
@@ -174,16 +192,22 @@ class SileroVADSession(VADSession):
                     if self._silence_steps >= self._silence_step_threshold:
                         self._in_speech = False
                         self._silence_steps = 0
-                        event = self.SPEECH_END
+                        offset = min(max(i + self.WINDOW_16K - previous_leftover, 0), len(samples))
+                        events.append((self.SPEECH_END, int(offset)))
             i += self.WINDOW_16K
         self._leftover = buf[i:]
-        return event
+        return events
+
+    def process(self, samples: np.ndarray) -> Optional[str]:
+        events = self.process_events(samples)
+        return events[-1][0] if events else None
 
     def reset(self) -> None:
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
         self._silence_steps = 0
         self._in_speech = False
         self._leftover = np.empty(0, dtype=np.float32)
+        self._context = np.zeros((1, self.CONTEXT_16K), dtype=np.float32)
 
 
 class WebRTCVADSession(VADSession):
@@ -208,13 +232,14 @@ class WebRTCVADSession(VADSession):
         self._leftover_bytes = b""
         self._in_speech = False
 
-    def process(self, samples: np.ndarray) -> Optional[str]:
+    def process_events(self, samples: np.ndarray) -> list[tuple[str, int]]:
         if samples.dtype == np.float32:
             samples = (np.clip(samples, -1, 1) * 32767).astype(np.int16)
         elif samples.dtype != np.int16:
             samples = samples.astype(np.int16)
+        previous_leftover_samples = len(self._leftover_bytes) // 2
         buf = self._leftover_bytes + samples.tobytes()
-        event: Optional[str] = None
+        events: list[tuple[str, int]] = []
         i = 0
         while i + self._frame_bytes <= len(buf):
             frame = buf[i : i + self._frame_bytes]
@@ -222,18 +247,24 @@ class WebRTCVADSession(VADSession):
             if speech:
                 if not self._in_speech:
                     self._in_speech = True
-                    event = self.SPEECH_START
+                    offset = min(max((i + self._frame_bytes) // 2 - previous_leftover_samples, 0), len(samples))
+                    events.append((self.SPEECH_START, int(offset)))
                 self._silence_count = 0
             else:
                 if self._in_speech:
                     self._silence_count += 1
                     if self._silence_count >= self._silence_frames_threshold:
                         self._in_speech = False
-                        event = self.SPEECH_END
+                        offset = min(max((i + self._frame_bytes) // 2 - previous_leftover_samples, 0), len(samples))
+                        events.append((self.SPEECH_END, int(offset)))
                         self._silence_count = 0
             i += self._frame_bytes
         self._leftover_bytes = buf[i:]
-        return event
+        return events
+
+    def process(self, samples: np.ndarray) -> Optional[str]:
+        events = self.process_events(samples)
+        return events[-1][0] if events else None
 
     def reset(self) -> None:
         self._silence_count = 0
