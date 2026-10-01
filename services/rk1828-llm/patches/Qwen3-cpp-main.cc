@@ -72,6 +72,16 @@ bool first_decode = true;
 //   stdout : per generated token  [uint32 LE len][utf8 token bytes]
 //            per request end      [uint32 LE 0xFFFFFFFE]  (EOS sentinel)
 //            failed request       [uint32 LE 0xFFFFFFFD]  then the EOS sentinel
+//            request stats        [uint32 LE 0xFFFFFFFC][u32 prompt_tokens]
+//                                 [u32 generated_tokens][u32 context], before
+//                                 the EOS of every request that ran
+//            context exceeded     [uint32 LE 0xFFFFFFFB][u32 prompt_tokens]
+//                                 [u32 max_new_tokens][u32 context], then EOS;
+//                                 the request was refused, nothing ran
+//   stderr, once before READY:
+//            "CONTEXT effective=<n> requested=<m> source=<query|none>"
+//            <n> is the KV-cache length the runtime actually allocated (see
+//            query_effective_context); requests are budgeted against it.
 //   EOF on stdin -> clean exit.
 //
 // stdout discipline: the real stdout fd is dup'd to g_frame_fd BEFORE model
@@ -85,9 +95,18 @@ static const uint32_t LLM_END_OF_STREAM = 0xFFFFFFFEu;
 // devkit (2026-09-21): a prompt longer than the model's KV cache fails the run,
 // and without this marker the client got HTTP 200 with empty content.
 static const uint32_t LLM_REQUEST_FAILED = 0xFFFFFFFDu;
+static const uint32_t LLM_REQUEST_STATS = 0xFFFFFFFCu;
+static const uint32_t LLM_CONTEXT_EXCEEDED = 0xFFFFFFFBu;
 static std::string g_last_tools;
 static bool        g_kv_reuse = true;  // RK1828_KV_REUSE=0 disables prefix reuse
 static bool g_server_mode = false;
+static int32_t g_ctx_limit = 0;          // effective context, set after init
+// Tokens the runtime adds around the user text (chat template, tool preamble),
+// measured from the last run with the same registered tool set. The worker
+// cannot count the rendered prompt before running it (the runtime renders the
+// template), so the pre-run estimate is Tokenize(text) + this.
+static int32_t     g_prompt_overhead = -1;
+static std::string g_overhead_tools;
 static int  g_frame_fd    = -1;
 
 static void frame_write_all(const void* buf, size_t len)
@@ -117,6 +136,12 @@ static void emit_failed_frame()
 {
   uint32_t marker = LLM_REQUEST_FAILED;
   frame_write_all(&marker, sizeof(marker));
+}
+
+static void emit_marker_u32x3(uint32_t marker, uint32_t a, uint32_t b, uint32_t c)
+{
+  uint32_t buf[4] = {marker, a, b, c};
+  frame_write_all(buf, sizeof(buf));
 }
 
 static void emit_eos_frame()
@@ -385,6 +410,74 @@ static void server_reset_kvcache(rknn_qwen3_llm_context* llm_ctx,
     }
 }
 
+// The KV-cache length the runtime actually allocated, which is NOT always the
+// max_context_len asked for. An export carries a fixed set of kvcache buffer
+// lengths (groups); session init picks the closest one and only warns. Measured
+// on the rk3588 devkit (2026-09-21): --max-context 8192 against a 2048-only
+// export ran with 2048, and prompts past ~2048 tokens lost prefix reuse and
+// then came back empty with no error.
+//
+// RKNN3 V1.1.0: RKNN3_QUERY_KVCACHE_LEN_GROUP_INFO gives the active group id per
+// core, RKNN3_QUERY_LLM_CONFIG the buffer length of each group per attention
+// type. The full-attention entry is the one that bounds the context. Returns 0
+// when it cannot be determined.
+static int32_t query_effective_context(rknn3_context ctx, int32_t requested)
+{
+    rknn3_llm_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    int ret = rknn3_query(ctx, RKNN3_QUERY_LLM_CONFIG, &cfg, sizeof(cfg));
+    if (ret != RKNN3_SUCCESS) {
+        fprintf(stderr, "[server] query LLM_CONFIG failed ret=%d\n", ret);
+        return 0;
+    }
+    uint32_t n_core = 0;
+    ret = rknn3_query(ctx, RKNN3_QUERY_CORE_NUMBER, &n_core, sizeof(n_core));
+    if (ret != RKNN3_SUCCESS || n_core == 0 || n_core > 64) {
+        fprintf(stderr, "[server] query CORE_NUMBER failed ret=%d n_core=%u\n", ret, n_core);
+        return 0;
+    }
+    std::vector<rknn3_kvcache_len_group_info> gi(n_core);
+    memset(gi.data(), 0, sizeof(gi[0]) * n_core);
+    ret = rknn3_query(ctx, RKNN3_QUERY_KVCACHE_LEN_GROUP_INFO, gi.data(), sizeof(gi[0]) * n_core);
+    if (ret != RKNN3_SUCCESS) {
+        fprintf(stderr, "[server] query KVCACHE_LEN_GROUP_INFO failed ret=%d\n", ret);
+        return 0;
+    }
+    int32_t active = gi[0].active_group_id;
+    for (uint32_t i = 1; i < n_core; ++i) {
+        if (gi[i].active_group_id != active) {
+            fprintf(stderr, "[server] kvcache: cores disagree on the active group (%d vs %d)\n",
+                    active, gi[i].active_group_id);
+            return 0;
+        }
+    }
+    const rknn3_attention_kvcache_lens* full = NULL;
+    uint32_t n_types = cfg.n_attention_kvcache_lens;
+    if (n_types > RKNN3_MAX_ATTENTION_TYPE_NUM) n_types = RKNN3_MAX_ATTENTION_TYPE_NUM;
+    for (uint32_t t = 0; t < n_types; ++t) {
+        const rknn3_attention_kvcache_lens& a = cfg.attention_kvcache_lens[t];
+        fprintf(stderr, "[server] kvcache: attention_type=%d buffer_lens=[", (int)a.attention_type);
+        for (uint32_t k = 0; k < a.n_kvcache_buffer_lens && k < RKNN3_MAX_KVCACHE_LEN_GROUPS; ++k)
+            fprintf(stderr, "%s%d", k ? "," : "", a.kvcache_buffer_lens[k]);
+        fprintf(stderr, "]\n");
+        if (a.attention_type == RKNN3_ATTENTION_TYPE_FULL_ATTENTION) full = &a;
+    }
+    fprintf(stderr, "[server] kvcache: model max_ctx_len=%u groups=%u active_group=%d\n",
+            cfg.max_ctx_len, gi[0].n_groups, active);
+    if (full && full->n_kvcache_buffer_lens > 0) {
+        if (active < 0 || (uint32_t)active >= full->n_kvcache_buffer_lens ||
+            active >= RKNN3_MAX_KVCACHE_LEN_GROUPS) {
+            fprintf(stderr, "[server] kvcache: active group %d out of range\n", active);
+            return 0;
+        }
+        return full->kvcache_buffer_lens[active];
+    }
+    // No kvcache groups in the export: the runtime sizes the cache from
+    // max_context_len itself, bounded by what the model was compiled for.
+    if (cfg.max_ctx_len > 0 && (int64_t)cfg.max_ctx_len < requested) return (int32_t)cfg.max_ctx_len;
+    return requested;
+}
+
 static int run_server(const std::string& model_dir, const std::string& model_name,
                       uint32_t core_mask, int32_t max_context_len,
                       int64_t ckpt_interval, int64_t ckpt_count)
@@ -485,6 +578,15 @@ static int run_server(const std::string& model_dir, const std::string& model_nam
     if (ret != 0) {
         fprintf(stderr, "[server] init_qwen3_llm fail ret=%d\n", ret);
         goto srv_out;
+    }
+
+    {
+        int32_t eff = query_effective_context(rknn_app_ctx.rknn_ctx, max_context_len);
+        fprintf(stderr, "CONTEXT effective=%d requested=%d source=%s\n",
+                eff > 0 ? eff : max_context_len, max_context_len, eff > 0 ? "query" : "none");
+        // Budget requests against the smaller of the two: a larger chosen group
+        // does not raise the max_context_len the session was created with.
+        g_ctx_limit = (eff > 0 && eff < max_context_len) ? eff : max_context_len;
     }
 
     {
@@ -611,6 +713,31 @@ static int run_server(const std::string& model_dir, const std::string& model_nam
             fprintf(stderr, "[server] req#%d max_new=%d turns=%zu keep=%d prompt_bytes=%zu\n",
                     utt, req_max_new, req_turns.size(), req_keep, prompt.size());
 
+            // Refuse a request that cannot fit instead of running it: past the
+            // KV cache the runtime loses prefix reuse, then returns nothing
+            // with a success code (rk3588 devkit, 2026-09-21).
+            int32_t text_tokens = 0;
+            {
+                std::vector<int32_t> toks(prompt.size() + 16);
+                text_tokens = tokenizer->Tokenize(prompt.c_str(), (int32_t)prompt.size(),
+                                                  toks.data(), (int32_t)toks.size());
+                if (text_tokens < 0) text_tokens = 0;
+            }
+            bool overhead_known = g_prompt_overhead >= 0 && g_overhead_tools == g_last_tools;
+            int32_t est_prompt = text_tokens + (overhead_known ? g_prompt_overhead : 0);
+            if (g_ctx_limit > 0 && (int64_t)est_prompt + req_max_new > g_ctx_limit) {
+                fprintf(stderr, "[server] req#%d REFUSED prompt_tokens~%d (+%s overhead) "
+                                "+ max_new=%d > context=%d\n",
+                        utt, est_prompt, overhead_known ? "measured" : "unmeasured",
+                        req_max_new, g_ctx_limit);
+                emit_marker_u32x3(LLM_CONTEXT_EXCEEDED, (uint32_t)est_prompt,
+                                  (uint32_t)req_max_new, (uint32_t)g_ctx_limit);
+                emit_eos_frame();
+                fflush(stderr);
+                utt++;
+                continue;
+            }
+
             rknn_perf_metrics_t perf;
             memset(&perf, 0, sizeof(perf));
             // keep: 0 = stateless (production), 1 = keep_history on.
@@ -628,6 +755,12 @@ static int run_server(const std::string& model_dir, const std::string& model_nam
                                 "decode_tokens=%d decode_ms=%.2f decode_tps=%.2f\n",
                         utt, perf.n_prefill_tokens, ttft_ms, perf.n_decode_tokens, dec_ms,
                         dec_ms > 0 ? 1e3f / dec_ms * perf.n_decode_tokens : 0.0f);
+                if (perf.n_prefill_tokens >= text_tokens) {
+                    g_prompt_overhead = perf.n_prefill_tokens - text_tokens;
+                    g_overhead_tools  = g_last_tools;
+                }
+                emit_marker_u32x3(LLM_REQUEST_STATS, (uint32_t)perf.n_prefill_tokens,
+                                  (uint32_t)perf.n_decode_tokens, (uint32_t)g_ctx_limit);
             }
 
             // Do NOT clear the KV cache between stateless requests.

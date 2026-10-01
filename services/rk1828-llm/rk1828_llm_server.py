@@ -9,6 +9,8 @@ Worker IPC protocol (see examples/Qwen3/cpp/main.cc):
   stderr : "READY 1" handshake once model init completes; all diagnostics.
   stdin  : one request line per turn: ``<max_new_tokens>\\t<escaped prompt>``
   stdout : per token ``[uint32 LE len][utf8 bytes]``; ``0xFFFFFFFE`` = EOS.
+           Markers with a fixed 12-byte payload come before EOS: request stats
+           (prompt/generated tokens, context) and a refused over-long request.
 
 The EP is a single-context device: every request is serialised on a lock.
 """
@@ -40,7 +42,13 @@ END_OF_STREAM = 0xFFFFFFFE
 # The worker sends this before END_OF_STREAM when the run failed (e.g. the prompt
 # is longer than the model's KV cache). Older workers never send it.
 REQUEST_FAILED = 0xFFFFFFFD
+# [marker][u32 prompt_tokens][u32 generated_tokens][u32 context] after a run.
+REQUEST_STATS = 0xFFFFFFFC
+# [marker][u32 prompt_tokens][u32 max_new_tokens][u32 context]: the worker
+# refused the request before running it because it cannot fit the KV cache.
+CONTEXT_EXCEEDED = 0xFFFFFFFB
 _LEN = struct.Struct("<I")
+_U32X3 = struct.Struct("<III")
 MAX_FRAME_BYTES = 8 * 1024 * 1024  # a bigger length prefix means stdout desync
 # The served model: reported as `model` in responses and used as the file stem
 # of its four-file export (<id>.rknn / .weight / .tokenizer.gguf / .embed.bin).
@@ -65,6 +73,17 @@ START_ATTEMPTS = 3
 # would otherwise re-enter this loop immediately and keep hammering a card that
 # cannot load, forever, at three failed loads per cycle.
 FAIL_COOLDOWN_S = 300.0
+
+# The KV-cache length the runtime really allocated. The worker reports it on
+# stderr before READY (queried through the RKNN3 API); the runtime's own warning
+# is the fallback for workers built before that line existed. rk3588 devkit,
+# 2026-09-21: --max-context 8192 on a 2048-only export ran with 2048 and long
+# conversations came back empty with HTTP 200.
+_CTX_LINE_RE = re.compile(r"^CONTEXT effective=(\d+) requested=(\d+) source=(\w+)")
+_CTX_RUNTIME_RE = re.compile(r"chosen kvcache_buffer_lens: (\d+)")
+# Warn when a request produced nothing while its prompt used this share of the
+# context: the signature of the silent overflow above.
+NEAR_LIMIT_FRACTION = 0.9
 
 
 def _env_float(name: str, default: float) -> float:
@@ -107,6 +126,24 @@ class WorkerError(RuntimeError):
     pass
 
 
+class ContextTooSmall(WorkerError):
+    """The runtime allocated a smaller KV cache than was configured. Loading
+    again gives the same result, so this is not retried."""
+
+
+class ContextLengthExceeded(WorkerError):
+    def __init__(self, prompt_tokens: int, max_new_tokens: int, context: int) -> None:
+        self.prompt_tokens = prompt_tokens
+        self.max_new_tokens = max_new_tokens
+        self.context = context
+        super().__init__(
+            f"This model's maximum context length is {context} tokens. The request "
+            f"needs about {prompt_tokens} prompt tokens plus {max_new_tokens} for the "
+            f"reply ({prompt_tokens + max_new_tokens}). Shorten the conversation or "
+            "lower max_tokens."
+        )
+
+
 def _escape(text: str) -> str:
     return (
         text.replace("\\", "\\\\")
@@ -128,8 +165,13 @@ class Qwen3Worker:
         model_name: str = "Qwen3-4B",
         kv_checkpoint_interval: int = 0,
         kv_checkpoint_count: int = 0,
+        allow_smaller_kvcache: bool = False,
     ) -> None:
         self.binary = binary
+        self.allow_smaller_kvcache = allow_smaller_kvcache
+        # Filled from the worker's stderr during init (see _CTX_LINE_RE).
+        self.ctx_queried: Optional[int] = None
+        self.ctx_runtime_log: Optional[int] = None
         self.model_dir = model_dir
         self.model_name = model_name
         self.kv_checkpoint_interval = kv_checkpoint_interval
@@ -151,7 +193,11 @@ class Qwen3Worker:
             try:
                 self._spawn()
                 LOG.info("worker ready (attempt %d)", attempt)
+                self.check_context()
                 return
+            except ContextTooSmall:
+                self.stop()
+                raise
             except BaseException as exc:  # noqa: BLE001
                 last = exc
                 LOG.error("worker start attempt %d failed: %s", attempt, exc)
@@ -172,8 +218,64 @@ class Qwen3Worker:
             "  Otherwise the EP may be degraded; a clean host reboot is likely required."
         )
 
+    @property
+    def effective_context(self) -> int:
+        """The context requests are budgeted against: the smallest length any
+        source reports, else the configured one (unverified)."""
+        known = [n for n in (self.ctx_queried, self.ctx_runtime_log) if n]
+        return min([self.max_context, *known]) if known else self.max_context
+
+    @property
+    def context_source(self) -> str:
+        if self.ctx_queried:
+            return "runtime_query"
+        if self.ctx_runtime_log:
+            return "runtime_log"
+        return "unverified"
+
+    def check_context(self) -> None:
+        """Refuse to serve when the KV cache is smaller than configured, unless
+        RK1828_ALLOW_SMALLER_KVCACHE=1 (then requests are budgeted against the
+        real length and over-long ones fail with context_length_exceeded)."""
+        if (self.ctx_queried and self.ctx_runtime_log
+                and self.ctx_queried != self.ctx_runtime_log):
+            LOG.warning("KV-cache length: API query says %d, runtime log says %d; "
+                        "using the smaller", self.ctx_queried, self.ctx_runtime_log)
+        eff = self.effective_context
+        if self.context_source == "unverified":
+            LOG.warning("could not verify the KV-cache length the runtime allocated; "
+                        "assuming the configured %d", self.max_context)
+            return
+        if eff >= self.max_context:
+            LOG.info("KV-cache length %d covers the configured context %d",
+                     eff, self.max_context)
+            return
+        msg = (
+            f"the runtime allocated a KV cache of {eff} tokens but the configured "
+            f"context is {self.max_context} (RK1828_MAX_CONTEXT): the export has no "
+            f"kvcache group of {self.max_context}. Prompts past {eff} tokens lose "
+            "prefix reuse and then return empty replies. Fix: re-export the model "
+            f"with a {self.max_context} kvcache length, or set RK1828_MAX_CONTEXT="
+            f"{eff}."
+        )
+        if not self.allow_smaller_kvcache:
+            LOG.error("%s Refusing to start (RK1828_ALLOW_SMALLER_KVCACHE=1 runs "
+                      "with %d instead).", msg, eff)
+            raise ContextTooSmall(msg)
+        LOG.error("%s Running with %d because RK1828_ALLOW_SMALLER_KVCACHE=1.", msg, eff)
+
+    def _note_context_line(self, line: str) -> None:
+        m = _CTX_LINE_RE.match(line)
+        if m and m.group(3) == "query":
+            self.ctx_queried = int(m.group(1))
+            return
+        m = _CTX_RUNTIME_RE.search(line)
+        if m:
+            self.ctx_runtime_log = int(m.group(1))
+
     def _spawn(self) -> None:
         self._ready.clear()
+        self.ctx_queried = self.ctx_runtime_log = None
         env = dict(os.environ)
         libdir = os.path.join(os.path.dirname(self.binary), "lib")
         env["LD_LIBRARY_PATH"] = f"{libdir}:/lib:" + env.get("LD_LIBRARY_PATH", "")
@@ -227,6 +329,9 @@ class Qwen3Worker:
             self.last_stderr.append(line)
             if len(self.last_stderr) > 200:
                 del self.last_stderr[:100]
+            # Before the READY check: both lines precede READY, so the context
+            # is known by the time start() returns.
+            self._note_context_line(line)
             # Case-INsensitive: the TTS binary emits "ready", this one "READY 1".
             if "ready" in line.lower():
                 self._ready.set()
@@ -304,8 +409,17 @@ class Qwen3Worker:
 
                 dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
                 failed = False
+                exceeded: Optional[ContextLengthExceeded] = None
                 while True:
                     (length,) = _LEN.unpack(self._read_exact(4))
+                    if length == REQUEST_STATS:
+                        p_tok, g_tok, ctx = _U32X3.unpack(self._read_exact(12))
+                        q.put(("stats", {"prompt_tokens": p_tok,
+                                         "completion_tokens": g_tok, "context": ctx}))
+                        continue
+                    if length == CONTEXT_EXCEEDED:
+                        exceeded = ContextLengthExceeded(*_U32X3.unpack(self._read_exact(12)))
+                        continue
                     if length == REQUEST_FAILED:
                         # Keep reading to the EOS frame: raising here would leave
                         # it in the pipe and cut the NEXT request off at once.
@@ -315,11 +429,13 @@ class Qwen3Worker:
                         tail = dec.decode(b"", final=True)
                         if tail:
                             q.put(("text", tail))
+                        if exceeded is not None:
+                            raise exceeded
                         if failed:
                             raise WorkerError(
                                 "generation failed in the worker (rknn3_session_run != 0); "
                                 "the usual cause is a prompt longer than the model's "
-                                f"context ({self.max_context} tokens configured)"
+                                f"context ({self.effective_context} tokens)"
                             )
                         break
                     if length > MAX_FRAME_BYTES:
@@ -330,17 +446,21 @@ class Qwen3Worker:
                     piece = dec.decode(self._read_exact(length))
                     if piece:
                         q.put(("text", piece))
+        except ContextLengthExceeded as exc:
+            LOG.warning("request refused: %s", exc)
+            q.put(("error", exc))
         except BaseException as exc:  # noqa: BLE001
             LOG.exception("request failed")
-            q.put(("error", str(exc)))
+            q.put(("error", exc if isinstance(exc, WorkerError) else WorkerError(str(exc))))
         finally:
             q.put(("done", None))
 
     def generate(
         self, prompt: str, max_new_tokens: int, timeout: float = 600.0,
-        tools: Optional[List[dict]] = None,
+        tools: Optional[List[dict]] = None, stats: Optional[dict] = None,
     ) -> Iterator[str]:
-        """Serialised streaming generation. Yields decoded text pieces."""
+        """Serialised streaming generation. Yields decoded text pieces; the
+        worker's token counts, when it sends them, are written into ``stats``."""
         q: "queue.Queue" = queue.Queue()
         threading.Thread(
             target=self._run_request,
@@ -355,8 +475,11 @@ class Qwen3Worker:
                 raise WorkerError(f"request timed out after {timeout}s")
             if kind == "text":
                 yield payload
+            elif kind == "stats":
+                if stats is not None:
+                    stats.update(payload)
             elif kind == "error":
-                raise WorkerError(payload)
+                raise payload
             else:
                 return
 
@@ -637,6 +760,39 @@ def health() -> dict:
         "status": "ok" if (WORKER and WORKER.is_ready()) else "unavailable",
         "model": MODEL_ID,
         "device": "rk1828",
+        # The context requests are budgeted against (what the runtime really
+        # allocated) next to what was configured; they differ only when
+        # RK1828_ALLOW_SMALLER_KVCACHE=1.
+        "max_context": WORKER.effective_context if WORKER else None,
+        "requested_max_context": WORKER.max_context if WORKER else None,
+        "context_source": WORKER.context_source if WORKER else None,
+    }
+
+
+def warn_if_empty_near_limit(stats: dict, text: str, tool_calls: List[dict]) -> bool:
+    """Belt and braces for the silent overflow: a run that 'succeeded' with no
+    output while the prompt filled the context. The pre-run budget check should
+    make this unreachable; if it fires, the estimate was off."""
+    ctx = stats.get("context") or 0
+    p_tok = stats.get("prompt_tokens") or 0
+    if tool_calls or text.strip() or not ctx or p_tok < NEAR_LIMIT_FRACTION * ctx:
+        return False
+    LOG.warning(
+        "empty reply (finish=stop, %s generated tokens) with prompt_tokens=%d of "
+        "context=%d: the KV cache is probably full",
+        stats.get("completion_tokens", "?"), p_tok, ctx,
+    )
+    return True
+
+
+def context_exceeded_error(exc: ContextLengthExceeded) -> dict:
+    return {
+        "error": {
+            "message": str(exc),
+            "type": "invalid_request_error",
+            "param": "messages",
+            "code": "context_length_exceeded",
+        }
     }
 
 
@@ -680,14 +836,20 @@ def chat_completions(req: ChatRequest):
     created = int(time.time())
 
     if not req.stream:
+        stats: dict = {}
         try:
-            text = "".join(WORKER.generate(prompt, max_new, tools=req.tools))
+            text = "".join(WORKER.generate(prompt, max_new, tools=req.tools, stats=stats))
+        except ContextLengthExceeded as exc:
+            return JSONResponse(context_exceeded_error(exc), status_code=400)
         except WorkerError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         text = _THINK_RE.sub("", text)
         splitter = ToolCallSplitter()
         text = splitter.feed(text) + splitter.flush()
         tool_calls: List[dict] = tool_calls_for(req.tools, splitter)
+        warn_if_empty_near_limit(stats, text, tool_calls)
+        p_tok = int(stats.get("prompt_tokens") or 0)
+        c_tok = int(stats.get("completion_tokens") or 0)
         message: dict = {"role": "assistant", "content": text.strip() or None}
         if tool_calls:
             message["tool_calls"] = tool_calls
@@ -705,9 +867,9 @@ def chat_completions(req: ChatRequest):
                     }
                 ],
                 "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0,
+                    "prompt_tokens": p_tok,
+                    "completion_tokens": c_tok,
+                    "total_tokens": p_tok + c_tok,
                 },
             }
         )
@@ -729,6 +891,8 @@ def chat_completions(req: ChatRequest):
         # at most a partial "<tool_call>" prefix (<= 10 chars), only when a
         # piece ends in one, so plain replies stream as before.
         splitter = ToolCallSplitter()
+        stats: dict = {}
+        sent: List[str] = []
 
         def _content_chunk(text: str) -> str:
             return _sse(
@@ -748,7 +912,7 @@ def chat_completions(req: ChatRequest):
             )
 
         try:
-            for piece in WORKER.generate(prompt, max_new, tools=req.tools):
+            for piece in WORKER.generate(prompt, max_new, tools=req.tools, stats=stats):
                 # Defensive: the runtime has enable_thinking=false, but drop any
                 # literal think tags rather than surfacing them to the client.
                 if piece in ("<think>", "</think>"):
@@ -757,14 +921,20 @@ def chat_completions(req: ChatRequest):
                 piece = splitter.feed(piece)
                 if not piece:
                     continue
+                sent.append(piece)
                 yield _content_chunk(piece)
             tail = splitter.flush()
             if tail:
+                sent.append(tail)
                 yield _content_chunk(tail)
+        except ContextLengthExceeded as exc:
+            # Same channel as other stream errors, with the OpenAI error shape.
+            yield _sse(context_exceeded_error(exc))
         except Exception as exc:  # noqa: BLE001
             LOG.exception("generation failed")
             yield _sse({"error": {"message": str(exc), "type": "worker_error"}})
         tool_calls = tool_calls_for(req.tools, splitter)
+        warn_if_empty_near_limit(stats, "".join(sent), tool_calls)
         for tc in tool_calls:
             # Emitted whole rather than as name/argument fragments: the call is
             # only recognisable once </tool_call> has arrived, so there is
@@ -799,9 +969,9 @@ def chat_completions(req: ChatRequest):
                     }
                 ],
                 "usage": {
-                    "prompt_tokens": 0,
+                    "prompt_tokens": int(stats.get("prompt_tokens") or 0),
                     "completion_tokens": n,
-                    "total_tokens": n,
+                    "total_tokens": int(stats.get("prompt_tokens") or 0) + n,
                 },
             }
         )
@@ -853,6 +1023,7 @@ def main() -> None:
         model_name=MODEL_ID,
         kv_checkpoint_interval=args.kv_checkpoint_interval,
         kv_checkpoint_count=args.kv_checkpoint_count,
+        allow_smaller_kvcache=os.environ.get("RK1828_ALLOW_SMALLER_KVCACHE", "").strip() == "1",
     )
     LOG.info(
         "worker start: attempts=%d ready_timeout=%gs max_context=%d core_mask=%s",
