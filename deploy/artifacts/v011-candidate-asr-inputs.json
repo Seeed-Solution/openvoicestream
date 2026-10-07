@@ -35,7 +35,7 @@
     "revision": "862ae0db85703e894ed9ae7448ae1ce11a79cda3",
     "revision_notice": "Immutable published revision pinned; candidate remains unqualified until independent runtime and app gates pass.",
     "provenance": "deploy/artifacts/v011-candidate-asr-inputs.json",
-    "manifest": "prefixv011/orin-nx-sm87/asr-b2-20261006-native32/manifest.json",
+    "manifest": "v011/orin-nx-sm87/asr-b2-20261006-native32/manifest.json",
     "cache_root": "/opt/models/v011-candidate-cache",
     "strict": true
   },
@@ -319,7 +319,7 @@
     "cache_root": "/opt/models/v011-candidate-cache",
     "archive_tmp_dir": "/opt/models/v011-candidate-cache/archive",
     "hf_repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
-    "hf_prefix": "prefixv011/orin-nx-sm87/asr-b2-20261006-native32",
+    "hf_prefix": "v011/orin-nx-sm87/asr-b2-20261006-native32",
     "revision": "862ae0db85703e894ed9ae7448ae1ce11a79cda3",
     "required_file_count": 12,
     "status": "wired_candidate_unqualified",

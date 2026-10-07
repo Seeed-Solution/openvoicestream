@@ -1177,3 +1177,53 @@ def test_every_formal_v091_profile_downloads_each_model_source_separately(
         for rel in entry["required_files"]:
             path = cache / rel
             assert path.exists(), (profile_path, rel)
+
+
+def test_v011_candidate_profile_dispatches_published_strict_manifest(tmp_path, monkeypatch):
+    """The candidate dispatch must bind the real published path and all 12 files."""
+    profile_path = Path(__file__).resolve().parents[2] / "configs/profiles/jetson-edgellm-v011-candidate-asr.json"
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    entry = profile["model_artifacts"][0]
+    expected_repo = "harvestsu/qwen3-asr-0.6b-jetson-artifacts"
+    expected_revision = "862ae0db85703e894ed9ae7448ae1ce11a79cda3"
+    expected_manifest = "v011/orin-nx-sm87/asr-b2-20261006-native32/manifest.json"
+    expected_files = [
+        "audio/audio/audio_encoder.engine", "audio/audio/config.json",
+        "bin/qwen3_asr_worker", "lib/libNvInfer_edgellm_plugin.so",
+        "mel/mel_filters.bin", "mel/whisper_feature_extractor.json",
+        "thinker-b2/chat_template.model", "thinker-b2/config.json",
+        "thinker-b2/embedding.safetensors", "thinker-b2/llm.engine",
+        "thinker-b2/tokenizer.json", "thinker-b2/tokenizer_config.json",
+    ]
+
+    def assert_published(e):
+        assert e["repo"] == expected_repo
+        assert e["revision"] == expected_revision
+        assert e["manifest"] == expected_manifest
+        assert e["required_files"] == expected_files
+        assert e["strict"] is True
+
+    assert_published(entry)
+    old_path = dict(entry)
+    old_path["manifest"] = "prefixv011/" + expected_manifest
+    with pytest.raises(AssertionError):
+        assert_published(old_path)
+
+    import copy
+    from server.core import model_downloader as md
+    isolated = copy.deepcopy(profile)
+    isolated_entry = isolated["model_artifacts"][0]
+    isolated_entry["root"] = str(tmp_path / "runtime" / "qwen3-asr-0.6b")
+    isolated_entry["cache_root"] = str(tmp_path / "cache")
+    monkeypatch.setenv("OVS_AUTO_DOWNLOAD_ARTIFACTS", "1")
+    monkeypatch.setenv("QWEN3_ARTIFACT_DOWNLOAD_TMP_DIR", str(tmp_path / "cache" / "archive"))
+    files = {rel: f"artifact-{index}".encode() for index, rel in enumerate(expected_files)}
+    manifests = {(expected_repo, expected_revision): _schema_v2("qwen3-asr-0.6b", files)}
+    fetches, downloads = _install_mocks(monkeypatch, manifests)
+    assert md._ensure_profile_model_artifacts(isolated) == {"qwen3-asr-0.6b"}
+    assert fetches == [("qwen3-asr", expected_repo, expected_revision, expected_manifest)]
+    assert downloads and {event[1:] for event in downloads} == {(expected_repo, expected_revision)}
+    for rel in expected_files:
+        assert (Path(isolated_entry["root"]) / rel).is_file(), rel
+    archive = Path(isolated_entry["cache_root"]) / "archive"
+    assert not archive.exists() or not any(archive.iterdir())

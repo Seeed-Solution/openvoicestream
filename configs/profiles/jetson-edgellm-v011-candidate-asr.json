@@ -69,7 +69,7 @@
       "canonical_model_id": "qwen3-asr-0.6b",
       "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
       "revision": "862ae0db85703e894ed9ae7448ae1ce11a79cda3",
-      "manifest": "prefixv011/orin-nx-sm87/asr-b2-20261006-native32/manifest.json",
+      "manifest": "v011/orin-nx-sm87/asr-b2-20261006-native32/manifest.json",
       "root": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b",
       "cache_root": "/opt/models/v011-candidate-cache",
       "required_files": [
