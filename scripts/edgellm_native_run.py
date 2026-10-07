@@ -126,8 +126,39 @@ def check_cfg(c):
                      '--max-batch-size': str(build['max_batch_size'])}
         for key in ('min_code_len','opt_code_len','max_code_len'):
             protected[f'--{key.replace("_", "-")}'] = str(code_len[key])
+        constraints = build['config_constraints']
+        if (not isinstance(constraints, dict) or
+                set(constraints) != {'model_type','code2wav_config','builder_config'} or
+                not isinstance(constraints.get('code2wav_config'), dict) or
+                not isinstance(constraints.get('builder_config'), dict)):
+            raise ValueError('invalid code2wav config constraints')
+        code2wav_constraints = constraints['code2wav_config']
+        builder_constraints = constraints['builder_config']
+        base_builder_keys = {'min_code_len','opt_code_len','max_code_len'}
+        static_keys = {'static_suffix_chunk_size'}
+        present_static = [key in code2wav_constraints for key in static_keys]
+        present_static += [key in builder_constraints for key in static_keys]
+        if any(present_static) and not all(present_static):
+            raise ValueError('static suffix metadata must be present in both config sections')
+        static_enabled = bool(present_static and all(present_static))
+        if set(builder_constraints) != base_builder_keys | (static_keys if static_enabled else set()):
+            raise ValueError('invalid code2wav config constraints')
+        if static_enabled:
+            static_value = code2wav_constraints['static_suffix_chunk_size']
+            if (type(static_value) is not int or static_value is True or
+                    static_value != 40000 or
+                    builder_constraints['static_suffix_chunk_size'] != static_value or
+                    code_len['max_code_len'] > 2000):
+                raise ValueError('invalid static suffix provenance')
+            protected['--static-suffix-chunk-size'] = '40000'
         seen = {}
         argv = build['argv']
+        static_argv_present = any(token == '--static-suffix-chunk-size' or
+                                  token.startswith('--static-suffix-chunk-size=')
+                                  or token.startswith('--static-suffix-chunk-siz')
+                                  for token in argv)
+        if static_argv_present and not static_enabled:
+            raise ValueError('static suffix argv requires matching metadata')
         for i, token in enumerate(argv):
             if not isinstance(token, str) or not token.startswith('--'):
                 continue
@@ -153,17 +184,17 @@ def check_cfg(c):
             raise ValueError('build argv lacks code2wav component, engine-dir, batch, or code lengths')
         if c.get('guardian_args', []):
             raise ValueError('build mode does not allow guardian_args')
-        constraints = build['config_constraints']
         if (not isinstance(constraints, dict) or set(constraints) != {'model_type','code2wav_config','builder_config'} or
                 constraints.get('model_type') != 'qwen3_tts_code2wav' or
                 not isinstance(constraints.get('code2wav_config'), dict) or not constraints['code2wav_config'] or
                 not isinstance(constraints.get('builder_config'), dict) or
-                set(constraints['builder_config']) != {'min_code_len','opt_code_len','max_code_len'} or
+                set(constraints['builder_config']) != base_builder_keys | (static_keys if static_enabled else set()) or
                 any(type(constraints['builder_config'][key]) is not int or constraints['builder_config'][key] <= 0
                     for key in ('min_code_len','opt_code_len','max_code_len')) or
                 not (constraints['builder_config']['min_code_len'] <= constraints['builder_config']['opt_code_len'] <=
                      constraints['builder_config']['max_code_len']) or
-                constraints['builder_config'] != code_len):
+                {key: constraints['builder_config'][key]
+                 for key in ('min_code_len','opt_code_len','max_code_len')} != code_len):
             raise ValueError('invalid code2wav config constraints')
     elif 'client_result_path' not in c:
         raise ValueError('client_result_path is required outside build mode')

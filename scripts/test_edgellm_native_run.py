@@ -331,6 +331,9 @@ def build_case(tag, *, mode='ok', mutate=None):
 engine,config,mode=sys.argv[1:4]
 os.makedirs(os.path.dirname(engine), exist_ok=True)
 valid={"model_type":"qwen3_tts_code2wav","code2wav_config":{"sample_rate":24000},"builder_config":{"min_code_len":1,"opt_code_len":2,"max_code_len":3}}
+if mode == "static":
+    valid["code2wav_config"]["static_suffix_chunk_size"] = 40000
+    valid["builder_config"]["static_suffix_chunk_size"] = 40000
 if mode == "term": open(engine,"wb").write(b"engine"); json.dump(valid, open(config,"w")); time.sleep(3)
 elif mode == "missing": json.dump(valid, open(config,"w"))
 elif mode == "empty": open(engine,"wb").close(); json.dump(valid, open(config,"w"))
@@ -342,11 +345,16 @@ else:
     engine = out / 'code2wav' / 'code2wav.engine'; config = out / 'code2wav' / 'config.json'
     cfg.pop('client_result_path', None)
     cfg['client_argv'] = [sys.executable, str(builder), str(engine), str(config), mode, '--components', 'code2wav', '--engine-dir', str(out), '--max-batch-size', '1', '--min-code-len', '1', '--opt-code-len', '2', '--max-code-len', '3']
+    if mode == 'static':
+        cfg['client_argv'] += ['--static-suffix-chunk-size', '40000']
     argv_pin_bytes = json.dumps(cfg['client_argv'], separators=(',', ':'), ensure_ascii=False).encode()
     cfg['build_output_contract'] = {'component':'code2wav', 'engine_path': str(engine), 'config_path': str(config), 'engine_dir': str(out), 'argv': list(cfg['client_argv']),
                                     'argv_pin': {'sha256':hashlib.sha256(argv_pin_bytes).hexdigest(),'size':len(argv_pin_bytes)}, 'max_batch_size':1,
                                     'code_len': {'min_code_len':1,'opt_code_len':2,'max_code_len':3},
                                     'config_constraints': {'model_type': 'qwen3_tts_code2wav', 'code2wav_config': {'sample_rate': 24000}, 'builder_config': {'min_code_len': 1, 'opt_code_len': 2, 'max_code_len': 3}}}
+    if mode == 'static':
+        cfg['build_output_contract']['config_constraints']['code2wav_config']['static_suffix_chunk_size'] = 40000
+        cfg['build_output_contract']['config_constraints']['builder_config']['static_suffix_chunk_size'] = 40000
     if mutate:
         mutate(cfg, engine, config)
     c.write_text(json.dumps(cfg))
@@ -365,6 +373,14 @@ def rejected_build_case(tag, mutate, expected_reason=None):
     assert rejected.returncode != 0 and value['status'] == 'UNPROVEN'
     if expected_reason is not None:
         assert value['reason'] == expected_reason
+    assert not (rejected_dir / 'out').exists()
+    assert not (rejected_dir / 'out' / 'guardian').exists()
+    return value
+
+def rejected_static_case(tag, mutate):
+    rejected, rejected_dir, _, _, _ = build_case(tag, mode='static', mutate=mutate)
+    value = json.loads(rejected.stdout)
+    assert rejected.returncode != 0 and value['status'] == 'UNPROVEN'
     assert not (rejected_dir / 'out').exists()
     assert not (rejected_dir / 'out' / 'guardian').exists()
     return value
@@ -516,6 +532,68 @@ def legal_flag_order(cfg, engine, config):
     repin_build_argv(cfg)
 legal_order, legal_order_dir, _, _, _ = build_case('legal-flag-order', mutate=legal_flag_order)
 assert legal_order.returncode == 0 and json.loads(legal_order.stdout)['status'] == 'BUILD_OUTPUT_VERIFIED'
+
+static_ok, static_ok_dir, _, _, _ = build_case('static-provenance', mode='static')
+static_ok_value = json.loads(static_ok.stdout)
+assert static_ok.returncode == 0 and static_ok_value['status'] == 'BUILD_OUTPUT_VERIFIED'
+assert static_ok_value['config_artifact']['size'] > 0
+
+def static_remove_cli(cfg, engine, config):
+    cfg['client_argv'] = [x for x in cfg['client_argv']
+                          if x not in ('--static-suffix-chunk-size', '40000')]
+    repin_build_argv(cfg)
+static_remove_cli_value = rejected_static_case('static-missing-cli', static_remove_cli)
+assert 'lacks code2wav component' in static_remove_cli_value['reason']
+
+def static_remove_builder_metadata(cfg, engine, config):
+    del cfg['build_output_contract']['config_constraints']['builder_config']['static_suffix_chunk_size']
+static_remove_builder_value = rejected_static_case('static-missing-builder-metadata', static_remove_builder_metadata)
+assert 'static suffix metadata' in static_remove_builder_value['reason']
+
+def static_mismatched_metadata(cfg, engine, config):
+    cfg['build_output_contract']['config_constraints']['builder_config']['static_suffix_chunk_size'] = 1
+static_mismatch_value = rejected_static_case('static-mismatched-metadata', static_mismatched_metadata)
+assert 'invalid static suffix provenance' in static_mismatch_value['reason']
+
+def static_bool_metadata(cfg, engine, config):
+    cfg['build_output_contract']['config_constraints']['code2wav_config']['static_suffix_chunk_size'] = True
+    cfg['build_output_contract']['config_constraints']['builder_config']['static_suffix_chunk_size'] = True
+static_bool_value = rejected_static_case('static-bool-metadata', static_bool_metadata)
+assert 'invalid static suffix provenance' in static_bool_value['reason']
+
+def static_invalid_chunk(cfg, engine, config):
+    cfg['build_output_contract']['config_constraints']['code2wav_config']['static_suffix_chunk_size'] = 1
+    cfg['build_output_contract']['config_constraints']['builder_config']['static_suffix_chunk_size'] = 1
+static_invalid_value = rejected_static_case('static-invalid-chunk', static_invalid_chunk)
+assert 'invalid static suffix provenance' in static_invalid_value['reason']
+
+def static_duplicate_cli(cfg, engine, config):
+    cfg['client_argv'] += ['--static-suffix-chunk-size', '40000']
+    repin_build_argv(cfg)
+static_duplicate_value = rejected_static_case('static-duplicate-cli', static_duplicate_cli)
+assert 'repeats protected option: --static-suffix-chunk-size' in static_duplicate_value['reason']
+
+def static_abbreviated_cli(cfg, engine, config):
+    index = cfg['client_argv'].index('--static-suffix-chunk-size')
+    cfg['client_argv'][index] = '--static-suffix-chunk-siz'
+    repin_build_argv(cfg)
+static_abbrev_value = rejected_static_case('static-abbreviated-cli', static_abbreviated_cli)
+assert 'abbreviated protected option' in static_abbrev_value['reason']
+
+def static_wrong_cli_value(cfg, engine, config):
+    index = cfg['client_argv'].index('40000')
+    cfg['client_argv'][index] = '39999'
+    repin_build_argv(cfg)
+static_wrong_value = rejected_static_case('static-wrong-cli-value', static_wrong_cli_value)
+assert 'value mismatch for protected option' in static_wrong_value['reason']
+
+def static_smax_over_2000(cfg, engine, config):
+    cfg['build_output_contract']['code_len']['max_code_len'] = 2001
+    cfg['build_output_contract']['config_constraints']['builder_config']['max_code_len'] = 2001
+    cfg['client_argv'][cfg['client_argv'].index('--max-code-len') + 1] = '2001'
+    repin_build_argv(cfg)
+static_smax_value = rejected_static_case('static-smax-over-2000', static_smax_over_2000)
+assert 'invalid static suffix provenance' in static_smax_value['reason']
 
 def duplicate_components(cfg, engine, config):
     cfg['client_argv'] += ['--', '--components', 'code2wav']; repin_build_argv(cfg)
