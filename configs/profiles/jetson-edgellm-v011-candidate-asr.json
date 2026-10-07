@@ -1,0 +1,92 @@
+{
+  "name": "jetson-edgellm-v011-candidate-asr",
+  "description": "Published immutable Hugging Face v0.11 ASR candidate profile for Orin NX SM87. The profile wires strict 12-file model_artifacts provisioning at revision 862ae0db85703e894ed9ae7448ae1ce11a79cda3 and keeps the candidate unqualified: native IFB readiness, app integration, image identity, rollback and production deployment remain unproven.",
+  "deployment_scope": "candidate-published-unqualified",
+  "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr-0.6b",
+  "tts_backend": null,
+  "artifact_set": "edgellm-v011-candidate-asr",
+  "artifact_inputs": "deploy/artifacts/v011-candidate-asr-inputs.json",
+  "candidate_feature_status": {
+    "EDGE_LLM_ASR_REQUIRE_IFB": {
+      "declared_value": "1",
+      "state": "requires_implementation_independent_review_app_validation",
+      "currently_proven": false,
+      "note": "The published artifact request is wired, but require_ifb readiness and app-level IFB validation remain unproven."
+    }
+  },
+  "execution_policy": {
+    "mode": "concurrent",
+    "shared_resource": "gpu"
+  },
+  "env": {
+    "LANGUAGE_MODE": "multilanguage",
+    "ASR_BACKEND": "trt_edgellm",
+    "EDGE_LLM_ASR_WORKER": "1",
+    "EDGE_LLM_ASR_STREAM_MODE": "worker",
+    "EDGELLM_REQUEST_AUDIO_WAV": "1",
+    "EDGE_LLM_ASR_MAX_CONCURRENT": "2",
+    "EDGE_LLM_ASR_REQUIRE_IFB": "1",
+    "EDGE_LLM_ASR_WORKER_BIN": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/bin/qwen3_asr_worker",
+    "EDGE_LLM_ASR_ENGINE_DIR": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/thinker-b2",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/audio",
+    "EDGE_LLM_ASR_MEL_SETTINGS": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/mel/whisper_feature_extractor.json",
+    "EDGE_LLM_ASR_MEL_FILTERS": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/mel/mel_filters.bin",
+    "EDGE_LLM_ASR_PLUGIN_PATH": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/lib/libNvInfer_edgellm_plugin.so",
+    "EDGELLM_PLUGIN_PATH": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/lib/libNvInfer_edgellm_plugin.so",
+    "OVS_AUTO_DOWNLOAD_ARTIFACTS": "1",
+    "QWEN3_ARTIFACT_AUTO_DOWNLOAD": "0",
+    "OVS_MAX_CONCURRENT_SESSIONS": "2",
+    "OVS_WORKER_IO_QUEUE_WHEN_SATURATED": "0",
+    "QWEN3_HF_REVISION": "862ae0db85703e894ed9ae7448ae1ce11a79cda3",
+    "QWEN3_MODEL_CACHE_ROOT": "/opt/models/v011-candidate-cache",
+    "QWEN3_ARTIFACT_DOWNLOAD_TMP_DIR": "/opt/models/v011-candidate-cache/archive",
+    "MODEL_DIR": "/opt/models/v011-candidate-cache/engine-state",
+    "OVS_MODELS_DIR": "/opt/models/v011-candidate-cache/engine-state",
+    "OVS_PROFILE_JSON": "/opt/asr-stage/profile.json"
+  },
+  "asr_max_slots": 2,
+  "max_concurrent_sessions": 2,
+  "required_engines": [
+    {
+      "model_id": "qwen3-asr-0.6b",
+      "engine_file": "llm.engine",
+      "engine_path": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/thinker-b2/llm.engine",
+      "env_var": "EDGE_LLM_ASR_ENGINE_FILE",
+      "required": true
+    },
+    {
+      "model_id": "qwen3-asr-0.6b",
+      "engine_file": "audio_encoder.engine",
+      "engine_path": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/audio/audio/audio_encoder.engine",
+      "env_var": "EDGE_LLM_ASR_AUDIO_ENGINE_FILE",
+      "required": true
+    }
+  ],
+  "model_artifacts": [
+    {
+      "model_id": "qwen3-asr",
+      "canonical_model_id": "qwen3-asr-0.6b",
+      "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+      "revision": "862ae0db85703e894ed9ae7448ae1ce11a79cda3",
+      "manifest": "prefixv011/orin-nx-sm87/asr-b2-20261006-native32/manifest.json",
+      "root": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b",
+      "cache_root": "/opt/models/v011-candidate-cache",
+      "required_files": [
+        "audio/audio/audio_encoder.engine",
+        "audio/audio/config.json",
+        "bin/qwen3_asr_worker",
+        "lib/libNvInfer_edgellm_plugin.so",
+        "mel/mel_filters.bin",
+        "mel/whisper_feature_extractor.json",
+        "thinker-b2/chat_template.model",
+        "thinker-b2/config.json",
+        "thinker-b2/embedding.safetensors",
+        "thinker-b2/llm.engine",
+        "thinker-b2/tokenizer.json",
+        "thinker-b2/tokenizer_config.json"
+      ],
+      "strict": true
+    }
+  ]
+}
