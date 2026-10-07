@@ -2369,7 +2369,7 @@ def _v1_limit(env_name: str, default: int) -> int:
     return value
 
 
-def _v1_validate_text(text: str) -> None:
+def _v1_validate_text(text: str, *, param: str = "text") -> None:
     try:
         size = len(text.encode("utf-8"))
     except UnicodeEncodeError as exc:
@@ -2378,7 +2378,7 @@ def _v1_validate_text(text: str) -> None:
             "text must be valid UTF-8",
             status_code=400,
             code="invalid_text",
-            param="text",
+            param=param,
         ) from exc
     max_bytes = _v1_limit("OVS_API_MAX_TEXT_BYTES", 64 * 1024)
     if size > max_bytes:
@@ -2387,7 +2387,7 @@ def _v1_validate_text(text: str) -> None:
             f"text exceeds the {max_bytes} byte limit",
             status_code=413,
             code="payload_too_large",
-            param="text",
+            param=param,
         )
 
 
@@ -2818,7 +2818,13 @@ def _v1_require_clone_backend(backend: object, mode: str) -> str:
         expected = "qwen3-tts-0.6b-base"
         valid_model = canonical_model_id(active_model) == expected
     elif mode == "reference_audio":
-        valid_model = "moss" in canonical_model_id(active_model).lower()
+        valid_model = (
+            "moss" in canonical_model_id(active_model).lower()
+            or (
+                canonical_model_id(active_model) == "qwen3-tts-0.6b-base"
+                and bool(getattr(backend, "supports_reference_audio_cloning", False))
+            )
+        )
     else:
         valid_model = False
     if not valid_model:
@@ -2982,6 +2988,57 @@ def _v1_parse_moss_reference_wav(raw: bytes, backend: object) -> tuple[bytes, in
     if not pcm or len(pcm) % block_align:
         raise _v1_clone_error("reference WAV data is not aligned to PCM frames", code="invalid_audio", param="file")
     return pcm, sample_rate
+
+
+def _v1_parse_base_reference_wav(raw: bytes) -> bytes:
+    """Validate and preserve a Base PCM16 WAV for the native loader."""
+    import struct
+
+    data = bytes(raw)
+    try:
+        if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+            raise ValueError("reference WAV must be RIFF/WAVE")
+        declared_size = struct.unpack_from("<I", data, 4)[0]
+        riff_end = 8 + declared_size
+        if declared_size < 4 or riff_end != len(data):
+            raise ValueError("reference WAV RIFF size does not match payload")
+        fmt = None
+        pcm = None
+        offset = 12
+        while offset < riff_end:
+            if offset + 8 > riff_end:
+                raise ValueError("reference WAV chunk header is truncated")
+            chunk_id = data[offset : offset + 4]
+            size = struct.unpack_from("<I", data, offset + 4)[0]
+            start = offset + 8
+            end = start + size
+            padded_end = end + (size & 1)
+            if end > riff_end or padded_end > riff_end:
+                raise ValueError("reference WAV chunk is truncated")
+            if chunk_id == b"fmt ":
+                if fmt is not None or size < 16:
+                    raise ValueError("reference WAV fmt chunk is invalid")
+                fmt = struct.unpack_from("<HHIIHH", data, start)
+            elif chunk_id == b"data":
+                if pcm is not None:
+                    raise ValueError("reference WAV contains multiple data chunks")
+                pcm = data[start:end]
+            offset = padded_end
+        if fmt is None or pcm is None:
+            raise ValueError("reference WAV must contain fmt and data chunks")
+        audio_format, channels, sample_rate, byte_rate, block_align, bits = fmt
+        if audio_format != 1 or bits != 16 or channels not in (1, 2) or sample_rate <= 0:
+            raise ValueError("reference WAV must be PCM16 mono or stereo")
+        if block_align != channels * 2 or byte_rate != sample_rate * block_align:
+            raise ValueError("reference WAV PCM metadata is invalid")
+        if not pcm or len(pcm) % block_align:
+            raise ValueError("reference WAV data is not aligned to PCM frames")
+        duration = (len(pcm) // block_align) / sample_rate
+        if duration < 0.08 or duration > 40.0:
+            raise ValueError("reference WAV duration must be 0.08..40 seconds")
+    except (ValueError, struct.error) as exc:
+        raise _v1_clone_error(str(exc), code="invalid_audio", param="file") from exc
+    return data
 
 
 _V1_MANAGER_UNSET = object()
@@ -3427,6 +3484,7 @@ async def _v1_clone_reference_impl(
     *,
     model: str | None,
     text: str | None,
+    ref_text: str | None,
     language: str | None,
     speed: float | None,
     pitch: float | None,
@@ -3443,12 +3501,14 @@ async def _v1_clone_reference_impl(
     if not text:
         raise _v1_clone_error("text is required", code="missing_required_parameter", param="text")
     _v1_validate_text(text)
+    if ref_text is not None:
+        ref_text = ref_text.strip()
+        _v1_validate_text(ref_text, param="ref_text")
+    raw_holder: list[bytes | None] = [None]
     # The active MOSS codec contract is checked later inside the manager
     # lease.  Streaming routes fill this holder from ``preload`` after their
     # session token is acquired; non-streaming routes fill it inside their
     # acquire_http context below.
-    raw_holder: list[bytes | None] = [None]
-
     async def preload():
         raw_holder[0] = await read_bounded_upload(
             file,
@@ -3464,21 +3524,27 @@ async def _v1_clone_reference_impl(
     )
 
     def prepare(backend):
+        from server.core.tts_speakers import canonical_model_id
         active_model = _v1_backend_model(backend)
         _v1_check_model(model, active_model)
         _v1_require_clone_backend(backend, "reference_audio")
         if raw_holder[0] is None:
             raise _v1_clone_error("reference file was not read", code="invalid_audio", param="file")
-        pcm, sample_rate = _v1_parse_moss_reference_wav(raw_holder[0], backend)
         kwargs = _v1_clone_control_kwargs(control_req, backend)
-        if stream:
+        if canonical_model_id(active_model) == "qwen3-tts-0.6b-base":
+            if not ref_text:
+                raise _v1_clone_error("ref_text is required for Base reference cloning", code="missing_required_parameter", param="ref_text")
+            kwargs.update({"reference_audio_wav": _v1_parse_base_reference_wav(raw_holder[0]), "reference_text": ref_text})
+        else:
+            pcm, sample_rate = _v1_parse_moss_reference_wav(raw_holder[0], backend)
+        if stream and canonical_model_id(active_model) != "qwen3-tts-0.6b-base":
             kwargs.update(
                 {
                     "ref_audio_b64": base64.b64encode(pcm).decode("ascii"),
                     "ref_audio_sample_rate": sample_rate,
                 }
             )
-        else:
+        elif canonical_model_id(active_model) != "qwen3-tts-0.6b-base":
             kwargs.update(
                 {
                     "reference_audio": pcm,
@@ -3522,6 +3588,7 @@ async def v1_tts_clone_reference(
     file: UploadFile | None = File(None),
     model: str | None = Form(None),
     text: str | None = Form(None),
+    ref_text: str | None = Form(None),
     language: str | None = Form(None),
     speed: float | None = Form(None),
     pitch: float | None = Form(None),
@@ -3539,6 +3606,7 @@ async def v1_tts_clone_reference(
             file,
             model=model,
             text=text,
+            ref_text=ref_text,
             language=language,
             speed=speed,
             pitch=pitch,
@@ -3554,6 +3622,7 @@ async def v1_tts_clone_reference_stream(
     file: UploadFile | None = File(None),
     model: str | None = Form(None),
     text: str | None = Form(None),
+    ref_text: str | None = Form(None),
     language: str | None = Form(None),
     speed: float | None = Form(None),
     pitch: float | None = Form(None),
@@ -3571,6 +3640,7 @@ async def v1_tts_clone_reference_stream(
             file,
             model=model,
             text=text,
+            ref_text=ref_text,
             language=language,
             speed=speed,
             pitch=pitch,

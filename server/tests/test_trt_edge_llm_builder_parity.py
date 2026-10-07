@@ -7,6 +7,9 @@ env dict as the factories directly.
 """
 
 import pytest
+import hashlib
+import json
+from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +137,147 @@ class TestTTSBuilderParity:
         }, env={})
         assert cfg.clone_encoder_dir == "/profile/clone"
         assert cfg.checkpoint_dir == "/profile/checkpoint"
+
+    def test_strict_base_reference_proof_reads_locked_cache(self, tmp_path):
+        from server.core.qwen3_artifact_downloader import _strict_cache_model, _strict_cache_repo
+        from server.core.voxedge_backend_config import build_trt_edge_llm_tts_config
+
+        root = tmp_path / "runtime"
+        for rel in ("talker", "cp", "tok", "c2w", "clone", "checkpoint", "ref-tmp"):
+            (root / rel).mkdir(parents=True)
+        files = {}
+        for rel in ("worker", "plugin.so", "talker/config.json", "talker/llm.engine", "cp/llm.engine", "cp/config.json", "cp/codec_embeddings.safetensors", "cp/lm_heads.safetensors", "tok/tokenizer.json", "c2w/config.json", "c2w/code2wav.engine", "c2w/code2wav_stateful.engine", "clone/speaker_encoder.engine", "clone/speech_tokenizer_encoder.engine", "checkpoint/model.safetensors"):
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(rel.encode())
+            files[rel] = {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "size": path.stat().st_size}
+        repo, model, revision = "org/base", "qwen3-tts-0.6b-base", "a" * 40
+        cache = tmp_path / "cache" / _strict_cache_repo(repo) / _strict_cache_model(model) / revision
+        for rel in files:
+            target = cache / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((root / rel).read_bytes())
+        manifest = {
+            "model_id": model,
+            "_source": {
+                "repo": repo,
+                "revision": revision,
+                "model_id": model,
+                "canonical_model_id": model,
+            },
+            "files": files,
+            "provenance": {
+                "source_sdk_version_evidence": "0.11",
+                "worker_build_definitions": {
+                    "EDGELLM_QWEN3_TTS_V011": 1,
+                    "native_worker_source_sha256": files["worker"]["sha256"],
+                },
+            },
+        }
+        (cache / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        env = {
+            "OVS_TTS_MODEL_ID": model,
+            "EDGE_LLM_TTS_BIN": str(root / "worker"),
+            "EDGE_LLM_TTS_WORKER_BIN": str(root / "worker"),
+            "EDGELLM_PLUGIN_PATH": str(root / "plugin.so"),
+            "EDGE_LLM_TTS_TALKER_DIR": str(root / "talker"),
+            "EDGE_LLM_TTS_CP_DIR": str(root / "cp"),
+            "EDGE_LLM_TTS_TOKENIZER_DIR": str(root / "tok"),
+            "EDGE_LLM_TTS_CODE2WAV_DIR": str(root / "c2w"),
+            "EDGE_LLM_TTS_CLONE_ENCODER_DIR": str(root / "clone"),
+            "EDGE_LLM_TTS_CHECKPOINT_DIR": str(root / "checkpoint"),
+            "EDGE_LLM_TTS_REFERENCE_TMP_DIR": str(root / "ref-tmp"),
+            "EDGE_LLM_TTS_TEXT_PROJECTION": "host_fp32",
+            "EDGE_LLM_TTS_PROMPT_KV_CACHE": "0",
+        }
+        profile = {"model_artifacts": [{
+            "model_id": model, "canonical_model_id": model,
+            "repo": repo, "revision": revision,
+            "root": str(root), "cache_root": str(tmp_path / "cache"),
+            "files": list(files), "strict": True,
+        }]}
+        cfg = build_trt_edge_llm_tts_config(profile=profile, env=env)
+        assert cfg.reference_artifact_verified is True
+
+        from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSBackend
+        backend = TRTEdgeLLMTTSBackend(cfg)
+        assert backend.supports_reference_audio_cloning is True
+
+        for bad_source in (
+            {"repo": repo, "revision": revision, "model_id": model},
+            {"repo": repo, "revision": revision, "model_id": model, "canonical_model_id": "qwen3-tts-WRONG"},
+        ):
+            (cache / "manifest.json").write_text(
+                json.dumps({**manifest, "_source": bad_source}), encoding="utf-8"
+            )
+            bad_cfg = build_trt_edge_llm_tts_config(profile=profile, env=env)
+            assert bad_cfg.reference_artifact_verified is False
+
+        stateful_only_files = {key: value for key, value in files.items() if key != "c2w/code2wav.engine"}
+        (cache / "manifest.json").write_text(
+            json.dumps({**manifest, "files": stateful_only_files}), encoding="utf-8"
+        )
+        stateful_cfg = build_trt_edge_llm_tts_config(profile=profile, env=env)
+        assert stateful_cfg.reference_artifact_verified is False
+
+        (cache / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        override_env = dict(env)
+        override_env["EDGE_LLM_TTS_TALKER_ENGINE"] = str(root / "outside-talk.engine")
+        Path(override_env["EDGE_LLM_TTS_TALKER_ENGINE"]).write_bytes(b"outside")
+        override_cfg = build_trt_edge_llm_tts_config(profile=profile, env=override_env)
+        assert override_cfg.reference_artifact_verified is False
+
+        missing_env = dict(env)
+        missing_env["EDGE_LLM_TTS_REFERENCE_TMP_DIR"] = str(root / "missing-ref-tmp")
+        missing_cfg = build_trt_edge_llm_tts_config(profile=profile, env=missing_env)
+        assert missing_cfg.reference_artifact_verified is False
+        assert TRTEdgeLLMTTSBackend(missing_cfg).supports_reference_audio_cloning is False
+
+        # The worker's indexed checkpoint reader resolves every weight_map
+        # value below checkpoint_dir; directory-prefix presence is not proof.
+        index_rel = "checkpoint/model.safetensors.index.json"
+        shard_rel = "checkpoint/model-00001-of-00001.safetensors"
+        index_path = root / index_rel
+        shard_path = root / shard_rel
+        shard_path.write_bytes(b"indexed-shard")
+        index_path.write_text(json.dumps({"weight_map": {"weight": shard_path.name}}), encoding="utf-8")
+        for rel in (index_rel, shard_rel):
+            target = cache / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((root / rel).read_bytes())
+            files[rel] = {
+                "sha256": hashlib.sha256((root / rel).read_bytes()).hexdigest(),
+                "size": (root / rel).stat().st_size,
+            }
+        (cache / "manifest.json").write_text(json.dumps({**manifest, "files": files}), encoding="utf-8")
+        indexed_cfg = build_trt_edge_llm_tts_config(profile=profile, env=env)
+        assert indexed_cfg.reference_artifact_verified is True
+
+        # A declared index without its referenced shard is rejected.
+        shard_path.unlink()
+        missing_shard_cfg = build_trt_edge_llm_tts_config(profile=profile, env=env)
+        assert missing_shard_cfg.reference_artifact_verified is False
+        shard_path.write_bytes(b"indexed-shard")
+        (cache / shard_rel).write_bytes(shard_path.read_bytes())
+
+        # A present shard without an immutable manifest lock is rejected.
+        unlocked_files = {key: value for key, value in files.items() if key != shard_rel}
+        (cache / "manifest.json").write_text(json.dumps({**manifest, "files": unlocked_files}), encoding="utf-8")
+        unlocked_cfg = build_trt_edge_llm_tts_config(profile=profile, env=env)
+        assert unlocked_cfg.reference_artifact_verified is False
+
+        (cache / "manifest.json").write_text(json.dumps({**manifest, "files": files}), encoding="utf-8")
+        # Empty and malformed maps, plus traversal references, are fail-closed.
+        for weight_map in ({}, {"weight": "../outside.safetensors"}, None):
+            index_path.write_text(
+                json.dumps({} if weight_map is None else {"weight_map": weight_map}),
+                encoding="utf-8",
+            )
+            (cache / index_rel).write_bytes(index_path.read_bytes())
+            malformed_cfg = build_trt_edge_llm_tts_config(profile=profile, env=env)
+            assert malformed_cfg.reference_artifact_verified is False
+        index_path.write_text(json.dumps({"weight_map": {"weight": shard_path.name}}), encoding="utf-8")
+        (cache / index_rel).write_bytes(index_path.read_bytes())
 
     def test_process_env_overrides_profile_clone_paths(self):
         """Explicit process env keeps precedence over profile env values."""
