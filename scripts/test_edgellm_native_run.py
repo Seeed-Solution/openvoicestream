@@ -416,6 +416,7 @@ pre_value = json.loads(pre_run.stdout)
 assert pre_run.returncode == 0 and pre_value['status'] == 'INPUTS_PREFLIGHT_VERIFIED'
 assert pre_value['startup_admission']['status'] == 'NOT_EVALUATED'
 assert pre_value['foreign_after_match'] is True
+assert 'foreign_after_error' not in pre_value
 assert pre_value['runtime']['sha256'] == pre_cfg['runtime']['sha256']
 assert pre_value['guardian']['sha256'] == pre_cfg['guardian']['sha256']
 assert not pre_out.exists()
@@ -487,6 +488,7 @@ late_run = subprocess.run([sys.executable, str(PROD), '--preflight-only', str(la
 late_value = json.loads(late_run.stdout)
 assert late_run.returncode != 0 and 'input pin drift during preflight' in late_value['reason']
 assert late_value['foreign_after_match'] is True and not late_out.exists()
+assert 'foreign_after_error' not in late_value
 
 # The SDK build contract accepts the module form only when its launch
 # preflight identifies the SDK CLI.  The direct-file form is rejected before

@@ -579,6 +579,7 @@ def run(cfgpath, preflight_only=False):
             result['startup_admission'] = {'status': 'NOT_EVALUATED', 'reason': 'preflight-only mode does not inspect or launch GPU admission'}
             after = snapshot(c['snapshot_cmd'], deadline)
             result['foreign_after'] = after
+            after_captured = True
             result['foreign_after_match'] = before == after
             if not result['foreign_after_match']:
                 raise RuntimeError('foreign snapshot changed during preflight')
