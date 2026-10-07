@@ -826,6 +826,65 @@ assert admission_failed.returncode != 0 and admission_value['status'] == 'UNPROV
 assert admission_value['startup_admission']['status'] == 'FAILED'
 assert not (admission_dir / 'out').exists()
 
+# CPU-only self-contained fixture for the SDK metadata shape.  The pulled
+# 89-tensor artifact is postvalidated separately; this test does not depend on
+# /tmp evidence surviving a clean checkout.
+native_spec = importlib.util.spec_from_file_location('native_validator', PROD)
+native_validator = importlib.util.module_from_spec(native_spec); native_spec.loader.exec_module(native_validator)
+with tempfile.TemporaryDirectory(prefix='native-checkpoint-metadata-', dir=os.environ['HOME']) as metadata_tmp:
+    metadata_root = Path(metadata_tmp); logical = metadata_root / 'logical' / 'speech_tokenizer'; logical.mkdir(parents=True)
+    frozen = metadata_root / 'frozen' / 'speech_tokenizer' / 'model.safetensors'; frozen.parent.mkdir(parents=True); frozen.write_bytes(b'checkpoint-fixture')
+    os.symlink(frozen, logical / 'model.safetensors')
+    tensors = {
+        'decoder.a.weight': {'dtype': 'F32', 'shape': [2, 3], 'bytes': 24, 'samples': [{'offset': 0, 'data': '00' * 8}]},
+        'decoder.a.bias': {'dtype': 'F32', 'shape': [4], 'bytes': 16, 'samples': []},
+    }
+    metadata = {
+        'model_type': 'qwen3_tts_code2wav', 'code2wav_config': {'sample_rate': 24000},
+        'builder_config': {'min_code_len': 1, 'opt_code_len': 2, 'max_code_len': 3, 'static_decoder_chunk_size': 1000},
+        'checkpoint_dir': str(logical),
+        'checkpoint_identity': {'version': 1, 'sources': {'component': {
+            'build_source': str(logical),
+            'files': {'model.safetensors': {'bytes': frozen.stat().st_size, 'mtime_ns': frozen.stat().st_mtime_ns}},
+            'tensors': tensors}}},
+        'checkpoint_weight_bindings': [
+            {'engine_name': 'decoder.a.weight', 'checkpoint_keys': ['decoder.a.weight'], 'source_layout': 'fp16', 'dtype': 'F16', 'shape': [2, 3]},
+            {'engine_name': 'decoder.a.bias', 'checkpoint_keys': ['decoder.a.bias'], 'source_layout': 'fp16', 'dtype': 'F16', 'shape': [4]},
+        ],
+    }
+    constraints = {k: metadata[k] for k in ('model_type', 'code2wav_config', 'builder_config')}
+    metadata_cfg = {'client_argv': ['--model-dir', str(metadata_root / 'logical')],
+                    'artifacts': [{'role': 'speech-tokenizer-weights', 'path': str(frozen),
+                                   'sha256': sha(frozen), 'size': frozen.stat().st_size}]}
+    metadata_path = metadata_root / 'config.json'; metadata_path.write_text(json.dumps(metadata))
+    native_validator._validate_build_config(metadata_path, constraints, time.monotonic() + 30, metadata_cfg)
+    def reject(mutator, phrase):
+        bad = json.loads(json.dumps(metadata)); mutator(bad)
+        path = metadata_root / ('bad-' + phrase.replace(' ', '-') + '.json'); path.write_text(json.dumps(bad))
+        try: native_validator._validate_build_config(path, constraints, time.monotonic() + 30, metadata_cfg)
+        except RuntimeError: return
+        raise AssertionError('metadata negative case accepted: ' + phrase)
+    reject(lambda d: d['checkpoint_identity']['sources']['component'].__setitem__('build_source', str(metadata_root / 'other')), 'wrong-source')
+    logical_file = logical / 'model.safetensors'
+    logical_file.unlink(); reject(lambda d: None, 'missing-logical-file'); os.symlink(frozen, logical_file)
+    reject(lambda d: d['checkpoint_identity']['sources']['component']['tensors']['decoder.a.weight'].__setitem__('dtype', 'garbage'), 'unknown-dtype')
+    reject(lambda d: d['checkpoint_identity']['sources']['component']['tensors']['decoder.a.weight'].__setitem__('dtype', 'I8'), 'non-float-source-dtype')
+    reject(lambda d: d['checkpoint_identity']['sources']['component']['tensors']['decoder.a.weight'].__setitem__('shape', [99, 3]), 'shape-bytes')
+    reject(lambda d: d['checkpoint_identity']['sources']['component']['tensors']['decoder.a.weight']['samples'][0].update(offset=99), 'sample-range')
+    reject(lambda d: d['checkpoint_weight_bindings'].append(dict(d['checkpoint_weight_bindings'][0])), 'duplicate-binding')
+    reject(lambda d: d['checkpoint_weight_bindings'][0].__setitem__('file', '../weights.bin'), 'binding-file-path')
+    missing = json.loads(json.dumps(metadata)); missing.pop('checkpoint_identity'); missing_path = metadata_root / 'missing-field.json'; missing_path.write_text(json.dumps(missing))
+    try: native_validator._validate_build_config(missing_path, constraints, time.monotonic() + 30, metadata_cfg)
+    except RuntimeError as exc: assert 'all present or all absent' in str(exc)
+    else: raise AssertionError('partial checkpoint metadata accepted')
+    try: native_validator._validate_build_config(metadata_path, constraints, time.monotonic() + 30, None)
+    except RuntimeError as exc: assert 'frozen input context' in str(exc)
+    else: raise AssertionError('metadata accepted without frozen context')
+metadata_validator_rows = {'self_contained_positive': True, 'logical_file_and_frozen_binding': True,
+                          'wrong_source_rejected': True, 'missing_logical_file_rejected': True,
+                          'dtype_shape_sample_rejected': True, 'duplicate_binding_rejected': True,
+                          'missing_context_rejected': True}
+
 print(json.dumps({'input_preflight_mode': {
     'valid': {'status': pre_value['status'], 'foreign_after_match': pre_value['foreign_after_match'], 'out_created': pre_out.exists()},
     'missing_artifact': {'returncode': missing_run.returncode, 'reason': missing_value['reason'], 'out_created': missing_out.exists()},
@@ -844,4 +903,4 @@ print(json.dumps({'input_preflight_mode': {
                     'term_issued': huge_probe['term_issued'],
                     'survivor_handoff': huge_probe['survivor_handoff']},
     'fork_descendant_pipe': {'survivor_handoff': fork_probe['survivor_handoff']},
-}}, sort_keys=True))
+}, 'checkpoint_metadata_validator': metadata_validator_rows}, sort_keys=True))

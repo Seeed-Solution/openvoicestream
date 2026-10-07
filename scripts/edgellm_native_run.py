@@ -303,15 +303,156 @@ def _json_exact(actual, expected):
     if isinstance(expected, list): return len(actual) == len(expected) and all(_json_exact(a,e) for a,e in zip(actual,expected))
     return actual == expected
 
-def _validate_build_config(path, constraints, deadline):
+_CHECKPOINT_METADATA_KEYS = {
+    'checkpoint_dir', 'checkpoint_identity', 'checkpoint_weight_bindings',
+}
+
+def _checkpoint_artifact(c):
+    for artifact in c.get('artifacts', []):
+        if artifact.get('role') == 'speech-tokenizer-weights':
+            return artifact
+    return None
+
+def _validate_checkpoint_metadata(document, c, deadline):
+    present = set(document) & _CHECKPOINT_METADATA_KEYS
+    if not present:
+        return
+    if c is None:
+        raise RuntimeError('checkpoint metadata requires frozen input context')
+    if present != _CHECKPOINT_METADATA_KEYS:
+        raise RuntimeError('checkpoint metadata fields must be all present or all absent')
+
+    checkpoint_dir = document['checkpoint_dir']
+    if type(checkpoint_dir) is not str or not checkpoint_dir.startswith('/'):
+        raise RuntimeError('checkpoint_dir must be an absolute path')
+    argv = c.get('client_argv', [])
+    try:
+        model_dir = argv[argv.index('--model-dir') + 1]
+    except (ValueError, IndexError):
+        raise RuntimeError('checkpoint metadata requires --model-dir')
+    expected_dir = str(Path(model_dir) / 'speech_tokenizer')
+    if checkpoint_dir != expected_dir:
+        raise RuntimeError('checkpoint_dir does not match logical model view')
+
+    artifact = _checkpoint_artifact(c)
+    if not isinstance(artifact, dict):
+        raise RuntimeError('checkpoint metadata requires speech-tokenizer-weights artifact')
+    weight_path = artifact.get('path')
+    if (type(weight_path) is not str or not weight_path.startswith('/') or
+            Path(weight_path).name != 'model.safetensors' or
+            Path(weight_path).parent.name != 'speech_tokenizer'):
+        raise RuntimeError('speech-tokenizer-weights artifact path is invalid')
+    if type(artifact.get('size')) is not int or artifact['size'] < 0:
+        raise RuntimeError('speech-tokenizer-weights artifact size is invalid')
+    if type(artifact.get('sha256')) is not str or re.fullmatch(r'[0-9a-f]{64}', artifact['sha256']) is None:
+        raise RuntimeError('speech-tokenizer-weights artifact hash is invalid')
+    logical_weight = Path(checkpoint_dir) / 'model.safetensors'
+    if (not Path(checkpoint_dir).is_dir() or Path(checkpoint_dir).is_symlink() or
+            not logical_weight.is_file() or not Path(weight_path).is_file()):
+        raise RuntimeError('checkpoint source path is missing or symlinked')
+    source_record = stream_hash(weight_path, deadline)
+    if source_record['size'] != artifact['size'] or source_record['sha256'] != artifact['sha256']:
+        raise RuntimeError('checkpoint source artifact pin mismatch')
+    logical_stat = os.stat(logical_weight, follow_symlinks=True)
+    frozen_stat = os.stat(weight_path, follow_symlinks=True)
+    if (os.path.realpath(weight_path) != weight_path or
+            os.path.realpath(logical_weight) != os.path.realpath(weight_path) or
+            (logical_stat.st_dev, logical_stat.st_ino, logical_stat.st_size) !=
+            (frozen_stat.st_dev, frozen_stat.st_ino, frozen_stat.st_size)):
+        raise RuntimeError('logical checkpoint file is not bound to frozen artifact')
+
+    identity = document['checkpoint_identity']
+    if (not isinstance(identity, dict) or set(identity) != {'version', 'sources'} or
+            type(identity['version']) is not int or identity['version'] != 1 or
+            not isinstance(identity['sources'], dict) or set(identity['sources']) != {'component'}):
+        raise RuntimeError('checkpoint_identity schema mismatch')
+    component = identity['sources']['component']
+    if (not isinstance(component, dict) or set(component) != {'build_source', 'files', 'tensors'} or
+            component['build_source'] != checkpoint_dir or
+            not isinstance(component['files'], dict) or not isinstance(component['tensors'], dict) or
+            set(component['files']) != {'model.safetensors'}):
+        raise RuntimeError('checkpoint_identity component schema mismatch')
+    file_record = component['files']['model.safetensors']
+    weight_stat = os.stat(weight_path, follow_symlinks=False)
+    if (not isinstance(file_record, dict) or
+            type(file_record.get('bytes')) is not int or file_record['bytes'] != weight_stat.st_size or
+            type(file_record.get('mtime_ns')) is not int or file_record['mtime_ns'] != weight_stat.st_mtime_ns):
+        raise RuntimeError('checkpoint_identity file record mismatch')
+    tensors = component['tensors']
+    dtype_width = {'F16': 2, 'BF16': 2, 'F32': 4, 'F64': 8,
+                   'I8': 1, 'U8': 1, 'I16': 2, 'U16': 2,
+                   'I32': 4, 'U32': 4, 'I64': 8, 'U64': 8,
+                   'F8_E4M3': 1, 'F8_E5M2': 1}
+    for name, tensor in tensors.items():
+        if (not isinstance(name, str) or not name or not isinstance(tensor, dict) or
+                set(tensor) != {'dtype', 'shape', 'bytes', 'samples'} or
+                type(tensor['dtype']) is not str or not tensor['dtype'] or
+                not isinstance(tensor['shape'], list) or
+                any(type(x) is not int or x <= 0 for x in tensor['shape']) or
+                tensor['dtype'] not in dtype_width or
+                type(tensor['bytes']) is not int or tensor['bytes'] < 0 or
+                tensor['bytes'] != dtype_width[tensor['dtype']] * math.prod(tensor['shape']) or
+                not isinstance(tensor['samples'], list)):
+            raise RuntimeError('checkpoint_identity tensor schema mismatch')
+        for sample in tensor['samples']:
+            if (not isinstance(sample, dict) or set(sample) != {'offset', 'data'} or
+                    type(sample['offset']) is not int or sample['offset'] < 0 or
+                    type(sample['data']) is not str or re.fullmatch(r'[0-9a-f]*', sample['data']) is None or
+                    len(sample['data']) % 2 or
+                    sample['offset'] + len(sample['data']) // 2 > tensor['bytes']):
+                raise RuntimeError('checkpoint_identity tensor sample mismatch')
+
+    bindings = document['checkpoint_weight_bindings']
+    if not isinstance(bindings, list) or not bindings:
+        raise RuntimeError('checkpoint_weight_bindings must be a non-empty list')
+    engine_names = set(); checkpoint_keys = set()
+    for binding in bindings:
+        required_binding = {'engine_name', 'checkpoint_keys', 'source_layout', 'dtype', 'shape'}
+        allowed_binding = required_binding | {'file', 'offset', 'bytes'}
+        if (not isinstance(binding, dict) or
+                not required_binding.issubset(binding) or not set(binding).issubset(allowed_binding)):
+            raise RuntimeError('checkpoint binding schema mismatch')
+        if (type(binding.get('engine_name')) is not str or not binding['engine_name'] or
+                binding['engine_name'] in engine_names or
+                not isinstance(binding.get('checkpoint_keys'), list) or not binding['checkpoint_keys'] or
+                any(type(key) is not str or not key for key in binding['checkpoint_keys']) or
+                type(binding.get('source_layout')) is not str or not binding['source_layout'] or
+                type(binding.get('dtype')) is not str or not binding['dtype'] or
+                not isinstance(binding.get('shape'), list) or
+                any(type(x) is not int or x <= 0 for x in binding['shape'])):
+            raise RuntimeError('checkpoint binding value mismatch')
+        engine_names.add(binding['engine_name']); checkpoint_keys.update(binding['checkpoint_keys'])
+        if binding['source_layout'] != 'fp16' or binding['dtype'] != 'F16':
+            raise RuntimeError('unsupported checkpoint binding layout or dtype')
+        if any(tensors[key]['dtype'] not in {'F16', 'F32', 'BF16'}
+               for key in binding['checkpoint_keys']):
+            raise RuntimeError('unsupported checkpoint source dtype for fp16 binding')
+        if any(tensors[key]['shape'] != binding['shape'] for key in binding['checkpoint_keys']):
+            raise RuntimeError('checkpoint binding shape mismatch')
+        if ('file' in binding and
+                (type(binding['file']) is not str or not binding['file'] or
+                 binding['file'] in {'.', '..'} or '\x00' in binding['file'] or
+                 '/' in binding['file'] or '\\' in binding['file'] or
+                 Path(binding['file']).name != binding['file'])):
+            raise RuntimeError('checkpoint binding file mismatch')
+        for key in ('offset', 'bytes'):
+            if key in binding and (type(binding[key]) is not int or binding[key] < 0):
+                raise RuntimeError('checkpoint binding byte range mismatch')
+    if checkpoint_keys != set(tensors):
+        raise RuntimeError('checkpoint binding keys do not match identity tensors')
+
+def _validate_build_config(path, constraints, deadline, c=None):
     document, record = _guarded_json_read(path, deadline)
     if not isinstance(document, dict):
         raise RuntimeError('build config JSON must be an object')
-    if set(document) != set(constraints):
+    document_extra = set(document) - set(constraints)
+    if not set(constraints).issubset(document) or document_extra - _CHECKPOINT_METADATA_KEYS:
         raise RuntimeError('build config top-level fields mismatch')
     for key, expected in constraints.items():
         if not _json_exact(document[key], expected):
             raise RuntimeError(f'build config constraint mismatch: {key}')
+    if set(document) - set(constraints) or c is not None:
+        _validate_checkpoint_metadata(document, c, deadline)
     builder = document['builder_config']
     if any(type(builder[k]) is not int or builder[k] <= 0 for k in builder) or not (builder['min_code_len'] <= builder['opt_code_len'] <= builder['max_code_len']):
         raise RuntimeError('build config code lengths invalid')
@@ -655,7 +796,7 @@ def run(cfgpath, preflight_only=False):
             child_rec=stream_hash(child_out,deadline); result['child_result']=child_rec
         else:
             result['engine_artifact'] = _build_artifact(build_contract['engine_path'], deadline, 'engine')
-            result['build_config'], result['config_artifact'] = _validate_build_config(build_contract['config_path'], build_contract['config_constraints'], deadline)
+            result['build_config'], result['config_artifact'] = _validate_build_config(build_contract['config_path'], build_contract['config_constraints'], deadline, c)
         result['raw_guardian_stdout']=stream_hash(logs/'guardian.stdout',deadline); result['raw_guardian_stderr']=stream_hash(logs/'guardian.stderr',deadline)
         artifacts_after=[stream_hash(x['path'],deadline) for x in c['artifacts']]
         result['artifacts_before']=artifacts; result['artifacts_after']=artifacts_after
