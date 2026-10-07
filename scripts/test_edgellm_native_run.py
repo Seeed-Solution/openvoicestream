@@ -3,6 +3,15 @@ import importlib.util
 from pathlib import Path
 ROOT=Path(__file__).with_name('edgellm_native_run.py').parent; PROD=Path(__file__).with_name('edgellm_native_run.py'); GUARD=Path(__file__).with_name('edgellm_native_guardian.py')
 assert '/tmp/slv-v011-llm-guardian-root-recovery-20261004' not in PROD.read_text() and '/tmp/slv-v011-llm-guardian-root-recovery-20261004' not in GUARD.read_text()
+def proc_identity(pid):
+ try:
+  stat_text=Path('/proc',str(pid),'stat').read_text()
+  tail=stat_text.rsplit(')',1)[1].split()
+  state=tail[0]; start_ticks=int(tail[19])
+  exe=os.readlink('/proc/'+str(pid)+'/exe')
+  return {'pid':pid,'state':state,'start_ticks':start_ticks,'exe':exe}
+ except (FileNotFoundError,ProcessLookupError,ValueError,OSError):
+  return None
 def sha(p):
  h=hashlib.sha256()
  with open(p,'rb') as f:
@@ -311,6 +320,223 @@ else:
     raise AssertionError('owned descendant survived TERM cleanup')
 assert term_marker.read_text() == 'term'
 assert fork_probe['survivor_handoff'] is True
+
+# Build mode uses only fresh engine/config outputs as its semantic result.  It
+# deliberately has no client_result_path, so the legacy client contract cannot
+# accidentally make a builder pass.
+def build_case(tag, *, mode='ok', mutate=None):
+    d,c,cfg,out = base('build-' + tag)
+    builder = d / 'builder.py'
+    builder.write_text('''import json,sys,time,os
+engine,config,mode=sys.argv[1:4]
+os.makedirs(os.path.dirname(engine), exist_ok=True)
+valid={"model_type":"qwen3_tts_code2wav","code2wav_config":{"sample_rate":24000},"builder_config":{"min_code_len":1,"opt_code_len":2,"max_code_len":3}}
+if mode == "term": open(engine,"wb").write(b"engine"); json.dump(valid, open(config,"w")); time.sleep(3)
+elif mode == "missing": json.dump(valid, open(config,"w"))
+elif mode == "empty": open(engine,"wb").close(); json.dump(valid, open(config,"w"))
+elif mode == "symlink": open(engine,"wb").write(b"engine"); open(config,"w").write("{}"); os.unlink(config); os.symlink(engine, config)
+else:
+    open(engine,"wb").write(b"engine")
+    json.dump(valid, open(config,"w"))
+''')
+    engine = out / 'code2wav' / 'code2wav.engine'; config = out / 'code2wav' / 'config.json'
+    cfg.pop('client_result_path', None)
+    cfg['client_argv'] = [sys.executable, str(builder), str(engine), str(config), mode, '--components', 'code2wav', '--engine-dir', str(out), '--max-batch-size', '1', '--min-code-len', '1', '--opt-code-len', '2', '--max-code-len', '3']
+    argv_pin_bytes = json.dumps(cfg['client_argv'], separators=(',', ':'), ensure_ascii=False).encode()
+    cfg['build_output_contract'] = {'component':'code2wav', 'engine_path': str(engine), 'config_path': str(config), 'engine_dir': str(out), 'argv': list(cfg['client_argv']),
+                                    'argv_pin': {'sha256':hashlib.sha256(argv_pin_bytes).hexdigest(),'size':len(argv_pin_bytes)}, 'max_batch_size':1,
+                                    'code_len': {'min_code_len':1,'opt_code_len':2,'max_code_len':3},
+                                    'config_constraints': {'model_type': 'qwen3_tts_code2wav', 'code2wav_config': {'sample_rate': 24000}, 'builder_config': {'min_code_len': 1, 'opt_code_len': 2, 'max_code_len': 3}}}
+    if mutate:
+        mutate(cfg, engine, config)
+    c.write_text(json.dumps(cfg))
+    p = subprocess.run([sys.executable, str(PROD), str(c)], capture_output=True, text=True)
+    return p, d, cfg, engine, config
+
+def repin_build_argv(cfg):
+    argv = cfg['client_argv']
+    encoded = json.dumps(argv, separators=(',', ':'), ensure_ascii=False).encode()
+    cfg['build_output_contract']['argv'] = list(argv)
+    cfg['build_output_contract']['argv_pin'] = {'sha256': hashlib.sha256(encoded).hexdigest(), 'size': len(encoded)}
+
+def rejected_build_case(tag, mutate, expected_reason=None):
+    rejected, rejected_dir, _, _, _ = build_case(tag, mutate=mutate)
+    value = json.loads(rejected.stdout)
+    assert rejected.returncode != 0 and value['status'] == 'UNPROVEN'
+    if expected_reason is not None:
+        assert value['reason'] == expected_reason
+    assert not (rejected_dir / 'out').exists()
+    assert not (rejected_dir / 'out' / 'guardian').exists()
+    return value
+
+build_success, build_dir, build_cfg, build_engine, build_config = build_case('success')
+build_value = json.loads(build_success.stdout)
+assert build_success.returncode == 0 and build_value['status'] == 'BUILD_OUTPUT_VERIFIED'
+assert build_value['build_status'] == 'OUTPUT_VERIFIED' and build_value['engine_artifact']['size'] > 0
+assert build_value['config_artifact']['size'] > 0 and build_value['build_config']['model_type'] == 'qwen3_tts_code2wav'
+assert build_value['recipe']['argv'] == build_cfg['client_argv']
+
+def read_receipt(d):
+    receipt = d / 'out' / 'producer-result.json'
+    assert receipt.is_file() and not receipt.is_symlink() and receipt.stat().st_size > 0
+    value = json.loads(receipt.read_text())
+    assert isinstance(value, dict)
+    return receipt, value
+
+success_receipt, success_value = read_receipt(build_dir)
+assert success_value['status'] == build_value['status'] == 'BUILD_OUTPUT_VERIFIED'
+assert success_value['build_status'] == build_value['build_status'] == 'OUTPUT_VERIFIED'
+assert success_value['input_pins'] == build_value['input_pins']
+assert success_value['recipe']['argv_pin'] == build_value['recipe']['argv_pin']
+assert success_value['foreign_after_match'] is True
+assert success_value['profile_validation'] == success_value['production_qualification'] == 'UNPROVEN'
+for key in ('engine_artifact', 'config_artifact'):
+    assert success_value[key]['size'] > 0 and success_value[key]['regular'] is True
+
+def legal_flag_order(cfg, engine, config):
+    out = cfg['outdir']
+    cfg['client_argv'] = [cfg['client_argv'][0], cfg['client_argv'][1], engine.__str__(), config.__str__(), 'ok',
+                          '--engine-dir=' + out, '--plugin', 'dense', '--components', 'code2wav',
+                          '--max-batch-size=1', '--max-code-len', '3', '--min-code-len=1', '--opt-code-len', '2']
+    repin_build_argv(cfg)
+legal_order, legal_order_dir, _, _, _ = build_case('legal-flag-order', mutate=legal_flag_order)
+assert legal_order.returncode == 0 and json.loads(legal_order.stdout)['status'] == 'BUILD_OUTPUT_VERIFIED'
+
+def duplicate_components(cfg, engine, config):
+    cfg['client_argv'] += ['--', '--components', 'code2wav']; repin_build_argv(cfg)
+duplicate_components_value = rejected_build_case('duplicate-components', duplicate_components)
+assert 'repeats protected option: --components' in duplicate_components_value['reason']
+
+def duplicate_engine_dir(cfg, engine, config):
+    cfg['client_argv'] += ['--engine-dir', cfg['outdir']]; repin_build_argv(cfg)
+duplicate_engine_dir_value = rejected_build_case('duplicate-engine-dir', duplicate_engine_dir)
+assert 'repeats protected option: --engine-dir' in duplicate_engine_dir_value['reason']
+
+def duplicate_code_len(cfg, engine, config):
+    cfg['client_argv'] += ['--opt-code-len=2']; repin_build_argv(cfg)
+duplicate_code_len_value = rejected_build_case('duplicate-code-len', duplicate_code_len)
+assert 'repeats protected option: --opt-code-len' in duplicate_code_len_value['reason']
+
+def abbreviated_component(cfg, engine, config):
+    cfg['client_argv'][cfg['client_argv'].index('--components')] = '--comp'; repin_build_argv(cfg)
+abbreviated_component_value = rejected_build_case('abbreviated-component', abbreviated_component)
+assert 'abbreviated protected option: --comp' in abbreviated_component_value['reason']
+
+def wrong_engine_dir(cfg, engine, config):
+    cfg['client_argv'][cfg['client_argv'].index('--engine-dir') + 1] = str(Path(cfg['outdir']) / 'other'); repin_build_argv(cfg)
+wrong_engine_dir_value = rejected_build_case('wrong-engine-dir', wrong_engine_dir)
+assert 'value mismatch for protected option: --engine-dir' in wrong_engine_dir_value['reason']
+
+def nested_output_parent(cfg, engine, config):
+    nested = str(Path(cfg['outdir']) / 'A' / 'code2wav')
+    cfg['build_output_contract']['engine_path'] = nested + '/code2wav.engine'
+    cfg['build_output_contract']['config_path'] = nested + '/config.json'
+nested_output_parent_value = rejected_build_case('nested-output-parent', nested_output_parent)
+assert 'code2wav output paths must be code2wav/code2wav.engine and code2wav/config.json' in nested_output_parent_value['reason']
+
+def guardian_override(cfg, engine, config):
+    cfg['guardian_args'] = ['--max-output', '1']
+gd_override_value = rejected_build_case('build-guardian-override', guardian_override)
+assert 'build mode does not allow guardian_args' in gd_override_value['reason']
+
+for mode in ('missing', 'empty', 'symlink', 'term'):
+    failed, failed_dir, _, _, _ = build_case(mode, mode=mode)
+    assert failed.returncode != 0, mode
+    failed_value = json.loads(failed.stdout)
+    assert failed_value['status'] == 'UNPROVEN', mode
+    expected_reason = {'missing':'RuntimeError: build engine output is missing or symlink',
+                       'empty':'RuntimeError: build engine output is empty',
+                       'symlink':f"ValueError: path contains symlink ancestor: {failed_dir / 'out' / 'code2wav' / 'config.json'}",
+                       'term':'Bound: guardian exceeded parent deadline'}[mode]
+    assert failed_value['reason'] == expected_reason, (mode, failed_value['reason'])
+    _, failed_receipt = read_receipt(failed_dir)
+    assert failed_receipt['reason'] == expected_reason
+    assert failed_receipt.get('status') != 'BUILD_OUTPUT_VERIFIED'
+    assert failed_receipt.get('build_status') != 'OUTPUT_VERIFIED'
+    assert failed_receipt.get('foreign_after_match') is not False
+    if mode == 'term':
+        handoff = failed_receipt.get('guardian_handoff')
+        assert isinstance(handoff, dict) and handoff.get('pid', 0) > 0
+        ident = handoff.get('identity')
+        assert isinstance(ident, dict) and ident.get('start_ticks', 0) > 0
+        assert ident.get('exe') and ident.get('argv') == failed_value['actual_guardian_argv']
+        pid = int(handoff['pid'])
+        before_term = proc_identity(pid)
+        assert before_term is not None and before_term['state'] != 'Z'
+        assert before_term['start_ticks'] == ident['start_ticks']
+        assert os.path.realpath(before_term['exe']) == os.path.realpath(ident['exe'])
+        os.kill(pid, signal.SIGTERM)
+        cleanup_deadline = time.monotonic() + 2
+        while time.monotonic() < cleanup_deadline:
+            current = proc_identity(pid)
+            if current is None or current['start_ticks'] != ident['start_ticks']:
+                break
+            time.sleep(.01)
+        else:
+            final = proc_identity(pid)
+            raise AssertionError('owned guardian handoff survived safe TERM' if final and final['state'] != 'Z'
+                                 else 'owned guardian handoff remained zombie after safe TERM deadline')
+        final = proc_identity(pid)
+        assert final is None or final['start_ticks'] != ident['start_ticks']
+
+preexisting, d, preexisting_cfg_doc, engine, _ = build_case('preexisting')
+# The enclosing output namespace is itself fresh; any pre-existing child is
+# therefore rejected by the same early fresh-output gate.
+(d / 'out').mkdir(exist_ok=True)
+old_receipt = d / 'out' / 'producer-result.json'
+if old_receipt.exists(): old_receipt.unlink()
+preexisting_cfg = d / 'config.json'
+preexisting_cfg.write_text(json.dumps(preexisting_cfg_doc))
+preexisting = subprocess.run([sys.executable, str(PROD), str(preexisting_cfg)], capture_output=True, text=True)
+assert preexisting.returncode != 0 and 'fresh output directory required' in preexisting.stdout
+assert not old_receipt.exists()
+
+def mismatch(cfg, engine, config):
+    cfg['build_output_contract']['config_constraints']['model_type'] = 'wrong-model'
+mismatched, mismatched_dir, _, _, _ = build_case('config-mismatch', mutate=mismatch)
+assert mismatched.returncode != 0 and 'invalid code2wav config constraints' in mismatched.stdout
+assert not (mismatched_dir / 'out').exists()
+
+def builder_constraint_scalar(key, value):
+    def mutate(cfg, engine, config):
+        cfg['build_output_contract']['config_constraints']['builder_config'][key] = value
+    return mutate
+
+for key, value in (
+    ('min_code_len', True), ('min_code_len', 1.0),
+    ('opt_code_len', True), ('opt_code_len', 2.0),
+    ('max_code_len', True), ('max_code_len', 3.0),
+):
+    rejected_build_case('builder-constraint-' + key + '-' + type(value).__name__, builder_constraint_scalar(key, value),
+                        'ValueError: invalid code2wav config constraints')
+
+def drift(cfg, engine, config):
+    cfg['client_argv'][-1] = 'drift'
+drifted, drifted_dir, _, _, _ = build_case('argv-drift', mutate=drift)
+assert drifted.returncode != 0
+assert not (drifted_dir / 'out').exists()
+
+def foreign_after_change(cfg, engine, config):
+    cfg['snapshot_cmd'][1] = 'foreign_change'
+foreign_failed, foreign_dir, _, _, _ = build_case('foreign-after', mutate=foreign_after_change)
+foreign_value = json.loads(foreign_failed.stdout)
+assert foreign_failed.returncode != 0 and foreign_value['status'] == 'UNPROVEN'
+foreign_reason = 'guardian/client/identity/log/foreign evidence failed validation'
+assert foreign_value['reason'] == foreign_reason
+_, foreign_receipt = read_receipt(foreign_dir)
+assert foreign_receipt['foreign_after_match'] is False
+assert foreign_receipt['reason'] == foreign_reason
+assert foreign_receipt.get('build_status') != 'OUTPUT_VERIFIED'
+
+def admission_floor(cfg, engine, config):
+    cfg['startup_admission'] = {'min_mem_available_bytes': 1 << 60,
+                                'min_shm_free_bytes': 1,
+                                'min_root_physical_free_bytes': 1}
+admission_failed, admission_dir, _, _, _ = build_case('startup-admission', mutate=admission_floor)
+admission_value = json.loads(admission_failed.stdout)
+assert admission_failed.returncode != 0 and admission_value['status'] == 'UNPROVEN'
+assert admission_value['startup_admission']['status'] == 'FAILED'
+assert not (admission_dir / 'out').exists()
 
 print(json.dumps({'r6_persistent_boundaries': {
     'protocol_rejected': {k: {'status': v['launch_preflight']['status'], 'guardian_launched': False}

@@ -78,7 +78,213 @@ def check_cfg(c):
     if not math.isfinite(whole) or not math.isfinite(reserve) or whole<=0 or reserve<0 or reserve>=whole: raise ValueError('invalid whole/reserve budget')
     if type(c.get('max_output_bytes')) is not int or c['max_output_bytes']<=0: raise ValueError('invalid max output')
     if type(c.get('expected_uid')) is not int or c['expected_uid']<0: raise ValueError('invalid expected uid')
+    admission = c.get('startup_admission')
+    if admission is not None:
+        allowed = {'min_mem_available_bytes', 'min_shm_free_bytes', 'min_root_physical_free_bytes', 'filesystem_free_floors_bytes'}
+        if not isinstance(admission, dict) or set(admission) - allowed:
+            raise ValueError('invalid startup_admission schema')
+        for key in allowed - {'filesystem_free_floors_bytes'}:
+            if key in admission and (type(admission[key]) is not int or admission[key] < 1):
+                raise ValueError(f'invalid startup admission floor: {key}')
+        floors = admission.get('filesystem_free_floors_bytes', {})
+        if not isinstance(floors, dict) or any(not isinstance(k, str) or not k.startswith('/') or type(v) is not int or v < 1 for k, v in floors.items()):
+            raise ValueError('invalid startup admission filesystem floors')
+    build = c.get('build_output_contract')
+    if build is not None:
+        if 'client_result_path' in c:
+            raise ValueError('build_output_contract is mutually exclusive with client_result_path')
+        required_build = {'component','engine_path','config_path','engine_dir','config_constraints','argv','argv_pin','max_batch_size','code_len'}
+        if not isinstance(build, dict) or set(build) != required_build:
+            raise ValueError('invalid build_output_contract schema')
+        if build.get('component') != 'code2wav':
+            raise ValueError('only code2wav build component is supported')
+        for key in ('engine_path', 'config_path'):
+            value = build[key]
+            if not isinstance(value, str) or not value.startswith('/') or any(part in {'', '.', '..'} for part in value.split('/')[1:]):
+                raise ValueError(f'invalid build output path: {key}')
+        if build['engine_path'] == build['config_path']:
+            raise ValueError('build output paths must be distinct')
+        if (not isinstance(build['argv'], list) or not build['argv'] or
+                any(type(x) is not str or not x for x in build['argv']) or
+                build['argv'] != c.get('client_argv')):
+            raise ValueError('build recipe argv does not match client_argv')
+        if type(build['engine_dir']) is not str or not build['engine_dir'].startswith('/'):
+            raise ValueError('build engine_dir must be an absolute path')
+        if type(build['max_batch_size']) is not int or build['max_batch_size'] <= 0:
+            raise ValueError('build max_batch_size must be a positive integer')
+        code_len = build['code_len']
+        if (not isinstance(code_len, dict) or set(code_len) != {'min_code_len','opt_code_len','max_code_len'} or
+                any(type(code_len[k]) is not int or code_len[k] <= 0 for k in code_len) or
+                not (code_len['min_code_len'] <= code_len['opt_code_len'] <= code_len['max_code_len'])):
+            raise ValueError('build code_len must be ordered positive integers')
+        pin = build['argv_pin']
+        if (not isinstance(pin, dict) or set(pin) != {'sha256','size'} or
+                type(pin.get('sha256')) is not str or re.fullmatch(r'[0-9a-f]{64}', pin['sha256']) is None or
+                type(pin.get('size')) is not int or pin['size'] <= 0):
+            raise ValueError('build argv_pin is invalid')
+        protected = {'--components': 'code2wav', '--engine-dir': build['engine_dir'],
+                     '--max-batch-size': str(build['max_batch_size'])}
+        for key in ('min_code_len','opt_code_len','max_code_len'):
+            protected[f'--{key.replace("_", "-")}'] = str(code_len[key])
+        seen = {}
+        argv = build['argv']
+        for i, token in enumerate(argv):
+            if not isinstance(token, str) or not token.startswith('--'):
+                continue
+            if token == '--':
+                continue
+            name, equal, inline = token.partition('=')
+            if name not in protected:
+                if any(option.startswith(name) for option in protected if name != option):
+                    raise ValueError(f'build argv uses abbreviated protected option: {name}')
+                continue
+            if name in seen:
+                raise ValueError(f'build argv repeats protected option: {name}')
+            if equal:
+                value = inline
+            elif i + 1 < len(argv) and isinstance(argv[i + 1], str) and not argv[i + 1].startswith('--'):
+                value = argv[i + 1]
+            else:
+                raise ValueError(f'build argv missing value for protected option: {name}')
+            if value != protected[name]:
+                raise ValueError(f'build argv value mismatch for protected option: {name}')
+            seen[name] = value
+        if set(seen) != set(protected):
+            raise ValueError('build argv lacks code2wav component, engine-dir, batch, or code lengths')
+        if c.get('guardian_args', []):
+            raise ValueError('build mode does not allow guardian_args')
+        constraints = build['config_constraints']
+        if (not isinstance(constraints, dict) or set(constraints) != {'model_type','code2wav_config','builder_config'} or
+                constraints.get('model_type') != 'qwen3_tts_code2wav' or
+                not isinstance(constraints.get('code2wav_config'), dict) or not constraints['code2wav_config'] or
+                not isinstance(constraints.get('builder_config'), dict) or
+                set(constraints['builder_config']) != {'min_code_len','opt_code_len','max_code_len'} or
+                any(type(constraints['builder_config'][key]) is not int or constraints['builder_config'][key] <= 0
+                    for key in ('min_code_len','opt_code_len','max_code_len')) or
+                not (constraints['builder_config']['min_code_len'] <= constraints['builder_config']['opt_code_len'] <=
+                     constraints['builder_config']['max_code_len']) or
+                constraints['builder_config'] != code_len):
+            raise ValueError('invalid code2wav config constraints')
+    elif 'client_result_path' not in c:
+        raise ValueError('client_result_path is required outside build mode')
     return whole,reserve
+
+def _build_path(path, out):
+    value = Path(path)
+    no_symlink_ancestors(value)
+    try:
+        value.relative_to(out)
+    except ValueError:
+        raise ValueError(f'build output path outside outdir: {value}')
+    return value
+
+def _build_output_contract(c, out):
+    build = c.get('build_output_contract')
+    if build is None:
+        return None
+    engine = _build_path(build['engine_path'], out)
+    config = _build_path(build['config_path'], out)
+    if build['engine_dir'] != str(out):
+        raise ValueError('build engine_dir must equal fresh output directory')
+    if (engine.name != 'code2wav.engine' or config.name != 'config.json' or
+            config.parent != out / 'code2wav' or engine.parent != out / 'code2wav'):
+        raise ValueError('code2wav output paths must be code2wav/code2wav.engine and code2wav/config.json')
+    if engine == config:
+        raise ValueError('build output paths must be distinct')
+    for label, path in (('engine', engine), ('config', config)):
+        if os.path.lexists(path):
+            raise RuntimeError(f'build {label} output exists')
+    argv_bytes = json.dumps(build['argv'], separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+    if build['argv_pin']['size'] != len(argv_bytes) or build['argv_pin']['sha256'] != hashlib.sha256(argv_bytes).hexdigest():
+        raise ValueError('build frozen argv pin mismatch')
+    return {'engine_path': str(engine), 'config_path': str(config),
+            'component': 'code2wav', 'engine_dir': str(out), 'argv': list(build['argv']),
+            'argv_pin': dict(build['argv_pin']), 'max_batch_size': build['max_batch_size'],
+            'code_len': dict(build['code_len']),
+            'config_constraints': dict(build['config_constraints'])}
+
+def _build_artifact(path, deadline, label):
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError(f'build {label} output is missing or symlink')
+    record = stream_hash(path, deadline)
+    if record['size'] < 1:
+        raise RuntimeError(f'build {label} output is empty')
+    return record
+
+def _guarded_json_read(path, deadline, max_size=1 << 20):
+    path = Path(path); no_symlink_ancestors(path)
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
+    try: fd = os.open(path, flags)
+    except OSError as exc: raise RuntimeError(f'build config open failed: {exc}') from exc
+    try:
+        before = os.fstat(fd)
+        if not __import__('stat').S_ISREG(before.st_mode): raise RuntimeError('build config must be regular')
+        if before.st_size > max_size: raise RuntimeError('build config exceeds max size')
+        data = bytearray()
+        while True:
+            remaining(deadline)
+            chunk = os.read(fd, min(65536, max_size + 1 - len(data)))
+            if not chunk: break
+            data.extend(chunk)
+            if len(data) > max_size: raise RuntimeError('build config exceeds max size')
+        after = os.fstat(fd)
+        path_after = stat_id(path)
+        if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns) != (after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns) or path_after != (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns):
+            raise RuntimeError('build config identity changed during read')
+    finally: os.close(fd)
+    try: document = json.loads(bytes(data))
+    except json.JSONDecodeError as exc: raise RuntimeError(f'build config JSON invalid: {exc}') from exc
+    return document, {'path':str(path),'size':len(data),'sha256':hashlib.sha256(data).hexdigest(),'regular':True,
+                     'stat_before':(before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns),
+                     'stat_after':(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns)}
+
+def _json_exact(actual, expected):
+    if type(actual) is not type(expected): return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(_json_exact(actual[k], expected[k]) for k in expected)
+    if isinstance(expected, list): return len(actual) == len(expected) and all(_json_exact(a,e) for a,e in zip(actual,expected))
+    return actual == expected
+
+def _validate_build_config(path, constraints, deadline):
+    document, record = _guarded_json_read(path, deadline)
+    if not isinstance(document, dict):
+        raise RuntimeError('build config JSON must be an object')
+    if set(document) != set(constraints):
+        raise RuntimeError('build config top-level fields mismatch')
+    for key, expected in constraints.items():
+        if not _json_exact(document[key], expected):
+            raise RuntimeError(f'build config constraint mismatch: {key}')
+    builder = document['builder_config']
+    if any(type(builder[k]) is not int or builder[k] <= 0 for k in builder) or not (builder['min_code_len'] <= builder['opt_code_len'] <= builder['max_code_len']):
+        raise RuntimeError('build config code lengths invalid')
+    return document, record
+
+def _startup_admission(c, guardian_path):
+    spec = c.get('startup_admission')
+    if spec is None:
+        return None
+    module = importlib.util.spec_from_file_location('startup_admission_guardian', guardian_path)
+    if module is None or module.loader is None:
+        raise RuntimeError('startup admission guardian helper unavailable')
+    guardian = importlib.util.module_from_spec(module)
+    module.loader.exec_module(guardian)
+    floors = dict(spec.get('filesystem_free_floors_bytes', {}))
+    snapshot = guardian.resource_snapshot(floors)
+    failure = guardian.resource_guard_failure(
+        snapshot,
+        spec.get('min_mem_available_bytes', 1),
+        spec.get('min_shm_free_bytes', 1),
+        spec.get('min_root_physical_free_bytes', 1),
+        floors,
+    )
+    evidence = {'status': 'FAILED' if failure else 'PASS', 'snapshot': snapshot, 'floors': spec}
+    if failure:
+        evidence['failure'] = failure
+        error = RuntimeError('startup admission resource floor failed')
+        error.evidence = evidence
+        raise error
+    return evidence
 
 def _preflight_pin(value, label):
     if not isinstance(value, dict) or set(value) != {'path','sha256','size'} or not isinstance(value.get('path'), str) or not value['path'].startswith('/'):
@@ -295,6 +501,9 @@ def run(cfgpath):
         if Path(c['home']).resolve(strict=True) != actual_home: raise ValueError('config HOME differs from actual HOME')
         out=Path(c['outdir']); no_symlink_under(out,actual_home); no_symlink_under(Path(c['cwd']),actual_home,allow_missing=False)
         if os.path.lexists(out): raise ValueError('fresh output directory required')
+        build_contract = _build_output_contract(c, out)
+        if build_contract is not None:
+            result['build_output_contract'] = build_contract
         remaining(deadline,reserve)
         artifacts=[]
         for x in c['artifacts']:
@@ -306,8 +515,10 @@ def run(cfgpath):
         if guardian['sha256'] != c['guardian']['sha256']: raise RuntimeError('guardian pin mismatch')
         if not isinstance(c['runtime'].get('sha256'),str) or runtime['sha256'] != c['runtime']['sha256']: raise RuntimeError('runtime pin mismatch')
         before=snapshot(c['snapshot_cmd'],deadline); result['foreign_before']=before
-        child_out=Path(c['client_result_path']); no_symlink_under(child_out,out.parent); no_symlink_under(child_out,out)
-        if os.path.lexists(child_out): raise RuntimeError('client result exists')
+        child_out = None
+        if build_contract is None:
+            child_out=Path(c['client_result_path']); no_symlink_under(child_out,out.parent); no_symlink_under(child_out,out)
+            if os.path.lexists(child_out): raise RuntimeError('client result exists')
         env=dict(os.environ); env.update({str(k):str(v) for k,v in c.get('env',{}).items()})
         if 'HOME' in env and env['HOME'] != os.environ.get('HOME'): raise ValueError('config may not override HOME')
         if 'launch_preflight' in c:
@@ -316,6 +527,13 @@ def run(cfgpath):
             except Exception as exc:
                 if hasattr(exc, 'evidence'): result['launch_preflight'] = exc.evidence
                 else: result['launch_preflight'] = {'status': 'FAILED', 'reason': f'{type(exc).__name__}: {exc}'}
+                raise
+        if 'startup_admission' in c:
+            try:
+                result['startup_admission'] = _startup_admission(c, c['guardian']['path'])
+            except Exception as exc:
+                if hasattr(exc, 'evidence'): result['startup_admission'] = exc.evidence
+                else: result['startup_admission'] = {'status': 'FAILED', 'reason': f'{type(exc).__name__}: {exc}'}
                 raise
         out.mkdir(); out_created=True
         guarddir=out/'guardian'; logs=out/'transport'; logs.mkdir()
@@ -338,8 +556,12 @@ def run(cfgpath):
         result['guardian_rc']=grc; result['actual_guardian_argv']=gargv
         rp=guarddir/'result.json'
         if rp.is_file() and not rp.is_symlink(): result['guardian_result']=json.loads(rp.read_text())
-        if not child_out.is_file() or child_out.is_symlink(): raise RuntimeError('client result missing or symlink')
-        child_rec=stream_hash(child_out,deadline); result['child_result']=child_rec
+        if build_contract is None:
+            if not child_out.is_file() or child_out.is_symlink(): raise RuntimeError('client result missing or symlink')
+            child_rec=stream_hash(child_out,deadline); result['child_result']=child_rec
+        else:
+            result['engine_artifact'] = _build_artifact(build_contract['engine_path'], deadline, 'engine')
+            result['build_config'], result['config_artifact'] = _validate_build_config(build_contract['config_path'], build_contract['config_constraints'], deadline)
         result['raw_guardian_stdout']=stream_hash(logs/'guardian.stdout',deadline); result['raw_guardian_stderr']=stream_hash(logs/'guardian.stderr',deadline)
         artifacts_after=[stream_hash(x['path'],deadline) for x in c['artifacts']]
         result['artifacts_before']=artifacts; result['artifacts_after']=artifacts_after
@@ -352,7 +574,16 @@ def run(cfgpath):
         for k,n in [('stdout','child.stdout'),('stderr','child.stderr')]:
             x=gr.get(k) if isinstance(gr,dict) else None; gpth=(guarddir/n).resolve()
             if not isinstance(x,dict) or Path(str(x.get('path',''))).resolve()!=gpth or x.get('bytes')!=stat_id(gpth)[2] or x.get('sha256')!=stream_hash(gpth,deadline)['sha256']: good=False
-        if good and before==after: result['status']='RAW_OBSERVED'; result['close_complete']=True
+        if build_contract is not None:
+            result['recipe'] = {'argv': list(c['client_argv']), 'argv_pin': dict(build_contract['argv_pin']), 'input_pins': artifacts}
+            result['input_pins'] = {'argv': dict(build_contract['argv_pin']), 'artifacts': artifacts}
+            result['profile_validation'] = 'UNPROVEN'
+            result['production_qualification'] = 'UNPROVEN'
+            good = good and before == after
+            if good:
+                result['build_status'] = 'OUTPUT_VERIFIED'
+        if good and before==after:
+            result['status']='BUILD_OUTPUT_VERIFIED' if build_contract is not None else 'RAW_OBSERVED'; result['close_complete']=True
         else: result['reason']='guardian/client/identity/log/foreign evidence failed validation'
     except Exception as e:
         if isinstance(c if 'c' in locals() else None, dict) and 'launch_preflight' in c and 'launch_preflight' not in result:
@@ -385,5 +616,5 @@ def run(cfgpath):
     return result
 
 if __name__=='__main__':
-    try: r=run(sys.argv[1]); print(json.dumps(r,sort_keys=True)); raise SystemExit(0 if r.get('status')=='RAW_OBSERVED' else 1)
+    try: r=run(sys.argv[1]); print(json.dumps(r,sort_keys=True)); raise SystemExit(0 if r.get('status') in {'RAW_OBSERVED','BUILD_OUTPUT_VERIFIED'} else 1)
     except Exception as e: print(json.dumps({'status':'UNPROVEN','reason':f'{type(e).__name__}: {e}'})); raise SystemExit(1)
