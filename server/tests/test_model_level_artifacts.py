@@ -497,7 +497,32 @@ def test_strict_default_observed_mirror_redirect_hosts_are_exact(monkeypatch):
     monkeypatch.delenv("HF_ENDPOINT", raising=False)
     assert qad._strict_endpoint_hosts(qad._strict_endpoint()) == frozenset({
         "hf-mirror.com", "huggingface.co", "us.aws.cdn.hf.co",
+        "cas-bridge.xethub.hf.co",
     })
+    assert qad._strict_endpoint_hosts("https://custom.example") == frozenset({"custom.example"})
+
+
+def test_strict_mirror_xet_bridge_redirect_is_exactly_allowlisted():
+    from server.core import hf_artifacts
+
+    hosts = qad._strict_endpoint_hosts("https://hf-mirror.com")
+    handler = hf_artifacts._AllowedRedirect(hosts, "https")
+    req = __import__("urllib.request", fromlist=["Request"]).Request(
+        "https://hf-mirror.com/org/repo/resolve/rev/payload.tar"
+    )
+    redirected = handler.redirect_request(
+        req, None, 302, "Found", {},
+        "https://cas-bridge.xethub.hf.co/xet-bridge/payload.tar",
+    )
+    assert redirected.full_url.startswith("https://cas-bridge.xethub.hf.co/")
+
+    for hostile in (
+        "https://evil-cas-bridge.xethub.hf.co/payload.tar",
+        "https://unknown.hf.co/payload.tar",
+    ):
+        with pytest.raises(hf_artifacts.ArtifactError, match="allowlisted"):
+            handler.redirect_request(req, None, 302, "Found", {}, hostile)
+
     assert qad._strict_endpoint_hosts("https://custom.example") == frozenset({"custom.example"})
 
 

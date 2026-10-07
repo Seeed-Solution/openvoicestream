@@ -336,7 +336,12 @@ def _strict_endpoint_hosts(endpoint: str) -> frozenset[str]:
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise RuntimeError("strict HF endpoint must have a hostname")
     if endpoint.rstrip("/") == "https://hf-mirror.com":
-        return frozenset({"hf-mirror.com", "huggingface.co", "us.aws.cdn.hf.co"})
+        return frozenset({
+            "hf-mirror.com",
+            "huggingface.co",
+            "us.aws.cdn.hf.co",
+            "cas-bridge.xethub.hf.co",
+        })
     return frozenset({parsed.hostname.casefold()})
 
 
