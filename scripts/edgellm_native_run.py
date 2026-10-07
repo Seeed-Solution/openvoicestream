@@ -146,6 +146,8 @@ def check_cfg(c):
         if static_enabled:
             static_value = code2wav_constraints['static_suffix_chunk_size']
             if (type(static_value) is not int or static_value is True or
+                    type(builder_constraints['static_suffix_chunk_size']) is not int or
+                    builder_constraints['static_suffix_chunk_size'] is True or
                     static_value != 40000 or
                     builder_constraints['static_suffix_chunk_size'] != static_value or
                     code_len['max_code_len'] > 2000):
@@ -153,9 +155,7 @@ def check_cfg(c):
             protected['--static-suffix-chunk-size'] = '40000'
         seen = {}
         argv = build['argv']
-        static_argv_present = any(token == '--static-suffix-chunk-size' or
-                                  token.startswith('--static-suffix-chunk-size=')
-                                  or token.startswith('--static-suffix-chunk-siz')
+        static_argv_present = any(token.startswith('--static')
                                   for token in argv)
         if static_argv_present and not static_enabled:
             raise ValueError('static suffix argv requires matching metadata')

@@ -567,6 +567,11 @@ def static_invalid_chunk(cfg, engine, config):
 static_invalid_value = rejected_static_case('static-invalid-chunk', static_invalid_chunk)
 assert 'invalid static suffix provenance' in static_invalid_value['reason']
 
+def static_float_builder_metadata(cfg, engine, config):
+    cfg['build_output_contract']['config_constraints']['builder_config']['static_suffix_chunk_size'] = 40000.0
+static_float_builder_value = rejected_static_case('static-float-builder-metadata', static_float_builder_metadata)
+assert 'invalid static suffix provenance' in static_float_builder_value['reason']
+
 def static_duplicate_cli(cfg, engine, config):
     cfg['client_argv'] += ['--static-suffix-chunk-size', '40000']
     repin_build_argv(cfg)
@@ -594,6 +599,24 @@ def static_smax_over_2000(cfg, engine, config):
     repin_build_argv(cfg)
 static_smax_value = rejected_static_case('static-smax-over-2000', static_smax_over_2000)
 assert 'invalid static suffix provenance' in static_smax_value['reason']
+
+def static_default_abbrev_suffix(cfg, engine, config):
+    cfg['build_output_contract']['config_constraints']['code2wav_config'].pop('static_suffix_chunk_size')
+    cfg['build_output_contract']['config_constraints']['builder_config'].pop('static_suffix_chunk_size')
+    cfg['client_argv'] = [x for x in cfg['client_argv'] if x not in ('--static-suffix-chunk-size', '40000')]
+    cfg['client_argv'] += ['--static-suffix']
+    repin_build_argv(cfg)
+static_default_abbrev_suffix_value = rejected_static_case('static-default-abbrev-suffix', static_default_abbrev_suffix)
+assert 'static suffix argv requires matching metadata' in static_default_abbrev_suffix_value['reason']
+
+def static_default_abbrev_short(cfg, engine, config):
+    cfg['build_output_contract']['config_constraints']['code2wav_config'].pop('static_suffix_chunk_size')
+    cfg['build_output_contract']['config_constraints']['builder_config'].pop('static_suffix_chunk_size')
+    cfg['client_argv'] = [x for x in cfg['client_argv'] if x not in ('--static-suffix-chunk-size', '40000')]
+    cfg['client_argv'] += ['--static']
+    repin_build_argv(cfg)
+static_default_abbrev_short_value = rejected_static_case('static-default-abbrev-short', static_default_abbrev_short)
+assert 'static suffix argv requires matching metadata' in static_default_abbrev_short_value['reason']
 
 def duplicate_components(cfg, engine, config):
     cfg['client_argv'] += ['--', '--components', 'code2wav']; repin_build_argv(cfg)
