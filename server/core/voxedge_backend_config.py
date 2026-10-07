@@ -614,7 +614,41 @@ def build_trt_edge_llm_tts_config(
             env = dict(env)
             env["OVS_TTS_WORKER_CONCURRENCY"] = str(profile_conc)
 
-    return build_config_from_env(env=env)
+    # Base clone assets follow the profile's existing env block.  Keep process
+    # env precedence and only inject configured values; the wrapper validates
+    # that the loaded factory returned and mapped both optional fields.
+    profile_env = _profile_get(profile, "env")
+    if isinstance(profile_env, dict):
+        clone_env = {
+            "EDGE_LLM_TTS_CLONE_ENCODER_DIR": "EDGE_LLM_TTS_CLONE_ENCODER_DIR",
+            "EDGE_LLM_TTS_CHECKPOINT_DIR": "EDGE_LLM_TTS_CHECKPOINT_DIR",
+        }
+        for profile_key, env_key in clone_env.items():
+            if env_key not in env and profile_key in profile_env:
+                if not isinstance(env, dict):
+                    env = dict(env)
+                env[env_key] = str(profile_env[profile_key])
+
+    configured_clone_dir = str(env.get("EDGE_LLM_TTS_CLONE_ENCODER_DIR") or "").strip()
+    configured_checkpoint_dir = str(env.get("EDGE_LLM_TTS_CHECKPOINT_DIR") or "").strip()
+    config = build_config_from_env(env=env)
+    configured_paths = {
+        "clone_encoder_dir": configured_clone_dir,
+        "checkpoint_dir": configured_checkpoint_dir,
+    }
+    if configured_clone_dir or configured_checkpoint_dir:
+        for field, expected in configured_paths.items():
+            if not hasattr(config, field):
+                raise RuntimeError(
+                    "configured Base clone paths require a voxedge build with "
+                    "clone_encoder_dir/checkpoint_dir support"
+                )
+            actual = str(getattr(config, field) or "").strip()
+            if actual != expected:
+                raise RuntimeError(
+                    f"voxedge factory did not map configured Base clone path {field}"
+                )
+    return config
 
 
 def build_moss_tts_nano_config(

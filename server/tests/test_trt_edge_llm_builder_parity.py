@@ -122,6 +122,75 @@ class TestTTSBuilderParity:
         cfg = build_trt_edge_llm_tts_config(profile=profile, env=env)
         assert cfg.worker_concurrency == 5
 
+    def test_profile_env_maps_optional_base_clone_paths(self):
+        """Profile env values reach the canonical voxedge config unchanged."""
+        from server.core.voxedge_backend_config import build_trt_edge_llm_tts_config
+
+        cfg = build_trt_edge_llm_tts_config(profile={
+            "env": {
+                "EDGE_LLM_TTS_CLONE_ENCODER_DIR": "/profile/clone",
+                "EDGE_LLM_TTS_CHECKPOINT_DIR": "/profile/checkpoint",
+            }
+        }, env={})
+        assert cfg.clone_encoder_dir == "/profile/clone"
+        assert cfg.checkpoint_dir == "/profile/checkpoint"
+
+    def test_process_env_overrides_profile_clone_paths(self):
+        """Explicit process env keeps precedence over profile env values."""
+        from server.core.voxedge_backend_config import build_trt_edge_llm_tts_config
+
+        cfg = build_trt_edge_llm_tts_config(profile={
+            "env": {
+                "EDGE_LLM_TTS_CLONE_ENCODER_DIR": "/profile/clone",
+                "EDGE_LLM_TTS_CHECKPOINT_DIR": "/profile/checkpoint",
+            }
+        }, env={
+            "EDGE_LLM_TTS_CLONE_ENCODER_DIR": "/process/clone",
+            "EDGE_LLM_TTS_CHECKPOINT_DIR": "/process/checkpoint",
+        })
+        assert cfg.clone_encoder_dir == "/process/clone"
+        assert cfg.checkpoint_dir == "/process/checkpoint"
+
+    def test_clone_paths_fail_closed_when_old_factory_ignores_env(self, monkeypatch):
+        """An old helper that drops the new env must not report a usable config."""
+        import voxedge.backends.jetson.trt_edge_llm_tts as canonical
+        from server.core.voxedge_backend_config import build_trt_edge_llm_tts_config
+
+        monkeypatch.setattr(canonical, "build_config_from_env", lambda env: object())
+        with pytest.raises(RuntimeError, match="require a voxedge build"):
+            build_trt_edge_llm_tts_config(env={
+                "EDGE_LLM_TTS_CLONE_ENCODER_DIR": "/clone",
+                "EDGE_LLM_TTS_CHECKPOINT_DIR": "/checkpoint",
+            })
+
+    def test_clone_paths_fail_closed_when_factory_maps_wrong_value(self, monkeypatch):
+        """A helper exposing fields but returning a different path is rejected."""
+        import voxedge.backends.jetson.trt_edge_llm_tts as canonical
+        from server.core.voxedge_backend_config import build_trt_edge_llm_tts_config
+
+        monkeypatch.setattr(
+            canonical,
+            "build_config_from_env",
+            lambda env: type("Config", (), {
+                "clone_encoder_dir": "/wrong",
+                "checkpoint_dir": "/checkpoint",
+            })(),
+        )
+        with pytest.raises(RuntimeError, match="did not map"):
+            build_trt_edge_llm_tts_config(env={
+                "EDGE_LLM_TTS_CLONE_ENCODER_DIR": "/clone",
+                "EDGE_LLM_TTS_CHECKPOINT_DIR": "/checkpoint",
+            })
+
+    def test_old_factory_without_clone_paths_still_passes_when_unconfigured(self, monkeypatch):
+        """Legacy default profiles retain the old helper result unchanged."""
+        import voxedge.backends.jetson.trt_edge_llm_tts as canonical
+        from server.core.voxedge_backend_config import build_trt_edge_llm_tts_config
+
+        sentinel = object()
+        monkeypatch.setattr(canonical, "build_config_from_env", lambda env: sentinel)
+        assert build_trt_edge_llm_tts_config(env={}) is sentinel
+
 
 # ---------------------------------------------------------------------------
 # ASR parity
