@@ -490,7 +490,19 @@ print(json.dumps({'uid': os.getuid(), 'module': module_name, 'origin': str(pathl
     evidence['probe'] = protocol
     return evidence
 
-def run(cfgpath):
+def _check_sdk_module_argv(c, build_contract):
+    """Reject the known SDK direct-file invocation before any producer launch."""
+    if build_contract is None or 'launch_preflight' not in c:
+        return
+    name = c['launch_preflight'].get('module', {}).get('name') if isinstance(c.get('launch_preflight'), dict) else None
+    if name != 'experimental.builder.cli':
+        return
+    argv = c.get('client_argv', [])
+    expected_prefix = [str(c['runtime']['python']), '-m', 'experimental.builder.cli']
+    if argv[:3] != expected_prefix:
+        raise ValueError('SDK build client_argv must use python -m experimental.builder.cli')
+
+def run(cfgpath, preflight_only=False):
     start=time.monotonic(); deadline=None; out=None; out_created=False
     gp=None; after_captured=False
     result={'status':'UNPROVEN','phase':'llm.b1','start_mono':start,'foreign_before':None,'foreign_after':None,'guardian_rc':None,'guardian_result':None}
@@ -504,6 +516,7 @@ def run(cfgpath):
         build_contract = _build_output_contract(c, out)
         if build_contract is not None:
             result['build_output_contract'] = build_contract
+        _check_sdk_module_argv(c, build_contract)
         remaining(deadline,reserve)
         artifacts=[]
         for x in c['artifacts']:
@@ -514,6 +527,9 @@ def run(cfgpath):
         guardian=stream_hash(c['guardian']['path'],deadline)
         if guardian['sha256'] != c['guardian']['sha256']: raise RuntimeError('guardian pin mismatch')
         if not isinstance(c['runtime'].get('sha256'),str) or runtime['sha256'] != c['runtime']['sha256']: raise RuntimeError('runtime pin mismatch')
+        result['artifacts'] = artifacts
+        result['runtime'] = runtime
+        result['guardian'] = guardian
         before=snapshot(c['snapshot_cmd'],deadline); result['foreign_before']=before
         child_out = None
         if build_contract is None:
@@ -528,6 +544,26 @@ def run(cfgpath):
                 if hasattr(exc, 'evidence'): result['launch_preflight'] = exc.evidence
                 else: result['launch_preflight'] = {'status': 'FAILED', 'reason': f'{type(exc).__name__}: {exc}'}
                 raise
+        if preflight_only:
+            result['startup_admission'] = {'status': 'NOT_EVALUATED', 'reason': 'preflight-only mode does not inspect or launch GPU admission'}
+            after = snapshot(c['snapshot_cmd'], deadline)
+            result['foreign_after'] = after
+            result['foreign_after_match'] = before == after
+            if not result['foreign_after_match']:
+                raise RuntimeError('foreign snapshot changed during preflight')
+            artifacts_after = [stream_hash(x['path'], deadline) for x in c['artifacts']]
+            runtime_after = stream_hash(runtime_path, deadline)
+            guardian_after = stream_hash(c['guardian']['path'], deadline)
+            result['artifacts_after'] = artifacts_after
+            result['runtime_after'] = runtime_after
+            result['guardian_after'] = guardian_after
+            if (any(a['sha256'] != b['sha256'] or a['size'] != b['size'] or a['stat_before'] != b['stat_before']
+                    for a, b in zip(artifacts, artifacts_after)) or
+                    runtime != runtime_after or guardian != guardian_after):
+                raise RuntimeError('input pin drift during preflight')
+            result['status'] = 'INPUTS_PREFLIGHT_VERIFIED'
+            result['close_complete'] = True
+            return result
         if 'startup_admission' in c:
             try:
                 result['startup_admission'] = _startup_admission(c, c['guardian']['path'])
@@ -616,5 +652,13 @@ def run(cfgpath):
     return result
 
 if __name__=='__main__':
-    try: r=run(sys.argv[1]); print(json.dumps(r,sort_keys=True)); raise SystemExit(0 if r.get('status') in {'RAW_OBSERVED','BUILD_OUTPUT_VERIFIED'} else 1)
+    try:
+        if len(sys.argv) == 3 and sys.argv[1] == '--preflight-only':
+            r = run(sys.argv[2], preflight_only=True)
+        elif len(sys.argv) == 2:
+            r = run(sys.argv[1])
+        else:
+            raise ValueError('usage: edgellm_native_run.py [--preflight-only] CONFIG')
+        print(json.dumps(r,sort_keys=True))
+        raise SystemExit(0 if r.get('status') in {'RAW_OBSERVED','BUILD_OUTPUT_VERIFIED','INPUTS_PREFLIGHT_VERIFIED'} else 1)
     except Exception as e: print(json.dumps({'status':'UNPROVEN','reason':f'{type(e).__name__}: {e}'})); raise SystemExit(1)

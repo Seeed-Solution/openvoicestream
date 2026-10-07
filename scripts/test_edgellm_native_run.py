@@ -388,6 +388,121 @@ assert success_value['status'] == build_value['status'] == 'BUILD_OUTPUT_VERIFIE
 assert success_value['build_status'] == build_value['build_status'] == 'OUTPUT_VERIFIED'
 assert success_value['input_pins'] == build_value['input_pins']
 assert success_value['recipe']['argv_pin'] == build_value['recipe']['argv_pin']
+
+# CPU-only input preflight validates every pinned input and the launch probe,
+# then captures a stable foreign snapshot without creating out or launching
+# the guardian/client.  The client below is an intentional failure sentinel.
+pre_d, pre_c, pre_cfg, pre_out = preflight_cfg('mode-valid')
+pre_cfg['client_argv'] = [sys.executable, '-c', 'raise SystemExit(91)']
+pre_c.write_text(json.dumps(pre_cfg))
+pre_run = subprocess.run([sys.executable, str(PROD), '--preflight-only', str(pre_c)], capture_output=True, text=True)
+pre_value = json.loads(pre_run.stdout)
+assert pre_run.returncode == 0 and pre_value['status'] == 'INPUTS_PREFLIGHT_VERIFIED'
+assert pre_value['startup_admission']['status'] == 'NOT_EVALUATED'
+assert pre_value['foreign_after_match'] is True
+assert pre_value['runtime']['sha256'] == pre_cfg['runtime']['sha256']
+assert pre_value['guardian']['sha256'] == pre_cfg['guardian']['sha256']
+assert not pre_out.exists()
+
+missing_d, missing_c, missing_cfg, missing_out = preflight_cfg('mode-missing-artifact')
+missing_cfg['artifacts'][0]['path'] = str(missing_d / 'missing-client.py')
+missing_c.write_text(json.dumps(missing_cfg))
+missing_run = subprocess.run([sys.executable, str(PROD), '--preflight-only', str(missing_c)], capture_output=True, text=True)
+missing_value = json.loads(missing_run.stdout)
+assert missing_run.returncode != 0 and missing_value['status'] == 'UNPROVEN'
+assert 'regular file required' in missing_value['reason'] and not missing_out.exists()
+
+wrong_home_d, wrong_home_c, wrong_home_cfg, wrong_home_out = preflight_cfg('mode-wrong-home')
+wrong_home_cfg['home'] = str(wrong_home_d / 'incorrect-home')
+Path(wrong_home_cfg['home']).mkdir()
+wrong_home_c.write_text(json.dumps(wrong_home_cfg))
+wrong_home_run = subprocess.run([sys.executable, str(PROD), '--preflight-only', str(wrong_home_c)], capture_output=True, text=True)
+wrong_home_value = json.loads(wrong_home_run.stdout)
+assert wrong_home_run.returncode != 0 and 'config HOME differs from actual HOME' in wrong_home_value['reason']
+assert not wrong_home_out.exists()
+
+no_home_env = dict(os.environ); no_home_env.pop('HOME', None)
+no_home_run = subprocess.run([sys.executable, str(PROD), '--preflight-only', str(pre_c)], capture_output=True, text=True, env=no_home_env)
+no_home_value = json.loads(no_home_run.stdout)
+assert no_home_run.returncode != 0 and 'UID/HOME identity mismatch' in no_home_value['reason']
+
+symlink_d, symlink_c, symlink_cfg, symlink_out = preflight_cfg('mode-runtime-symlink')
+runtime_link = symlink_d / 'python-runtime-link'
+runtime_link.symlink_to(Path(sys.executable).resolve())
+symlink_cfg['runtime']['python'] = str(runtime_link)
+symlink_c.write_text(json.dumps(symlink_cfg))
+symlink_run = subprocess.run([sys.executable, str(PROD), '--preflight-only', str(symlink_c)], capture_output=True, text=True)
+symlink_value = json.loads(symlink_run.stdout)
+assert symlink_run.returncode == 0 and symlink_value['status'] == 'INPUTS_PREFLIGHT_VERIFIED'
+assert not symlink_out.exists()
+
+drift_d, drift_c, drift_cfg, drift_out = preflight_cfg('mode-input-drift')
+drift_artifact = Path(drift_cfg['artifacts'][0]['path'])
+drift_snapshot = Path(drift_cfg['snapshot_cmd'][0])
+drift_snapshot.write_text('''#!/usr/bin/env python3
+import json, pathlib, sys
+marker = pathlib.Path(sys.argv[2] + ".drift-marker")
+if not marker.exists():
+    pathlib.Path(''' + repr(str(drift_artifact)) + ''').open("ab").write(b"drift")
+    marker.write_text("1")
+print(json.dumps([{"Id":"foreign-id","ImageID":"sha256:foreign","Name":"/foreign","Running":True,"Pid":123,"RestartCount":0}]))
+''')
+drift_c.write_text(json.dumps(drift_cfg))
+drift_run = subprocess.run([sys.executable, str(PROD), '--preflight-only', str(drift_c)], capture_output=True, text=True)
+drift_value = json.loads(drift_run.stdout)
+assert drift_run.returncode != 0 and 'input pin drift during preflight' in drift_value['reason']
+assert not drift_out.exists()
+
+late_d, late_c, late_cfg, late_out = preflight_cfg('mode-second-snapshot-drift')
+late_artifact = Path(late_cfg['artifacts'][0]['path'])
+late_snapshot = Path(late_cfg['snapshot_cmd'][0])
+late_snapshot.write_text('''#!/usr/bin/env python3
+import json, pathlib, sys
+counter = pathlib.Path(sys.argv[2])
+try: n = int(counter.read_text()) + 1
+except FileNotFoundError: n = 1
+counter.write_text(str(n))
+if n >= 2:
+    pathlib.Path(''' + repr(str(late_artifact)) + ''').open("ab").write(b"late-drift")
+print(json.dumps([{"Id":"foreign-id","ImageID":"sha256:foreign","Name":"/foreign","Running":True,"Pid":123,"RestartCount":0}]))
+''')
+late_c.write_text(json.dumps(late_cfg))
+late_run = subprocess.run([sys.executable, str(PROD), '--preflight-only', str(late_c)], capture_output=True, text=True)
+late_value = json.loads(late_run.stdout)
+assert late_run.returncode != 0 and 'input pin drift during preflight' in late_value['reason']
+assert late_value['foreign_after_match'] is True and not late_out.exists()
+
+# The SDK build contract accepts the module form only when its launch
+# preflight identifies the SDK CLI.  The direct-file form is rejected before
+# any launcher; the module form passes the CPU preflight without running body.
+def sdk_mode_case(tag, module_form):
+    _, d, cfg, _, _ = build_case('sdk-' + tag)
+    c = d / 'config.json'
+    out = d / 'out'
+    shutil.rmtree(out)
+    module_root = d / 'module-src' / 'experimental' / 'builder'
+    module_root.mkdir(parents=True)
+    (module_root / '__init__.py').write_text('')
+    (module_root.parent / '__init__.py').write_text('')
+    module = module_root / 'cli.py'
+    module.write_text('raise SystemExit(99)\n')
+    cfg['env'] = {'PYTHONPATH': str(d / 'module-src')}
+    cfg['launch_preflight'] = {'module': {'name': 'experimental.builder.cli', 'origin': {'path': str(module), 'sha256': sha(module), 'size': module.stat().st_size}}, 'write_paths': [str(d)], 'min_free_bytes': {str(d): 1}}
+    if module_form:
+        cfg['client_argv'] = [sys.executable, '-m', 'experimental.builder.cli'] + cfg['client_argv'][2:]
+    repin_build_argv(cfg)
+    c.write_text(json.dumps(cfg))
+    p = subprocess.run([sys.executable, str(PROD), '--preflight-only', str(c)], capture_output=True, text=True)
+    return p, d
+
+sdk_direct, sdk_direct_d = sdk_mode_case('direct', False)
+sdk_direct_value = json.loads(sdk_direct.stdout)
+assert sdk_direct.returncode != 0 and 'must use python -m experimental.builder.cli' in sdk_direct_value['reason']
+assert not (sdk_direct_d / 'out').exists()
+sdk_module, sdk_module_d = sdk_mode_case('module', True)
+sdk_module_value = json.loads(sdk_module.stdout)
+assert sdk_module.returncode == 0 and sdk_module_value['status'] == 'INPUTS_PREFLIGHT_VERIFIED'
+assert not (sdk_module_d / 'out').exists()
 assert success_value['foreign_after_match'] is True
 assert success_value['profile_validation'] == success_value['production_qualification'] == 'UNPROVEN'
 for key in ('engine_artifact', 'config_artifact'):
@@ -538,7 +653,17 @@ assert admission_failed.returncode != 0 and admission_value['status'] == 'UNPROV
 assert admission_value['startup_admission']['status'] == 'FAILED'
 assert not (admission_dir / 'out').exists()
 
-print(json.dumps({'r6_persistent_boundaries': {
+print(json.dumps({'input_preflight_mode': {
+    'valid': {'status': pre_value['status'], 'foreign_after_match': pre_value['foreign_after_match'], 'out_created': pre_out.exists()},
+    'missing_artifact': {'returncode': missing_run.returncode, 'reason': missing_value['reason'], 'out_created': missing_out.exists()},
+    'wrong_home': {'returncode': wrong_home_run.returncode, 'reason': wrong_home_value['reason'], 'out_created': wrong_home_out.exists()},
+    'no_home_env': {'returncode': no_home_run.returncode, 'reason': no_home_value['reason']},
+    'runtime_symlink': {'status': symlink_value['status'], 'out_created': symlink_out.exists()},
+    'input_drift': {'returncode': drift_run.returncode, 'reason': drift_value['reason'], 'out_created': drift_out.exists()},
+    'second_snapshot_drift': {'returncode': late_run.returncode, 'reason': late_value['reason'], 'foreign_after_match': late_value['foreign_after_match'], 'out_created': late_out.exists()},
+    'sdk_direct': {'returncode': sdk_direct.returncode, 'reason': sdk_direct_value['reason'], 'out_created': (sdk_direct_d / 'out').exists()},
+    'sdk_module': {'status': sdk_module_value['status'], 'out_created': (sdk_module_d / 'out').exists()},
+}, 'r6_persistent_boundaries': {
     'protocol_rejected': {k: {'status': v['launch_preflight']['status'], 'guardian_launched': False}
                           for k,v in protocol_rows.items()},
     'huge_output': {'output_limited': huge_probe['output_limited'],
