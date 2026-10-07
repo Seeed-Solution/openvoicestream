@@ -334,6 +334,9 @@ valid={"model_type":"qwen3_tts_code2wav","code2wav_config":{"sample_rate":24000}
 if mode == "static":
     valid["code2wav_config"]["static_suffix_chunk_size"] = 40000
     valid["builder_config"]["static_suffix_chunk_size"] = 40000
+if mode == "decoder-static":
+    valid["code2wav_config"]["static_decoder_chunk_size"] = 1000
+    valid["builder_config"]["static_decoder_chunk_size"] = 1000
 if mode == "term": open(engine,"wb").write(b"engine"); json.dump(valid, open(config,"w")); time.sleep(3)
 elif mode == "missing": json.dump(valid, open(config,"w"))
 elif mode == "empty": open(engine,"wb").close(); json.dump(valid, open(config,"w"))
@@ -347,6 +350,8 @@ else:
     cfg['client_argv'] = [sys.executable, str(builder), str(engine), str(config), mode, '--components', 'code2wav', '--engine-dir', str(out), '--max-batch-size', '1', '--min-code-len', '1', '--opt-code-len', '2', '--max-code-len', '3']
     if mode == 'static':
         cfg['client_argv'] += ['--static-suffix-chunk-size', '40000']
+    if mode == 'decoder-static':
+        cfg['client_argv'] += ['--static-decoder-chunk-size', '1000']
     argv_pin_bytes = json.dumps(cfg['client_argv'], separators=(',', ':'), ensure_ascii=False).encode()
     cfg['build_output_contract'] = {'component':'code2wav', 'engine_path': str(engine), 'config_path': str(config), 'engine_dir': str(out), 'argv': list(cfg['client_argv']),
                                     'argv_pin': {'sha256':hashlib.sha256(argv_pin_bytes).hexdigest(),'size':len(argv_pin_bytes)}, 'max_batch_size':1,
@@ -355,6 +360,9 @@ else:
     if mode == 'static':
         cfg['build_output_contract']['config_constraints']['code2wav_config']['static_suffix_chunk_size'] = 40000
         cfg['build_output_contract']['config_constraints']['builder_config']['static_suffix_chunk_size'] = 40000
+    if mode == 'decoder-static':
+        cfg['build_output_contract']['config_constraints']['code2wav_config']['static_decoder_chunk_size'] = 1000
+        cfg['build_output_contract']['config_constraints']['builder_config']['static_decoder_chunk_size'] = 1000
     if mutate:
         mutate(cfg, engine, config)
     c.write_text(json.dumps(cfg))
@@ -379,6 +387,14 @@ def rejected_build_case(tag, mutate, expected_reason=None):
 
 def rejected_static_case(tag, mutate):
     rejected, rejected_dir, _, _, _ = build_case(tag, mode='static', mutate=mutate)
+    value = json.loads(rejected.stdout)
+    assert rejected.returncode != 0 and value['status'] == 'UNPROVEN'
+    assert not (rejected_dir / 'out').exists()
+    assert not (rejected_dir / 'out' / 'guardian').exists()
+    return value
+
+def rejected_decoder_static_case(tag, mutate):
+    rejected, rejected_dir, _, _, _ = build_case(tag, mode='decoder-static', mutate=mutate)
     value = json.loads(rejected.stdout)
     assert rejected.returncode != 0 and value['status'] == 'UNPROVEN'
     assert not (rejected_dir / 'out').exists()
@@ -539,6 +555,60 @@ static_ok, static_ok_dir, _, _, _ = build_case('static-provenance', mode='static
 static_ok_value = json.loads(static_ok.stdout)
 assert static_ok.returncode == 0 and static_ok_value['status'] == 'BUILD_OUTPUT_VERIFIED'
 assert static_ok_value['config_artifact']['size'] > 0
+
+decoder_static_ok, decoder_static_ok_dir, _, _, _ = build_case('decoder-static-provenance', mode='decoder-static')
+decoder_static_value = json.loads(decoder_static_ok.stdout)
+assert decoder_static_ok.returncode == 0 and decoder_static_value['status'] == 'BUILD_OUTPUT_VERIFIED'
+
+def decoder_both_modes(cfg, engine, config):
+    cfg['build_output_contract']['config_constraints']['code2wav_config']['static_suffix_chunk_size'] = 40000
+    cfg['build_output_contract']['config_constraints']['builder_config']['static_suffix_chunk_size'] = 40000
+decoder_both_value = rejected_decoder_static_case('decoder-both-modes', decoder_both_modes)
+assert 'mutually exclusive' in decoder_both_value['reason']
+
+def decoder_mixed_argv(cfg, engine, config):
+    cfg['client_argv'] += ['--static-suffix-chunk-size', '40000']
+    repin_build_argv(cfg)
+decoder_mixed_value = rejected_decoder_static_case('decoder-mixed-argv', decoder_mixed_argv)
+assert 'does not match metadata' in decoder_mixed_value['reason']
+
+def decoder_bool_metadata(cfg, engine, config):
+    cfg['build_output_contract']['config_constraints']['code2wav_config']['static_decoder_chunk_size'] = True
+    cfg['build_output_contract']['config_constraints']['builder_config']['static_decoder_chunk_size'] = True
+decoder_bool_value = rejected_decoder_static_case('decoder-bool-metadata', decoder_bool_metadata)
+assert 'invalid static decoder provenance' in decoder_bool_value['reason']
+
+def decoder_single_section(cfg, engine, config):
+    del cfg['build_output_contract']['config_constraints']['builder_config']['static_decoder_chunk_size']
+decoder_single_value = rejected_decoder_static_case('decoder-single-section', decoder_single_section)
+assert 'static_decoder_chunk_size metadata' in decoder_single_value['reason']
+
+def decoder_duplicate_flag(cfg, engine, config):
+    cfg['client_argv'] += ['--static-decoder-chunk-size', '1000']
+    repin_build_argv(cfg)
+decoder_duplicate_value = rejected_decoder_static_case('decoder-duplicate-flag', decoder_duplicate_flag)
+assert 'repeats protected option: --static-decoder-chunk-size' in decoder_duplicate_value['reason']
+
+def decoder_missing_flag(cfg, engine, config):
+    cfg['client_argv'] = [x for x in cfg['client_argv']
+                          if x not in ('--static-decoder-chunk-size', '1000')]
+    repin_build_argv(cfg)
+decoder_missing_value = rejected_decoder_static_case('decoder-missing-flag', decoder_missing_flag)
+assert 'lacks code2wav component' in decoder_missing_value['reason']
+
+def decoder_wrong_value(cfg, engine, config):
+    index = cfg['client_argv'].index('1000')
+    cfg['client_argv'][index] = '40000'
+    repin_build_argv(cfg)
+decoder_wrong_value = rejected_decoder_static_case('decoder-wrong-value', decoder_wrong_value)
+assert 'value mismatch for protected option: --static-decoder-chunk-size' in decoder_wrong_value['reason']
+
+def suffix_metadata_decoder_argv(cfg, engine, config):
+    index = cfg['client_argv'].index('--static-suffix-chunk-size')
+    cfg['client_argv'][index] = '--static-decoder-chunk-size'
+    repin_build_argv(cfg)
+suffix_metadata_decoder_value = rejected_static_case('suffix-metadata-decoder-argv', suffix_metadata_decoder_argv)
+assert 'does not match metadata' in suffix_metadata_decoder_value['reason']
 
 def static_remove_cli(cfg, engine, config):
     cfg['client_argv'] = [x for x in cfg['client_argv']

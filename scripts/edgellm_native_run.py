@@ -135,30 +135,56 @@ def check_cfg(c):
         code2wav_constraints = constraints['code2wav_config']
         builder_constraints = constraints['builder_config']
         base_builder_keys = {'min_code_len','opt_code_len','max_code_len'}
-        static_keys = {'static_suffix_chunk_size'}
-        present_static = [key in code2wav_constraints for key in static_keys]
-        present_static += [key in builder_constraints for key in static_keys]
-        if any(present_static) and not all(present_static):
-            raise ValueError('static suffix metadata must be present in both config sections')
-        static_enabled = bool(present_static and all(present_static))
-        if set(builder_constraints) != base_builder_keys | (static_keys if static_enabled else set()):
+        static_specs = {
+            'static_suffix_chunk_size': (40000, '--static-suffix-chunk-size'),
+            'static_decoder_chunk_size': (1000, '--static-decoder-chunk-size'),
+        }
+        static_keys = set(static_specs)
+        present_modes = []
+        for key in static_keys:
+            present = [key in code2wav_constraints, key in builder_constraints]
+            if any(present) and not all(present):
+                if key == 'static_suffix_chunk_size':
+                    raise ValueError('static suffix metadata must be present in both config sections')
+                raise ValueError(f'{key} metadata must be present in both config sections')
+            if all(present):
+                present_modes.append(key)
+        if len(present_modes) > 1:
+            raise ValueError('static chunk modes are mutually exclusive')
+        static_enabled = bool(present_modes)
+        active_static = present_modes[0] if static_enabled else None
+        if set(builder_constraints) != base_builder_keys | ({active_static} if active_static else set()):
             raise ValueError('invalid code2wav config constraints')
         if static_enabled:
-            static_value = code2wav_constraints['static_suffix_chunk_size']
+            static_value = code2wav_constraints[active_static]
+            expected_value, expected_option = static_specs[active_static]
             if (type(static_value) is not int or static_value is True or
-                    type(builder_constraints['static_suffix_chunk_size']) is not int or
-                    builder_constraints['static_suffix_chunk_size'] is True or
-                    static_value != 40000 or
-                    builder_constraints['static_suffix_chunk_size'] != static_value or
+                    type(builder_constraints[active_static]) is not int or
+                    builder_constraints[active_static] is True or
+                    static_value != expected_value or
+                    builder_constraints[active_static] != static_value or
                     code_len['max_code_len'] > 2000):
-                raise ValueError('invalid static suffix provenance')
-            protected['--static-suffix-chunk-size'] = '40000'
+                raise ValueError('invalid static suffix provenance'
+                                 if active_static == 'static_suffix_chunk_size'
+                                 else 'invalid static decoder provenance')
+            protected[expected_option] = str(expected_value)
         seen = {}
         argv = build['argv']
-        static_argv_present = any(token.startswith('--static')
-                                  for token in argv)
+        expected_static_option = static_specs[active_static][1] if active_static else None
+        static_argv_present = [token.partition('=')[0] for token in argv
+                               if token.startswith('--static')]
+        static_option_names = {option for _, option in static_specs.values()}
+        if any(name not in static_option_names for name in static_argv_present):
+            if not static_enabled and any(
+                    name in ('--static', '--static-suffix') or
+                    name.startswith('--static-suffix-')
+                    for name in static_argv_present):
+                raise ValueError('static suffix argv requires matching metadata')
+            raise ValueError(f'abbreviated protected option: {static_argv_present[0]}')
         if static_argv_present and not static_enabled:
-            raise ValueError('static suffix argv requires matching metadata')
+            raise ValueError('static chunk argv requires matching metadata')
+        if static_enabled and any(name != expected_static_option for name in static_argv_present):
+            raise ValueError('static chunk argv does not match metadata')
         for i, token in enumerate(argv):
             if not isinstance(token, str) or not token.startswith('--'):
                 continue
@@ -188,7 +214,7 @@ def check_cfg(c):
                 constraints.get('model_type') != 'qwen3_tts_code2wav' or
                 not isinstance(constraints.get('code2wav_config'), dict) or not constraints['code2wav_config'] or
                 not isinstance(constraints.get('builder_config'), dict) or
-                set(constraints['builder_config']) != base_builder_keys | (static_keys if static_enabled else set()) or
+                set(constraints['builder_config']) != base_builder_keys | ({active_static} if active_static else set()) or
                 any(type(constraints['builder_config'][key]) is not int or constraints['builder_config'][key] <= 0
                     for key in ('min_code_len','opt_code_len','max_code_len')) or
                 not (constraints['builder_config']['min_code_len'] <= constraints['builder_config']['opt_code_len'] <=
