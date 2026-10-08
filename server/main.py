@@ -3785,8 +3785,16 @@ async def _run_tts_stream_cleanup(executor_jobs, release_resources) -> None:
     """Drain started executor jobs before releasing all stream leases."""
     import asyncio
 
-    async def _await_uncancellable(awaitable):
-        """Finish cleanup work even if the owner task is cancelled again."""
+    async def _await_uncancellable(awaitable, *, propagate_child_cancel=False):
+        """Finish cleanup work even if the owner task is cancelled again.
+
+        Cancelling the owner (this coroutine's task) is absorbed: the shielded
+        child keeps running and the owner keeps waiting for it.  Cancelling
+        the *child* itself is different -- only event-loop shutdown reaches
+        the unshielded child task.  With ``propagate_child_cancel`` that
+        cancellation is re-raised so the caller stops draining further jobs
+        and goes straight to lease release; otherwise it is absorbed.
+        """
         task = asyncio.ensure_future(awaitable)
         while not task.done():
             try:
@@ -3796,12 +3804,11 @@ async def _run_tts_stream_cleanup(executor_jobs, release_resources) -> None:
                 # cleanup task must retain leases until the backend future and
                 # release callback have actually completed.
                 continue
-        try:
-            return task.result()
-        except asyncio.CancelledError:
-            # Cancellation is expected only for an executor future or child
-            # cleanup task explicitly canceled during stream teardown.
+        if task.cancelled():
+            if propagate_child_cancel:
+                raise asyncio.CancelledError()
             return None
+        return task.result()
 
     async def _consume_job(future, finished=None):
         """Consume one possibly-canceled future without cancellation fanout."""
@@ -3869,8 +3876,14 @@ async def _run_tts_stream_cleanup(executor_jobs, release_resources) -> None:
                         jobs_to_drain.append((job, None))
                 if jobs_to_drain:
                     for future, finished in jobs_to_drain:
+                        # A drain child cancelled by loop shutdown aborts the
+                        # remaining drains: their child tasks would be created
+                        # after shutdown's cancellation snapshot, so a second
+                        # stuck backend could otherwise hold the leases
+                        # forever.  The ``finally`` below still releases.
                         await _await_uncancellable(
-                            _consume_job(future, finished)
+                            _consume_job(future, finished),
+                            propagate_child_cancel=True,
                         )
         finally:
             await _await_uncancellable(release_resources())
