@@ -1185,5 +1185,65 @@ def test_abort_cancelling_blocked_prepare_keeps_session_alive(
         prepare_gate.set()
         ws.__exit__(None, None, None)
 
+
+def test_keep_asr_abort_preserves_queued_turn_behind_slow_finalize(
+    fake_asr_backend, monkeypatch
+):
+    """keep_asr abort while finalize is blocked keeps the queued next turn.
+
+    Speech that starts while gen 1 finalizes is queued in pending_turns. A
+    keep_asr abort must not erase it or the endpoint/finalizing markers, so
+    PCM after the abort keeps routing into that pending turn (not into the
+    finalizing stream) and the queued speech is transcribed as gen 2.
+    """
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    fake_asr_backend._finals = ["first", "second"]
+    fake_asr_backend._final_idx = 0
+    fake_asr_backend.finalize_gate = threading.Event()
+    fake_asr_backend.finalize_started = threading.Event()
+    monkeypatch.setattr(
+        vad_mod,
+        "create_vad",
+        lambda *args, **kwargs: _ScriptedEventsVAD([
+            vad_mod.VADSession.SPEECH_START,
+            vad_mod.VADSession.SPEECH_END,
+            vad_mod.VADSession.SPEECH_START,
+            None,
+            vad_mod.VADSession.SPEECH_END,
+        ]),
+    )
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True, vad="silero")
+    try:
+        ws.send_bytes(_silence_pcm16(100))
+        ws.send_bytes(_silence_pcm16(200))
+        assert fake_asr_backend.finalize_started.wait(timeout=2.0)
+        ws.send_bytes(_silence_pcm16(300))   # speech-start, queued
+        time.sleep(0.05)
+        ws.send_json({"type": "abort", "keep_asr": True})
+        time.sleep(0.05)
+        ws.send_bytes(_silence_pcm16(400))   # must route to the pending turn
+        ws.send_bytes(_silence_pcm16(500))   # speech-end of queued turn
+        time.sleep(0.10)
+        assert fake_asr_backend.streams_created[0].accepted_chunks == [1600, 3200]
+        fake_asr_backend.finalize_gate.set()
+        first_final, _ = _drain_until_final(ws)
+        second_final, _ = _drain_until_final(ws)
+        assert [first_final.get("text"), second_final.get("text")] == [
+            "first", "second"
+        ]
+        assert fake_asr_backend.streams_created[0].cancelled is False
+        assert [s.accepted_chunks for s in fake_asr_backend.streams_created] == [
+            [1600, 3200], [4800, 6400, 8000]
+        ]
+    finally:
+        fake_asr_backend.finalize_gate.set()
+        ws.__exit__(None, None, None)
+        fake_asr_backend.finalize_gate = None
+        fake_asr_backend.finalize_started = None
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

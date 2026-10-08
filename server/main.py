@@ -8057,10 +8057,15 @@ async def v2v_stream(ws: WebSocket):
                                 state["asr_audio_samples_accepted"] = 0
                                 state["asr_turn_started_at"] = None
                                 _clear_asr_prepare_state()
-                        state["endpoint_pending"] = None
-                        state["endpoint_pending_gen"] = None
-                        state["finalizing_gen"] = None
-                        _clear_pending_audio()
+                            state["endpoint_pending"] = None
+                            state["endpoint_pending_gen"] = None
+                            state["finalizing_gen"] = None
+                            _clear_pending_audio()
+                        # keep_asr leaves endpoint/finalizing markers and the
+                        # pending-turn buffers alone: the kept finalize still
+                        # owns its generation, speech queued behind it must
+                        # reach the next generation, and later PCM must keep
+                        # routing through the pending-turn guard.
             except WebSocketDisconnect:
                 state["client_closed"] = True
                 # See websocket.disconnect branch above: cancel work tasks so
