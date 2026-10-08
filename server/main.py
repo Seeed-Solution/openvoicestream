@@ -3824,10 +3824,13 @@ async def _run_tts_stream_cleanup(executor_jobs, release_resources) -> None:
         except asyncio.CancelledError:
             # A canceled executor future is already drained.  Do not let that
             # expected cancellation fan out to the other cleanup jobs.
-            try:
-                future.exception()
-            except asyncio.CancelledError:
-                pass
+            if future.cancelled():
+                return
+            # Otherwise the CancelledError was delivered to this cleanup task
+            # itself while ``future`` is still pending (event-loop shutdown
+            # cancels every task).  ``future.exception()`` would raise
+            # InvalidStateError here; propagate the cancellation instead.
+            raise
 
     async def _drain_and_release():
         try:
