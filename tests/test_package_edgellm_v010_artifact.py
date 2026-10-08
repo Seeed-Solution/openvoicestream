@@ -17,7 +17,11 @@ SCRIPT = ROOT / "scripts" / "package_edgellm_v010_artifact.py"
 # Some uv/pytest combinations choose ``tests/`` as the import root.  Keep
 # this test hermetic when importing the downloader's schema helpers.
 sys.path.insert(0, str(ROOT))
-from server.core.qwen3_artifact_downloader import _archive_spec, _manifest_files
+from server.core.qwen3_artifact_downloader import (
+    _archive_spec,
+    _manifest_files,
+    _safe_extract,
+)
 
 
 def _run(payload: Path, output: Path, *extra: str) -> subprocess.CompletedProcess[str]:
@@ -157,6 +161,62 @@ def test_packaging_is_byte_deterministic_and_named_output_is_not_overwritten(
     assert sentinel.read_text(encoding="utf-8") == "keep"
 
 
+def test_executable_mode_survives_cli_package_and_safe_extract(tmp_path: Path) -> None:
+    source = tmp_path / "payload"
+    source.mkdir()
+    worker = source / "worker"
+    worker.write_text("#!/bin/sh\nprintf worker-ok\n", encoding="utf-8")
+    worker.chmod(0o4755 | stat.S_ISUID | stat.S_ISGID | stat.S_IWOTH)
+    data = source / "data"
+    data.write_bytes(b"data")
+    data.chmod(0o6644 | stat.S_ISUID | stat.S_ISGID)
+    output = tmp_path / "artifact"
+
+    result = _run(source, output)
+
+    assert result.returncode == 0, result.stderr
+    with tarfile.open(output / "payload.tar", mode="r:") as archive:
+        assert archive.getmember("worker").mode == 0o755
+        assert archive.getmember("data").mode == 0o644
+    extracted = tmp_path / "extracted"
+    _safe_extract(output / "payload.tar", extracted)
+    assert stat.S_IMODE(worker.stat().st_mode) & 0o111
+    assert stat.S_IMODE((extracted / "worker").stat().st_mode) == 0o755
+    assert stat.S_IMODE((extracted / "data").stat().st_mode) == 0o644
+    assert subprocess.run([str(extracted / "worker")], capture_output=True, text=True).stdout == "worker-ok"
+
+
+def test_packaging_rejects_executable_mode_race(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("packager", SCRIPT)
+    assert spec and spec.loader
+    packager = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(packager)
+    source = tmp_path / "payload"
+    source.mkdir()
+    worker = source / "worker"
+    worker.write_bytes(b"worker")
+    worker.chmod(0o755)
+    calls = 0
+    original = packager._lstat
+
+    def racing(path: Path):
+        nonlocal calls
+        result = original(path)
+        if path == worker:
+            calls += 1
+            if calls == 2:
+                worker.chmod(0o644)
+        return result
+
+    monkeypatch.setattr(packager, "_lstat", racing)
+    with pytest.raises(packager.PackageError, match="changed while packaging"):
+        packager.write_deterministic_payload_tar(
+            source, [("worker", worker)], tmp_path / "payload.tar"
+        )
+
+
 @pytest.mark.parametrize("kind", ["empty", "symlink", "fifo", "directory_symlink"])
 def test_packaging_rejects_unsafe_or_empty_payloads(tmp_path: Path, kind: str) -> None:
     source = tmp_path / "payload"
@@ -248,6 +308,35 @@ def test_profile_aware_runtime_contract_is_emitted(tmp_path: Path) -> None:
         "max_input_len": 8192,
         "max_kv_cache_capacity": 8192,
     }
+
+
+def test_repo_prefix_is_manifest_only_and_keeps_payload_members_flat(tmp_path: Path) -> None:
+    source = tmp_path / "payload"
+    source.mkdir()
+    (source / "engine.plan").write_bytes(b"plan")
+    output = tmp_path / "artifact"
+
+    result = _run(source, output, "--repo-prefix", "v011/orin-nx-sm87/asr-b2-20261005")
+
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert manifest["payload"]["path"] == "v011/orin-nx-sm87/asr-b2-20261005/payload.tar"
+    with tarfile.open(output / "payload.tar", mode="r:") as archive:
+        assert [member.name for member in archive.getmembers()] == ["engine.plan"]
+
+
+@pytest.mark.parametrize("prefix", ["/absolute", "../escape", "a/../b", "a//b", "a/./b", "a/", r"a\\..\\b"])
+def test_repo_prefix_rejects_unsafe_raw_paths(tmp_path: Path, prefix: str) -> None:
+    source = tmp_path / "payload"
+    source.mkdir()
+    (source / "engine.plan").write_bytes(b"plan")
+    output = tmp_path / "artifact"
+
+    result = _run(source, output, "--repo-prefix", prefix)
+
+    assert result.returncode != 0
+    assert "safe relative path" in result.stderr
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("contract", ['"not-an-object"', "[]", "true"])

@@ -173,10 +173,15 @@ def _collect_directories(source: Path) -> list[str]:
     return directories
 
 
-def _tar_info(name: str, *, is_dir: bool, size: int = 0) -> tarfile.TarInfo:
+def _tar_info(
+    name: str, *, is_dir: bool, size: int = 0, source_mode: int | None = None
+) -> tarfile.TarInfo:
     info = tarfile.TarInfo(name)
     info.type = tarfile.DIRTYPE if is_dir else tarfile.REGTYPE
-    info.mode = 0o755 if is_dir else 0o644
+    if is_dir:
+        info.mode = 0o755
+    else:
+        info.mode = 0o755 if source_mode is not None and source_mode & 0o111 else 0o644
     info.uid = 0
     info.gid = 0
     info.uname = ""
@@ -210,11 +215,17 @@ def write_deterministic_payload_tar(
             before = _lstat(path)
             if not stat.S_ISREG(before.st_mode):
                 raise PackageError(f"payload file changed to non-regular: {name}")
-            info = _tar_info(name, is_dir=False, size=before.st_size)
+            info = _tar_info(
+                name, is_dir=False, size=before.st_size, source_mode=before.st_mode
+            )
             with path.open("rb") as stream:
                 tar.addfile(info, stream)
             after = _lstat(path)
-            if after.st_size != before.st_size or after.st_mtime_ns != before.st_mtime_ns:
+            if (
+                after.st_size != before.st_size
+                or after.st_mtime_ns != before.st_mtime_ns
+                or bool(after.st_mode & 0o111) != bool(before.st_mode & 0o111)
+            ):
                 raise PackageError(f"payload file changed while packaging: {name}")
 
 
@@ -260,6 +271,21 @@ def _validate_metadata(value: Any, *, option: str) -> Any:
     return value
 
 
+def _validate_repo_prefix(value: str) -> str:
+    """Validate a repository-relative prefix without normalizing unsafe input."""
+
+    if not isinstance(value, str):
+        raise PackageError("--repo-prefix must be a string")
+    if not value:
+        return ""
+    if "\x00" in value or "\\" in value or value.startswith("/") or value.endswith("/"):
+        raise PackageError("--repo-prefix must be a safe relative path")
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise PackageError("--repo-prefix must be a safe relative path")
+    return value
+
+
 def _file_inventory(files: Iterable[tuple[str, Path]]) -> dict[str, dict[str, Any]]:
     inventory: dict[str, dict[str, Any]] = {}
     for relative, path in files:
@@ -283,6 +309,7 @@ def package_artifact(
     profile: Any,
     provenance: Any,
     engine_contract: Any | None = None,
+    repo_prefix: str = "",
 ) -> dict[str, Any]:
     """Package a payload and return the generated manifest.
 
@@ -298,6 +325,7 @@ def package_artifact(
     source_value = _validate_metadata(source, option="--source")
     profile_value = _validate_metadata(profile, option="--profile")
     provenance_value = _validate_metadata(provenance, option="--provenance")
+    repo_prefix_value = _validate_repo_prefix(repo_prefix)
     contract_value = None
     if engine_contract is not None:
         contract_value = _validate_metadata(
@@ -332,7 +360,7 @@ def package_artifact(
             "provenance": provenance_value,
             "files": inventory,
             "payload": {
-                "path": PAYLOAD_NAME,
+                "path": f"{repo_prefix_value}/{PAYLOAD_NAME}" if repo_prefix_value else PAYLOAD_NAME,
                 "sha256": payload_sha,
                 "size": payload_size,
             },
@@ -396,6 +424,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--provenance-file", dest="provenance_file")
     parser.add_argument(
+        "--repo-prefix",
+        default="",
+        help="safe repository-relative prefix for the payload archive path",
+    )
+    parser.add_argument(
         "--engine-contract",
         help="optional JSON object consumed by profile-aware runtimes",
     )
@@ -457,6 +490,7 @@ def main(argv: list[str] | None = None) -> int:
                 if contract_arg is not None
                 else None
             ),
+            repo_prefix=args.repo_prefix,
         )
     except PackageError as exc:
         parser.error(str(exc))
