@@ -1,0 +1,8425 @@
+{
+  "schema": "kokoro.g2p-golden.v1",
+  "source": "evidence-kokoro-remaining-20260903/spacy-slim/baseline.log + comparison.json",
+  "baseline_identities": {
+    "misaki": "0.9.4",
+    "spacy": "3.8.16",
+    "en_core_web_sm": "3.8.0",
+    "model_files": {
+      "en-US": "/opt/kokoro-rk3588-canary/python-env/rkvoice-stream-venv-v1/lib/python3.11/site-packages/en_core_web_sm/__init__.py",
+      "en-GB": "/opt/kokoro-rk3588-canary/python-env/rkvoice-stream-venv-v1/lib/python3.11/site-packages/en_core_web_sm/__init__.py"
+    },
+    "model_meta": {
+      "en-US": {
+        "lang": "en",
+        "name": "core_web_sm",
+        "version": "3.8.0",
+        "description": "English pipeline optimized for CPU. Components: tok2vec, tagger, parser, senter, ner, attribute_ruler, lemmatizer.",
+        "author": "Explosion",
+        "email": "contact@explosion.ai",
+        "url": "https://explosion.ai",
+        "license": "MIT",
+        "spacy_version": ">=3.8.0,<3.9.0",
+        "spacy_git_version": "5010fcbd3",
+        "vectors": {
+          "width": 0,
+          "vectors": 0,
+          "keys": 0,
+          "name": null,
+          "mode": "default"
+        },
+        "labels": {
+          "tok2vec": [],
+          "tagger": [
+            "$",
+            "''",
+            ",",
+            "-LRB-",
+            "-RRB-",
+            ".",
+            ":",
+            "ADD",
+            "AFX",
+            "CC",
+            "CD",
+            "DT",
+            "EX",
+            "FW",
+            "HYPH",
+            "IN",
+            "JJ",
+            "JJR",
+            "JJS",
+            "LS",
+            "MD",
+            "NFP",
+            "NN",
+            "NNP",
+            "NNPS",
+            "NNS",
+            "PDT",
+            "POS",
+            "PRP",
+            "PRP$",
+            "RB",
+            "RBR",
+            "RBS",
+            "RP",
+            "SYM",
+            "TO",
+            "UH",
+            "VB",
+            "VBD",
+            "VBG",
+            "VBN",
+            "VBP",
+            "VBZ",
+            "WDT",
+            "WP",
+            "WP$",
+            "WRB",
+            "XX",
+            "_SP",
+            "``"
+          ],
+          "parser": [
+            "ROOT",
+            "acl",
+            "acomp",
+            "advcl",
+            "advmod",
+            "agent",
+            "amod",
+            "appos",
+            "attr",
+            "aux",
+            "auxpass",
+            "case",
+            "cc",
+            "ccomp",
+            "compound",
+            "conj",
+            "csubj",
+            "csubjpass",
+            "dative",
+            "dep",
+            "det",
+            "dobj",
+            "expl",
+            "intj",
+            "mark",
+            "meta",
+            "neg",
+            "nmod",
+            "npadvmod",
+            "nsubj",
+            "nsubjpass",
+            "nummod",
+            "oprd",
+            "parataxis",
+            "pcomp",
+            "pobj",
+            "poss",
+            "preconj",
+            "predet",
+            "prep",
+            "prt",
+            "punct",
+            "quantmod",
+            "relcl",
+            "xcomp"
+          ],
+          "attribute_ruler": [],
+          "lemmatizer": [],
+          "ner": [
+            "CARDINAL",
+            "DATE",
+            "EVENT",
+            "FAC",
+            "GPE",
+            "LANGUAGE",
+            "LAW",
+            "LOC",
+            "MONEY",
+            "NORP",
+            "ORDINAL",
+            "ORG",
+            "PERCENT",
+            "PERSON",
+            "PRODUCT",
+            "QUANTITY",
+            "TIME",
+            "WORK_OF_ART"
+          ]
+        },
+        "pipeline": [
+          "tok2vec",
+          "tagger"
+        ],
+        "components": [
+          "tok2vec",
+          "tagger",
+          "parser",
+          "senter",
+          "attribute_ruler",
+          "lemmatizer",
+          "ner"
+        ],
+        "disabled": [
+          "parser",
+          "senter",
+          "attribute_ruler",
+          "lemmatizer",
+          "ner"
+        ],
+        "performance": {
+          "token_acc": 0.9986194413,
+          "token_p": 0.9956819193,
+          "token_r": 0.9957659295000001,
+          "token_f": 0.9957239226000001,
+          "tag_acc": 0.9729372620000001,
+          "sents_p": 0.9200841934,
+          "sents_r": 0.8939244013000001,
+          "sents_f": 0.9068156724,
+          "dep_uas": 0.9176955214,
+          "dep_las": 0.8991533598,
+          "dep_las_per_type": {
+            "prep": {
+              "p": 0.8541604085000001,
+              "r": 0.8631379245,
+              "f": 0.8586257006
+            },
+            "det": {
+              "p": 0.9768729642,
+              "r": 0.9782271875,
+              "f": 0.9775496068
+            },
+            "pobj": {
+              "p": 0.9620664033,
+              "r": 0.966071078,
+              "f": 0.9640645819
+            },
+            "nsubj": {
+              "p": 0.9573684677000001,
+              "r": 0.9454983571000001,
+              "f": 0.9513963894
+            },
+            "aux": {
+              "p": 0.9792295402000001,
+              "r": 0.982106294,
+              "f": 0.9806658074000001
+            },
+            "advmod": {
+              "p": 0.8525198045,
+              "r": 0.8510853104,
+              "f": 0.8518019535
+            },
+            "relcl": {
+              "p": 0.7660107335,
+              "r": 0.776850508,
+              "f": 0.7713925419000001
+            },
+            "root": {
+              "p": 0.9179682195000001,
+              "r": 0.8917474767,
+              "f": 0.9046678936
+            },
+            "xcomp": {
+              "p": 0.8814035088000001,
+              "r": 0.9016511127,
+              "f": 0.8914123492
+            },
+            "amod": {
+              "p": 0.9161996611000001,
+              "r": 0.9109167477000001,
+              "f": 0.9135505669
+            },
+            "compound": {
+              "p": 0.916113822,
+              "r": 0.9305524616,
+              "f": 0.9232766957
+            },
+            "poss": {
+              "p": 0.9741586538,
+              "r": 0.9788647343,
+              "f": 0.9765060241
+            },
+            "ccomp": {
+              "p": 0.7786216062,
+              "r": 0.8352342159,
+              "f": 0.8059349514
+            },
+            "attr": {
+              "p": 0.8972491909,
+              "r": 0.9327165685000001,
+              "f": 0.9146391753
+            },
+            "case": {
+              "p": 0.9782608696,
+              "r": 0.9909909910000001,
+              "f": 0.9845847837
+            },
+            "mark": {
+              "p": 0.9028511088000001,
+              "r": 0.906200318,
+              "f": 0.9045226131
+            },
+            "intj": {
+              "p": 0.6679841897000001,
+              "r": 0.619047619,
+              "f": 0.6425855513000001
+            },
+            "advcl": {
+              "p": 0.6656519533,
+              "r": 0.6607907328,
+              "f": 0.6632124352000001
+            },
+            "cc": {
+              "p": 0.8345964153000001,
+              "r": 0.8298050472,
+              "f": 0.8321938347000001
+            },
+            "neg": {
+              "p": 0.9475786321,
+              "r": 0.9523331661000001,
+              "f": 0.9499499499
+            },
+            "conj": {
+              "p": 0.7649689441,
+              "r": 0.7751762336,
+              "f": 0.7700387645
+            },
+            "nsubjpass": {
+              "p": 0.9159021407,
+              "r": 0.9215384615000001,
+              "f": 0.9187116564000001
+            },
+            "auxpass": {
+              "p": 0.9494232476000001,
+              "r": 0.9749430524,
+              "f": 0.9620139357
+            },
+            "dobj": {
+              "p": 0.9231431478000001,
+              "r": 0.9399155311,
+              "f": 0.9314538419
+            },
+            "nummod": {
+              "p": 0.9353284301,
+              "r": 0.9313131313,
+              "f": 0.9333164621000001
+            },
+            "npadvmod": {
+              "p": 0.7748267898000001,
+              "r": 0.7150976909,
+              "f": 0.7437650102000001
+            },
+            "prt": {
+              "p": 0.8148760331,
+              "r": 0.8835125448000001,
+              "f": 0.8478073947
+            },
+            "pcomp": {
+              "p": 0.8693820225000001,
+              "r": 0.8669467787,
+              "f": 0.8681626928
+            },
+            "expl": {
+              "p": 0.9789029536,
+              "r": 0.9935760171,
+              "f": 0.9861849097000001
+            },
+            "acl": {
+              "p": 0.7417295415,
+              "r": 0.6972176759000001,
+              "f": 0.7187851519
+            },
+            "agent": {
+              "p": 0.8994889267,
+              "r": 0.9462365591,
+              "f": 0.9222707424000001
+            },
+            "dative": {
+              "p": 0.7669172932,
+              "r": 0.7018348624,
+              "f": 0.7329341317
+            },
+            "acomp": {
+              "p": 0.9132441163,
+              "r": 0.8975056689,
+              "f": 0.9053064959
+            },
+            "dep": {
+              "p": 0.3686006826,
+              "r": 0.1753246753,
+              "f": 0.23762376240000002
+            },
+            "csubj": {
+              "p": 0.7039106145,
+              "r": 0.7455621302000001,
+              "f": 0.724137931
+            },
+            "quantmod": {
+              "p": 0.8625336927,
+              "r": 0.7798537774000001,
+              "f": 0.8191126280000001
+            },
+            "nmod": {
+              "p": 0.7528868360000001,
+              "r": 0.5959780622,
+              "f": 0.6653061224
+            },
+            "appos": {
+              "p": 0.6866606983,
+              "r": 0.6655097614000001,
+              "f": 0.6759198061
+            },
+            "predet": {
+              "p": 0.8406374502,
+              "r": 0.9055793991000001,
+              "f": 0.8719008264
+            },
+            "preconj": {
+              "p": 0.5591397849,
+              "r": 0.6046511628,
+              "f": 0.5810055866
+            },
+            "oprd": {
+              "p": 0.8287671233,
+              "r": 0.7223880597,
+              "f": 0.7719298246
+            },
+            "parataxis": {
+              "p": 0.5860215054,
+              "r": 0.4728850325,
+              "f": 0.5234093637
+            },
+            "meta": {
+              "p": 0.8,
+              "r": 0.4615384615,
+              "f": 0.5853658537
+            },
+            "csubjpass": {
+              "p": 0.625,
+              "r": 0.8333333333,
+              "f": 0.7142857143
+            }
+          },
+          "ents_p": 0.8429743795,
+          "ents_r": 0.8436498397000001,
+          "ents_f": 0.8433119744,
+          "ents_per_type": {
+            "DATE": {
+              "p": 0.8531038722000001,
+              "r": 0.8812698413000001,
+              "f": 0.8669581512000001
+            },
+            "GPE": {
+              "p": 0.9142205757,
+              "r": 0.8948396095000001,
+              "f": 0.9044262757
+            },
+            "ORDINAL": {
+              "p": 0.7741046832,
+              "r": 0.8726708075,
+              "f": 0.8204379562
+            },
+            "ORG": {
+              "p": 0.7904834996000001,
+              "r": 0.8191940615000001,
+              "f": 0.8045827366
+            },
+            "CARDINAL": {
+              "p": 0.8149386845000001,
+              "r": 0.8692033294,
+              "f": 0.8411967779
+            },
+            "FAC": {
+              "p": 0.3904761905,
+              "r": 0.3153846154,
+              "f": 0.3489361702
+            },
+            "PERSON": {
+              "p": 0.8574969021000001,
+              "r": 0.9033942559,
+              "f": 0.8798474253
+            },
+            "NORP": {
+              "p": 0.9031224980000001,
+              "r": 0.9024000000000001,
+              "f": 0.9027611044
+            },
+            "TIME": {
+              "p": 0.7454545455,
+              "r": 0.7192982456,
+              "f": 0.7321428571
+            },
+            "LOC": {
+              "p": 0.7356321839000001,
+              "r": 0.6114649682000001,
+              "f": 0.667826087
+            },
+            "MONEY": {
+              "p": 0.915274463,
+              "r": 0.9055489965,
+              "f": 0.9103857567
+            },
+            "QUANTITY": {
+              "p": 0.8153846154000001,
+              "r": 0.5824175824,
+              "f": 0.6794871795
+            },
+            "WORK_OF_ART": {
+              "p": 0.47445255470000003,
+              "r": 0.3350515464,
+              "f": 0.3927492447
+            },
+            "EVENT": {
+              "p": 0.6341463415,
+              "r": 0.29885057470000004,
+              "f": 0.40625000000000006
+            },
+            "LAW": {
+              "p": 0.44642857140000003,
+              "r": 0.390625,
+              "f": 0.4166666667
+            },
+            "PERCENT": {
+              "p": 0.9153354633,
+              "r": 0.8774885145,
+              "f": 0.8960125098
+            },
+            "LANGUAGE": {
+              "p": 0.7692307692,
+              "r": 0.625,
+              "f": 0.6896551724000001
+            },
+            "PRODUCT": {
+              "p": 0.5287356322,
+              "r": 0.2180094787,
+              "f": 0.3087248322
+            }
+          },
+          "speed": 9426.1029865937
+        },
+        "sources": [
+          {
+            "name": "OntoNotes 5",
+            "url": "https://catalog.ldc.upenn.edu/LDC2013T19",
+            "license": "commercial (licensed by Explosion)",
+            "author": "Ralph Weischedel, Martha Palmer, Mitchell Marcus, Eduard Hovy, Sameer Pradhan, Lance Ramshaw, Nianwen Xue, Ann Taylor, Jeff Kaufman, Michelle Franchini, Mohammed El-Bachouti, Robert Belvin, Ann Houston"
+          },
+          {
+            "name": "ClearNLP Constituent-to-Dependency Conversion",
+            "url": "https://github.com/clir/clearnlp-guidelines/blob/master/md/components/dependency_conversion.md",
+            "license": "Citation provided for reference, no code packaged with model",
+            "author": "Emory University"
+          },
+          {
+            "name": "WordNet 3.0",
+            "url": "https://wordnet.princeton.edu/",
+            "author": "Princeton University",
+            "license": "WordNet 3.0 License"
+          }
+        ],
+        "requirements": []
+      },
+      "en-GB": {
+        "lang": "en",
+        "name": "core_web_sm",
+        "version": "3.8.0",
+        "description": "English pipeline optimized for CPU. Components: tok2vec, tagger, parser, senter, ner, attribute_ruler, lemmatizer.",
+        "author": "Explosion",
+        "email": "contact@explosion.ai",
+        "url": "https://explosion.ai",
+        "license": "MIT",
+        "spacy_version": ">=3.8.0,<3.9.0",
+        "spacy_git_version": "5010fcbd3",
+        "vectors": {
+          "width": 0,
+          "vectors": 0,
+          "keys": 0,
+          "name": null,
+          "mode": "default"
+        },
+        "labels": {
+          "tok2vec": [],
+          "tagger": [
+            "$",
+            "''",
+            ",",
+            "-LRB-",
+            "-RRB-",
+            ".",
+            ":",
+            "ADD",
+            "AFX",
+            "CC",
+            "CD",
+            "DT",
+            "EX",
+            "FW",
+            "HYPH",
+            "IN",
+            "JJ",
+            "JJR",
+            "JJS",
+            "LS",
+            "MD",
+            "NFP",
+            "NN",
+            "NNP",
+            "NNPS",
+            "NNS",
+            "PDT",
+            "POS",
+            "PRP",
+            "PRP$",
+            "RB",
+            "RBR",
+            "RBS",
+            "RP",
+            "SYM",
+            "TO",
+            "UH",
+            "VB",
+            "VBD",
+            "VBG",
+            "VBN",
+            "VBP",
+            "VBZ",
+            "WDT",
+            "WP",
+            "WP$",
+            "WRB",
+            "XX",
+            "_SP",
+            "``"
+          ],
+          "parser": [
+            "ROOT",
+            "acl",
+            "acomp",
+            "advcl",
+            "advmod",
+            "agent",
+            "amod",
+            "appos",
+            "attr",
+            "aux",
+            "auxpass",
+            "case",
+            "cc",
+            "ccomp",
+            "compound",
+            "conj",
+            "csubj",
+            "csubjpass",
+            "dative",
+            "dep",
+            "det",
+            "dobj",
+            "expl",
+            "intj",
+            "mark",
+            "meta",
+            "neg",
+            "nmod",
+            "npadvmod",
+            "nsubj",
+            "nsubjpass",
+            "nummod",
+            "oprd",
+            "parataxis",
+            "pcomp",
+            "pobj",
+            "poss",
+            "preconj",
+            "predet",
+            "prep",
+            "prt",
+            "punct",
+            "quantmod",
+            "relcl",
+            "xcomp"
+          ],
+          "attribute_ruler": [],
+          "lemmatizer": [],
+          "ner": [
+            "CARDINAL",
+            "DATE",
+            "EVENT",
+            "FAC",
+            "GPE",
+            "LANGUAGE",
+            "LAW",
+            "LOC",
+            "MONEY",
+            "NORP",
+            "ORDINAL",
+            "ORG",
+            "PERCENT",
+            "PERSON",
+            "PRODUCT",
+            "QUANTITY",
+            "TIME",
+            "WORK_OF_ART"
+          ]
+        },
+        "pipeline": [
+          "tok2vec",
+          "tagger"
+        ],
+        "components": [
+          "tok2vec",
+          "tagger",
+          "parser",
+          "senter",
+          "attribute_ruler",
+          "lemmatizer",
+          "ner"
+        ],
+        "disabled": [
+          "parser",
+          "senter",
+          "attribute_ruler",
+          "lemmatizer",
+          "ner"
+        ],
+        "performance": {
+          "token_acc": 0.9986194413,
+          "token_p": 0.9956819193,
+          "token_r": 0.9957659295000001,
+          "token_f": 0.9957239226000001,
+          "tag_acc": 0.9729372620000001,
+          "sents_p": 0.9200841934,
+          "sents_r": 0.8939244013000001,
+          "sents_f": 0.9068156724,
+          "dep_uas": 0.9176955214,
+          "dep_las": 0.8991533598,
+          "dep_las_per_type": {
+            "prep": {
+              "p": 0.8541604085000001,
+              "r": 0.8631379245,
+              "f": 0.8586257006
+            },
+            "det": {
+              "p": 0.9768729642,
+              "r": 0.9782271875,
+              "f": 0.9775496068
+            },
+            "pobj": {
+              "p": 0.9620664033,
+              "r": 0.966071078,
+              "f": 0.9640645819
+            },
+            "nsubj": {
+              "p": 0.9573684677000001,
+              "r": 0.9454983571000001,
+              "f": 0.9513963894
+            },
+            "aux": {
+              "p": 0.9792295402000001,
+              "r": 0.982106294,
+              "f": 0.9806658074000001
+            },
+            "advmod": {
+              "p": 0.8525198045,
+              "r": 0.8510853104,
+              "f": 0.8518019535
+            },
+            "relcl": {
+              "p": 0.7660107335,
+              "r": 0.776850508,
+              "f": 0.7713925419000001
+            },
+            "root": {
+              "p": 0.9179682195000001,
+              "r": 0.8917474767,
+              "f": 0.9046678936
+            },
+            "xcomp": {
+              "p": 0.8814035088000001,
+              "r": 0.9016511127,
+              "f": 0.8914123492
+            },
+            "amod": {
+              "p": 0.9161996611000001,
+              "r": 0.9109167477000001,
+              "f": 0.9135505669
+            },
+            "compound": {
+              "p": 0.916113822,
+              "r": 0.9305524616,
+              "f": 0.9232766957
+            },
+            "poss": {
+              "p": 0.9741586538,
+              "r": 0.9788647343,
+              "f": 0.9765060241
+            },
+            "ccomp": {
+              "p": 0.7786216062,
+              "r": 0.8352342159,
+              "f": 0.8059349514
+            },
+            "attr": {
+              "p": 0.8972491909,
+              "r": 0.9327165685000001,
+              "f": 0.9146391753
+            },
+            "case": {
+              "p": 0.9782608696,
+              "r": 0.9909909910000001,
+              "f": 0.9845847837
+            },
+            "mark": {
+              "p": 0.9028511088000001,
+              "r": 0.906200318,
+              "f": 0.9045226131
+            },
+            "intj": {
+              "p": 0.6679841897000001,
+              "r": 0.619047619,
+              "f": 0.6425855513000001
+            },
+            "advcl": {
+              "p": 0.6656519533,
+              "r": 0.6607907328,
+              "f": 0.6632124352000001
+            },
+            "cc": {
+              "p": 0.8345964153000001,
+              "r": 0.8298050472,
+              "f": 0.8321938347000001
+            },
+            "neg": {
+              "p": 0.9475786321,
+              "r": 0.9523331661000001,
+              "f": 0.9499499499
+            },
+            "conj": {
+              "p": 0.7649689441,
+              "r": 0.7751762336,
+              "f": 0.7700387645
+            },
+            "nsubjpass": {
+              "p": 0.9159021407,
+              "r": 0.9215384615000001,
+              "f": 0.9187116564000001
+            },
+            "auxpass": {
+              "p": 0.9494232476000001,
+              "r": 0.9749430524,
+              "f": 0.9620139357
+            },
+            "dobj": {
+              "p": 0.9231431478000001,
+              "r": 0.9399155311,
+              "f": 0.9314538419
+            },
+            "nummod": {
+              "p": 0.9353284301,
+              "r": 0.9313131313,
+              "f": 0.9333164621000001
+            },
+            "npadvmod": {
+              "p": 0.7748267898000001,
+              "r": 0.7150976909,
+              "f": 0.7437650102000001
+            },
+            "prt": {
+              "p": 0.8148760331,
+              "r": 0.8835125448000001,
+              "f": 0.8478073947
+            },
+            "pcomp": {
+              "p": 0.8693820225000001,
+              "r": 0.8669467787,
+              "f": 0.8681626928
+            },
+            "expl": {
+              "p": 0.9789029536,
+              "r": 0.9935760171,
+              "f": 0.9861849097000001
+            },
+            "acl": {
+              "p": 0.7417295415,
+              "r": 0.6972176759000001,
+              "f": 0.7187851519
+            },
+            "agent": {
+              "p": 0.8994889267,
+              "r": 0.9462365591,
+              "f": 0.9222707424000001
+            },
+            "dative": {
+              "p": 0.7669172932,
+              "r": 0.7018348624,
+              "f": 0.7329341317
+            },
+            "acomp": {
+              "p": 0.9132441163,
+              "r": 0.8975056689,
+              "f": 0.9053064959
+            },
+            "dep": {
+              "p": 0.3686006826,
+              "r": 0.1753246753,
+              "f": 0.23762376240000002
+            },
+            "csubj": {
+              "p": 0.7039106145,
+              "r": 0.7455621302000001,
+              "f": 0.724137931
+            },
+            "quantmod": {
+              "p": 0.8625336927,
+              "r": 0.7798537774000001,
+              "f": 0.8191126280000001
+            },
+            "nmod": {
+              "p": 0.7528868360000001,
+              "r": 0.5959780622,
+              "f": 0.6653061224
+            },
+            "appos": {
+              "p": 0.6866606983,
+              "r": 0.6655097614000001,
+              "f": 0.6759198061
+            },
+            "predet": {
+              "p": 0.8406374502,
+              "r": 0.9055793991000001,
+              "f": 0.8719008264
+            },
+            "preconj": {
+              "p": 0.5591397849,
+              "r": 0.6046511628,
+              "f": 0.5810055866
+            },
+            "oprd": {
+              "p": 0.8287671233,
+              "r": 0.7223880597,
+              "f": 0.7719298246
+            },
+            "parataxis": {
+              "p": 0.5860215054,
+              "r": 0.4728850325,
+              "f": 0.5234093637
+            },
+            "meta": {
+              "p": 0.8,
+              "r": 0.4615384615,
+              "f": 0.5853658537
+            },
+            "csubjpass": {
+              "p": 0.625,
+              "r": 0.8333333333,
+              "f": 0.7142857143
+            }
+          },
+          "ents_p": 0.8429743795,
+          "ents_r": 0.8436498397000001,
+          "ents_f": 0.8433119744,
+          "ents_per_type": {
+            "DATE": {
+              "p": 0.8531038722000001,
+              "r": 0.8812698413000001,
+              "f": 0.8669581512000001
+            },
+            "GPE": {
+              "p": 0.9142205757,
+              "r": 0.8948396095000001,
+              "f": 0.9044262757
+            },
+            "ORDINAL": {
+              "p": 0.7741046832,
+              "r": 0.8726708075,
+              "f": 0.8204379562
+            },
+            "ORG": {
+              "p": 0.7904834996000001,
+              "r": 0.8191940615000001,
+              "f": 0.8045827366
+            },
+            "CARDINAL": {
+              "p": 0.8149386845000001,
+              "r": 0.8692033294,
+              "f": 0.8411967779
+            },
+            "FAC": {
+              "p": 0.3904761905,
+              "r": 0.3153846154,
+              "f": 0.3489361702
+            },
+            "PERSON": {
+              "p": 0.8574969021000001,
+              "r": 0.9033942559,
+              "f": 0.8798474253
+            },
+            "NORP": {
+              "p": 0.9031224980000001,
+              "r": 0.9024000000000001,
+              "f": 0.9027611044
+            },
+            "TIME": {
+              "p": 0.7454545455,
+              "r": 0.7192982456,
+              "f": 0.7321428571
+            },
+            "LOC": {
+              "p": 0.7356321839000001,
+              "r": 0.6114649682000001,
+              "f": 0.667826087
+            },
+            "MONEY": {
+              "p": 0.915274463,
+              "r": 0.9055489965,
+              "f": 0.9103857567
+            },
+            "QUANTITY": {
+              "p": 0.8153846154000001,
+              "r": 0.5824175824,
+              "f": 0.6794871795
+            },
+            "WORK_OF_ART": {
+              "p": 0.47445255470000003,
+              "r": 0.3350515464,
+              "f": 0.3927492447
+            },
+            "EVENT": {
+              "p": 0.6341463415,
+              "r": 0.29885057470000004,
+              "f": 0.40625000000000006
+            },
+            "LAW": {
+              "p": 0.44642857140000003,
+              "r": 0.390625,
+              "f": 0.4166666667
+            },
+            "PERCENT": {
+              "p": 0.9153354633,
+              "r": 0.8774885145,
+              "f": 0.8960125098
+            },
+            "LANGUAGE": {
+              "p": 0.7692307692,
+              "r": 0.625,
+              "f": 0.6896551724000001
+            },
+            "PRODUCT": {
+              "p": 0.5287356322,
+              "r": 0.2180094787,
+              "f": 0.3087248322
+            }
+          },
+          "speed": 9426.1029865937
+        },
+        "sources": [
+          {
+            "name": "OntoNotes 5",
+            "url": "https://catalog.ldc.upenn.edu/LDC2013T19",
+            "license": "commercial (licensed by Explosion)",
+            "author": "Ralph Weischedel, Martha Palmer, Mitchell Marcus, Eduard Hovy, Sameer Pradhan, Lance Ramshaw, Nianwen Xue, Ann Taylor, Jeff Kaufman, Michelle Franchini, Mohammed El-Bachouti, Robert Belvin, Ann Houston"
+          },
+          {
+            "name": "ClearNLP Constituent-to-Dependency Conversion",
+            "url": "https://github.com/clir/clearnlp-guidelines/blob/master/md/components/dependency_conversion.md",
+            "license": "Citation provided for reference, no code packaged with model",
+            "author": "Emory University"
+          },
+          {
+            "name": "WordNet 3.0",
+            "url": "https://wordnet.princeton.edu/",
+            "author": "Princeton University",
+            "license": "WordNet 3.0 License"
+          }
+        ],
+        "requirements": []
+      }
+    },
+    "misaki_en_sha256": "ddf67ad3bc4dd98143dcc9b6fbcde259b9d879d8b91684201cf0deeb07aa9910",
+    "script_sha256": "65afa67c4d2b8218fad73eb2010393ab55a3073f98baddff32123e96be0a7df6",
+    "cases_sha256": "81bb9f3eccca860c2377b590af110c8e83f4f1b74844a020b310a8b3e58b0cf3",
+    "python": "/opt/kokoro-rk3588-canary/python-env/rkvoice-stream-venv-v1/bin/python",
+    "torch_loaded": false,
+    "transformers_loaded": false
+  },
+  "count": 56,
+  "rows": [
+    {
+      "id": "en-US-eval-use-imperative-01",
+      "route": "en-US",
+      "text": "Use the spare latch.",
+      "phonemes": "jˈuz ðə spˈɛɹ lˈæʧ.",
+      "final_tokens": [
+        {
+          "text": "Use",
+          "tag": "VB",
+          "phonemes": "jˈuz",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "spare",
+          "tag": "JJ",
+          "phonemes": "spˈɛɹ",
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "phonemes": "lˈæʧ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Use the spare latch.",
+      "tokenizer_tokens": [
+        {
+          "text": "Use",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "spare",
+          "tag": "JJ",
+          "idx": 8,
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "idx": 14,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 19,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        52,
+        156,
+        63,
+        68,
+        16,
+        81,
+        83,
+        16,
+        61,
+        58,
+        156,
+        86,
+        123,
+        16,
+        54,
+        156,
+        72,
+        133,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-use-imperative-01",
+      "route": "en-GB",
+      "text": "Use the spare latch.",
+      "phonemes": "jˈuːz ðə spˈɛː lˈaʧ.",
+      "final_tokens": [
+        {
+          "text": "Use",
+          "tag": "VB",
+          "phonemes": "jˈuːz",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "spare",
+          "tag": "JJ",
+          "phonemes": "spˈɛː",
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "phonemes": "lˈaʧ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Use the spare latch.",
+      "tokenizer_tokens": [
+        {
+          "text": "Use",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "spare",
+          "tag": "JJ",
+          "idx": 8,
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "idx": 14,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 19,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        52,
+        156,
+        63,
+        158,
+        68,
+        16,
+        81,
+        83,
+        16,
+        61,
+        58,
+        156,
+        86,
+        158,
+        16,
+        54,
+        156,
+        43,
+        133,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-use-noun-01",
+      "route": "en-US",
+      "text": "Use of the spare latch is forbidden.",
+      "phonemes": "jˈus ʌv ðə spˈɛɹ lˈæʧ ɪz fəɹbˈɪdᵊn.",
+      "final_tokens": [
+        {
+          "text": "Use",
+          "tag": "NN",
+          "phonemes": "jˈus",
+          "whitespace": " "
+        },
+        {
+          "text": "of",
+          "tag": "IN",
+          "phonemes": "ʌv",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "spare",
+          "tag": "JJ",
+          "phonemes": "spˈɛɹ",
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "phonemes": "lˈæʧ",
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "phonemes": "ɪz",
+          "whitespace": " "
+        },
+        {
+          "text": "forbidden",
+          "tag": "VBN",
+          "phonemes": "fəɹbˈɪdᵊn",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Use of the spare latch is forbidden.",
+      "tokenizer_tokens": [
+        {
+          "text": "Use",
+          "tag": "NN",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "of",
+          "tag": "IN",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 7,
+          "whitespace": " "
+        },
+        {
+          "text": "spare",
+          "tag": "JJ",
+          "idx": 11,
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "idx": 17,
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "idx": 23,
+          "whitespace": " "
+        },
+        {
+          "text": "forbidden",
+          "tag": "VBN",
+          "idx": 26,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 35,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        52,
+        156,
+        63,
+        61,
+        16,
+        138,
+        64,
+        16,
+        81,
+        83,
+        16,
+        61,
+        58,
+        156,
+        86,
+        123,
+        16,
+        54,
+        156,
+        72,
+        133,
+        16,
+        102,
+        68,
+        16,
+        48,
+        83,
+        123,
+        44,
+        156,
+        102,
+        46,
+        42,
+        56,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-use-noun-01",
+      "route": "en-GB",
+      "text": "Use of the spare latch is forbidden.",
+      "phonemes": "jˈuːs ɒv ðə spˈɛː lˈaʧ ɪz fəbˈɪdᵊn.",
+      "final_tokens": [
+        {
+          "text": "Use",
+          "tag": "NN",
+          "phonemes": "jˈuːs",
+          "whitespace": " "
+        },
+        {
+          "text": "of",
+          "tag": "IN",
+          "phonemes": "ɒv",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "spare",
+          "tag": "JJ",
+          "phonemes": "spˈɛː",
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "phonemes": "lˈaʧ",
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "phonemes": "ɪz",
+          "whitespace": " "
+        },
+        {
+          "text": "forbidden",
+          "tag": "VBN",
+          "phonemes": "fəbˈɪdᵊn",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Use of the spare latch is forbidden.",
+      "tokenizer_tokens": [
+        {
+          "text": "Use",
+          "tag": "NN",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "of",
+          "tag": "IN",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 7,
+          "whitespace": " "
+        },
+        {
+          "text": "spare",
+          "tag": "JJ",
+          "idx": 11,
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "idx": 17,
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "idx": 23,
+          "whitespace": " "
+        },
+        {
+          "text": "forbidden",
+          "tag": "VBN",
+          "idx": 26,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 35,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        52,
+        156,
+        63,
+        158,
+        61,
+        16,
+        71,
+        64,
+        16,
+        81,
+        83,
+        16,
+        61,
+        58,
+        156,
+        86,
+        158,
+        16,
+        54,
+        156,
+        43,
+        133,
+        16,
+        102,
+        68,
+        16,
+        48,
+        83,
+        44,
+        156,
+        102,
+        46,
+        42,
+        56,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-use-negative-verb-01",
+      "route": "en-US",
+      "text": "Do not use that latch.",
+      "phonemes": "dˈu nˌɑt jˈuz ðˈæt lˈæʧ.",
+      "final_tokens": [
+        {
+          "text": "Do",
+          "tag": "VBP",
+          "phonemes": "dˈu",
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "phonemes": "nˌɑt",
+          "whitespace": " "
+        },
+        {
+          "text": "use",
+          "tag": "VB",
+          "phonemes": "jˈuz",
+          "whitespace": " "
+        },
+        {
+          "text": "that",
+          "tag": "DT",
+          "phonemes": "ðˈæt",
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "phonemes": "lˈæʧ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Do not use that latch.",
+      "tokenizer_tokens": [
+        {
+          "text": "Do",
+          "tag": "VBP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "idx": 3,
+          "whitespace": " "
+        },
+        {
+          "text": "use",
+          "tag": "VB",
+          "idx": 7,
+          "whitespace": " "
+        },
+        {
+          "text": "that",
+          "tag": "DT",
+          "idx": 11,
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "idx": 16,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 21,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        46,
+        156,
+        63,
+        16,
+        56,
+        157,
+        69,
+        62,
+        16,
+        52,
+        156,
+        63,
+        68,
+        16,
+        81,
+        156,
+        72,
+        62,
+        16,
+        54,
+        156,
+        72,
+        133,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-use-negative-verb-01",
+      "route": "en-GB",
+      "text": "Do not use that latch.",
+      "phonemes": "dˈuː nˌɒt jˈuːz ðˈat lˈaʧ.",
+      "final_tokens": [
+        {
+          "text": "Do",
+          "tag": "VBP",
+          "phonemes": "dˈuː",
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "phonemes": "nˌɒt",
+          "whitespace": " "
+        },
+        {
+          "text": "use",
+          "tag": "VB",
+          "phonemes": "jˈuːz",
+          "whitespace": " "
+        },
+        {
+          "text": "that",
+          "tag": "DT",
+          "phonemes": "ðˈat",
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "phonemes": "lˈaʧ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Do not use that latch.",
+      "tokenizer_tokens": [
+        {
+          "text": "Do",
+          "tag": "VBP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "idx": 3,
+          "whitespace": " "
+        },
+        {
+          "text": "use",
+          "tag": "VB",
+          "idx": 7,
+          "whitespace": " "
+        },
+        {
+          "text": "that",
+          "tag": "DT",
+          "idx": 11,
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "idx": 16,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 21,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        46,
+        156,
+        63,
+        158,
+        16,
+        56,
+        157,
+        71,
+        62,
+        16,
+        52,
+        156,
+        63,
+        158,
+        68,
+        16,
+        81,
+        156,
+        43,
+        62,
+        16,
+        54,
+        156,
+        43,
+        133,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-use-negative-noun-01",
+      "route": "en-US",
+      "text": "There is no use for that latch.",
+      "phonemes": "ðˌɛɹ ɪz nˈO jˈus fɔɹ ðˈæt lˈæʧ.",
+      "final_tokens": [
+        {
+          "text": "There",
+          "tag": "EX",
+          "phonemes": "ðˌɛɹ",
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "phonemes": "ɪz",
+          "whitespace": " "
+        },
+        {
+          "text": "no",
+          "tag": "DT",
+          "phonemes": "nˈO",
+          "whitespace": " "
+        },
+        {
+          "text": "use",
+          "tag": "NN",
+          "phonemes": "jˈus",
+          "whitespace": " "
+        },
+        {
+          "text": "for",
+          "tag": "IN",
+          "phonemes": "fɔɹ",
+          "whitespace": " "
+        },
+        {
+          "text": "that",
+          "tag": "DT",
+          "phonemes": "ðˈæt",
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "phonemes": "lˈæʧ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "There is no use for that latch.",
+      "tokenizer_tokens": [
+        {
+          "text": "There",
+          "tag": "EX",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "idx": 6,
+          "whitespace": " "
+        },
+        {
+          "text": "no",
+          "tag": "DT",
+          "idx": 9,
+          "whitespace": " "
+        },
+        {
+          "text": "use",
+          "tag": "NN",
+          "idx": 12,
+          "whitespace": " "
+        },
+        {
+          "text": "for",
+          "tag": "IN",
+          "idx": 16,
+          "whitespace": " "
+        },
+        {
+          "text": "that",
+          "tag": "DT",
+          "idx": 20,
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "idx": 25,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 30,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        157,
+        86,
+        123,
+        16,
+        102,
+        68,
+        16,
+        56,
+        156,
+        31,
+        16,
+        52,
+        156,
+        63,
+        61,
+        16,
+        48,
+        76,
+        123,
+        16,
+        81,
+        156,
+        72,
+        62,
+        16,
+        54,
+        156,
+        72,
+        133,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-use-negative-noun-01",
+      "route": "en-GB",
+      "text": "There is no use for that latch.",
+      "phonemes": "ðˌɛː ɪz nˈQ jˈuːs fɔː ðˈat lˈaʧ.",
+      "final_tokens": [
+        {
+          "text": "There",
+          "tag": "EX",
+          "phonemes": "ðˌɛː",
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "phonemes": "ɪz",
+          "whitespace": " "
+        },
+        {
+          "text": "no",
+          "tag": "DT",
+          "phonemes": "nˈQ",
+          "whitespace": " "
+        },
+        {
+          "text": "use",
+          "tag": "NN",
+          "phonemes": "jˈuːs",
+          "whitespace": " "
+        },
+        {
+          "text": "for",
+          "tag": "IN",
+          "phonemes": "fɔː",
+          "whitespace": " "
+        },
+        {
+          "text": "that",
+          "tag": "DT",
+          "phonemes": "ðˈat",
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "phonemes": "lˈaʧ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "There is no use for that latch.",
+      "tokenizer_tokens": [
+        {
+          "text": "There",
+          "tag": "EX",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "idx": 6,
+          "whitespace": " "
+        },
+        {
+          "text": "no",
+          "tag": "DT",
+          "idx": 9,
+          "whitespace": " "
+        },
+        {
+          "text": "use",
+          "tag": "NN",
+          "idx": 12,
+          "whitespace": " "
+        },
+        {
+          "text": "for",
+          "tag": "IN",
+          "idx": 16,
+          "whitespace": " "
+        },
+        {
+          "text": "that",
+          "tag": "DT",
+          "idx": 20,
+          "whitespace": " "
+        },
+        {
+          "text": "latch",
+          "tag": "NN",
+          "idx": 25,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 30,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        157,
+        86,
+        158,
+        16,
+        102,
+        68,
+        16,
+        56,
+        156,
+        33,
+        16,
+        52,
+        156,
+        63,
+        158,
+        61,
+        16,
+        48,
+        76,
+        158,
+        16,
+        81,
+        156,
+        43,
+        62,
+        16,
+        54,
+        156,
+        43,
+        133,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-increase-imperative-01",
+      "route": "en-US",
+      "text": "Increase the fan speed.",
+      "phonemes": "ɪnkɹˈis ðə fˈæn spˈid.",
+      "final_tokens": [
+        {
+          "text": "Increase",
+          "tag": "VB",
+          "phonemes": "ɪnkɹˈis",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "fan",
+          "tag": "NN",
+          "phonemes": "fˈæn",
+          "whitespace": " "
+        },
+        {
+          "text": "speed",
+          "tag": "NN",
+          "phonemes": "spˈid",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Increase the fan speed.",
+      "tokenizer_tokens": [
+        {
+          "text": "Increase",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 9,
+          "whitespace": " "
+        },
+        {
+          "text": "fan",
+          "tag": "NN",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "speed",
+          "tag": "NN",
+          "idx": 17,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 22,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        102,
+        56,
+        53,
+        123,
+        156,
+        51,
+        61,
+        16,
+        81,
+        83,
+        16,
+        48,
+        156,
+        72,
+        56,
+        16,
+        61,
+        58,
+        156,
+        51,
+        46,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-increase-imperative-01",
+      "route": "en-GB",
+      "text": "Increase the fan speed.",
+      "phonemes": "ɪnkɹˈiːs ðə fˈan spˈiːd.",
+      "final_tokens": [
+        {
+          "text": "Increase",
+          "tag": "VB",
+          "phonemes": "ɪnkɹˈiːs",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "fan",
+          "tag": "NN",
+          "phonemes": "fˈan",
+          "whitespace": " "
+        },
+        {
+          "text": "speed",
+          "tag": "NN",
+          "phonemes": "spˈiːd",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Increase the fan speed.",
+      "tokenizer_tokens": [
+        {
+          "text": "Increase",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 9,
+          "whitespace": " "
+        },
+        {
+          "text": "fan",
+          "tag": "NN",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "speed",
+          "tag": "NN",
+          "idx": 17,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 22,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        102,
+        56,
+        53,
+        123,
+        156,
+        51,
+        158,
+        61,
+        16,
+        81,
+        83,
+        16,
+        48,
+        156,
+        43,
+        56,
+        16,
+        61,
+        58,
+        156,
+        51,
+        158,
+        46,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-increase-noun-01",
+      "route": "en-US",
+      "text": "The increase in fan speed was small.",
+      "phonemes": "ði ˈɪnkɹˌis ɪn fˈæn spˈid wʌz smˈɔl.",
+      "final_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "phonemes": "ði",
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "phonemes": "ˈɪnkɹˌis",
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "phonemes": "ɪn",
+          "whitespace": " "
+        },
+        {
+          "text": "fan",
+          "tag": "NN",
+          "phonemes": "fˈæn",
+          "whitespace": " "
+        },
+        {
+          "text": "speed",
+          "tag": "NN",
+          "phonemes": "spˈid",
+          "whitespace": " "
+        },
+        {
+          "text": "was",
+          "tag": "VBD",
+          "phonemes": "wʌz",
+          "whitespace": " "
+        },
+        {
+          "text": "small",
+          "tag": "JJ",
+          "phonemes": "smˈɔl",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "The increase in fan speed was small.",
+      "tokenizer_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "fan",
+          "tag": "NN",
+          "idx": 16,
+          "whitespace": " "
+        },
+        {
+          "text": "speed",
+          "tag": "NN",
+          "idx": 20,
+          "whitespace": " "
+        },
+        {
+          "text": "was",
+          "tag": "VBD",
+          "idx": 26,
+          "whitespace": " "
+        },
+        {
+          "text": "small",
+          "tag": "JJ",
+          "idx": 30,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 35,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        51,
+        16,
+        156,
+        102,
+        56,
+        53,
+        123,
+        157,
+        51,
+        61,
+        16,
+        102,
+        56,
+        16,
+        48,
+        156,
+        72,
+        56,
+        16,
+        61,
+        58,
+        156,
+        51,
+        46,
+        16,
+        65,
+        138,
+        68,
+        16,
+        61,
+        55,
+        156,
+        76,
+        54,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-increase-noun-01",
+      "route": "en-GB",
+      "text": "The increase in fan speed was small.",
+      "phonemes": "ði ˈɪnkɹiːs ɪn fˈan spˈiːd wɒz smˈɔːl.",
+      "final_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "phonemes": "ði",
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "phonemes": "ˈɪnkɹiːs",
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "phonemes": "ɪn",
+          "whitespace": " "
+        },
+        {
+          "text": "fan",
+          "tag": "NN",
+          "phonemes": "fˈan",
+          "whitespace": " "
+        },
+        {
+          "text": "speed",
+          "tag": "NN",
+          "phonemes": "spˈiːd",
+          "whitespace": " "
+        },
+        {
+          "text": "was",
+          "tag": "VBD",
+          "phonemes": "wɒz",
+          "whitespace": " "
+        },
+        {
+          "text": "small",
+          "tag": "JJ",
+          "phonemes": "smˈɔːl",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "The increase in fan speed was small.",
+      "tokenizer_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "fan",
+          "tag": "NN",
+          "idx": 16,
+          "whitespace": " "
+        },
+        {
+          "text": "speed",
+          "tag": "NN",
+          "idx": 20,
+          "whitespace": " "
+        },
+        {
+          "text": "was",
+          "tag": "VBD",
+          "idx": 26,
+          "whitespace": " "
+        },
+        {
+          "text": "small",
+          "tag": "JJ",
+          "idx": 30,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 35,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        51,
+        16,
+        156,
+        102,
+        56,
+        53,
+        123,
+        51,
+        158,
+        61,
+        16,
+        102,
+        56,
+        16,
+        48,
+        156,
+        43,
+        56,
+        16,
+        61,
+        58,
+        156,
+        51,
+        158,
+        46,
+        16,
+        65,
+        71,
+        68,
+        16,
+        61,
+        55,
+        156,
+        76,
+        158,
+        54,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-increase-negative-verb-01",
+      "route": "en-US",
+      "text": "The rates do not increase in winter.",
+      "phonemes": "ðə ɹˈAts dˈu nˌɑt ɪnkɹˈis ɪn wˈɪntəɹ.",
+      "final_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "rates",
+          "tag": "NNS",
+          "phonemes": "ɹˈAts",
+          "whitespace": " "
+        },
+        {
+          "text": "do",
+          "tag": "VBP",
+          "phonemes": "dˈu",
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "phonemes": "nˌɑt",
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "VB",
+          "phonemes": "ɪnkɹˈis",
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "phonemes": "ɪn",
+          "whitespace": " "
+        },
+        {
+          "text": "winter",
+          "tag": "NN",
+          "phonemes": "wˈɪntəɹ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "The rates do not increase in winter.",
+      "tokenizer_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "rates",
+          "tag": "NNS",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "do",
+          "tag": "VBP",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "VB",
+          "idx": 17,
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "idx": 26,
+          "whitespace": " "
+        },
+        {
+          "text": "winter",
+          "tag": "NN",
+          "idx": 29,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 35,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        83,
+        16,
+        123,
+        156,
+        24,
+        62,
+        61,
+        16,
+        46,
+        156,
+        63,
+        16,
+        56,
+        157,
+        69,
+        62,
+        16,
+        102,
+        56,
+        53,
+        123,
+        156,
+        51,
+        61,
+        16,
+        102,
+        56,
+        16,
+        65,
+        156,
+        102,
+        56,
+        62,
+        83,
+        123,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-increase-negative-verb-01",
+      "route": "en-GB",
+      "text": "The rates do not increase in winter.",
+      "phonemes": "ðə ɹˈAts dˈuː nˌɒt ɪnkɹˈiːs ɪn wˈɪntə.",
+      "final_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "rates",
+          "tag": "NNS",
+          "phonemes": "ɹˈAts",
+          "whitespace": " "
+        },
+        {
+          "text": "do",
+          "tag": "VBP",
+          "phonemes": "dˈuː",
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "phonemes": "nˌɒt",
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "VB",
+          "phonemes": "ɪnkɹˈiːs",
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "phonemes": "ɪn",
+          "whitespace": " "
+        },
+        {
+          "text": "winter",
+          "tag": "NN",
+          "phonemes": "wˈɪntə",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "The rates do not increase in winter.",
+      "tokenizer_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "rates",
+          "tag": "NNS",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "do",
+          "tag": "VBP",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "VB",
+          "idx": 17,
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "idx": 26,
+          "whitespace": " "
+        },
+        {
+          "text": "winter",
+          "tag": "NN",
+          "idx": 29,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 35,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        83,
+        16,
+        123,
+        156,
+        24,
+        62,
+        61,
+        16,
+        46,
+        156,
+        63,
+        158,
+        16,
+        56,
+        157,
+        71,
+        62,
+        16,
+        102,
+        56,
+        53,
+        123,
+        156,
+        51,
+        158,
+        61,
+        16,
+        102,
+        56,
+        16,
+        65,
+        156,
+        102,
+        56,
+        62,
+        83,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-increase-negative-noun-01",
+      "route": "en-US",
+      "text": "The rates show no increase in winter.",
+      "phonemes": "ðə ɹˈAts ʃˈO nˈO ˈɪnkɹˌis ɪn wˈɪntəɹ.",
+      "final_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "rates",
+          "tag": "NNS",
+          "phonemes": "ɹˈAts",
+          "whitespace": " "
+        },
+        {
+          "text": "show",
+          "tag": "VBP",
+          "phonemes": "ʃˈO",
+          "whitespace": " "
+        },
+        {
+          "text": "no",
+          "tag": "DT",
+          "phonemes": "nˈO",
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "phonemes": "ˈɪnkɹˌis",
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "phonemes": "ɪn",
+          "whitespace": " "
+        },
+        {
+          "text": "winter",
+          "tag": "NN",
+          "phonemes": "wˈɪntəɹ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "The rates show no increase in winter.",
+      "tokenizer_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "rates",
+          "tag": "NNS",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "show",
+          "tag": "VBP",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "no",
+          "tag": "DT",
+          "idx": 15,
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "idx": 18,
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "idx": 27,
+          "whitespace": " "
+        },
+        {
+          "text": "winter",
+          "tag": "NN",
+          "idx": 30,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 36,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        83,
+        16,
+        123,
+        156,
+        24,
+        62,
+        61,
+        16,
+        131,
+        156,
+        31,
+        16,
+        56,
+        156,
+        31,
+        16,
+        156,
+        102,
+        56,
+        53,
+        123,
+        157,
+        51,
+        61,
+        16,
+        102,
+        56,
+        16,
+        65,
+        156,
+        102,
+        56,
+        62,
+        83,
+        123,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-increase-negative-noun-01",
+      "route": "en-GB",
+      "text": "The rates show no increase in winter.",
+      "phonemes": "ðə ɹˈAts ʃˈQ nˈQ ˈɪnkɹiːs ɪn wˈɪntə.",
+      "final_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "rates",
+          "tag": "NNS",
+          "phonemes": "ɹˈAts",
+          "whitespace": " "
+        },
+        {
+          "text": "show",
+          "tag": "VBP",
+          "phonemes": "ʃˈQ",
+          "whitespace": " "
+        },
+        {
+          "text": "no",
+          "tag": "DT",
+          "phonemes": "nˈQ",
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "phonemes": "ˈɪnkɹiːs",
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "phonemes": "ɪn",
+          "whitespace": " "
+        },
+        {
+          "text": "winter",
+          "tag": "NN",
+          "phonemes": "wˈɪntə",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "The rates show no increase in winter.",
+      "tokenizer_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "rates",
+          "tag": "NNS",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "show",
+          "tag": "VBP",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "no",
+          "tag": "DT",
+          "idx": 15,
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "idx": 18,
+          "whitespace": " "
+        },
+        {
+          "text": "in",
+          "tag": "IN",
+          "idx": 27,
+          "whitespace": " "
+        },
+        {
+          "text": "winter",
+          "tag": "NN",
+          "idx": 30,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 36,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        83,
+        16,
+        123,
+        156,
+        24,
+        62,
+        61,
+        16,
+        131,
+        156,
+        33,
+        16,
+        56,
+        156,
+        33,
+        16,
+        156,
+        102,
+        56,
+        53,
+        123,
+        51,
+        158,
+        61,
+        16,
+        102,
+        56,
+        16,
+        65,
+        156,
+        102,
+        56,
+        62,
+        83,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-read-present-01",
+      "route": "en-US",
+      "text": "They read the notices every Friday.",
+      "phonemes": "ðˌA ɹˈɛd ðə nˈOTəsᵻz ˈɛvəɹi fɹˈIdˌA.",
+      "final_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "phonemes": "ðˌA",
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBD",
+          "phonemes": "ɹˈɛd",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "notices",
+          "tag": "NNS",
+          "phonemes": "nˈOTəsᵻz",
+          "whitespace": " "
+        },
+        {
+          "text": "every",
+          "tag": "DT",
+          "phonemes": "ˈɛvəɹi",
+          "whitespace": " "
+        },
+        {
+          "text": "Friday",
+          "tag": "NNP",
+          "phonemes": "fɹˈIdˌA",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "They read the notices every Friday.",
+      "tokenizer_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBD",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "notices",
+          "tag": "NNS",
+          "idx": 14,
+          "whitespace": " "
+        },
+        {
+          "text": "every",
+          "tag": "DT",
+          "idx": 22,
+          "whitespace": " "
+        },
+        {
+          "text": "Friday",
+          "tag": "NNP",
+          "idx": 28,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 34,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        157,
+        24,
+        16,
+        123,
+        156,
+        86,
+        46,
+        16,
+        81,
+        83,
+        16,
+        56,
+        156,
+        31,
+        36,
+        83,
+        61,
+        177,
+        68,
+        16,
+        156,
+        86,
+        64,
+        83,
+        123,
+        51,
+        16,
+        48,
+        123,
+        156,
+        25,
+        46,
+        157,
+        24,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-read-present-01",
+      "route": "en-GB",
+      "text": "They read the notices every Friday.",
+      "phonemes": "ðˌA ɹˈɛd ðə nˈQtɪsɪz ˈɛvəɹi fɹˈIdA.",
+      "final_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "phonemes": "ðˌA",
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBD",
+          "phonemes": "ɹˈɛd",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "notices",
+          "tag": "NNS",
+          "phonemes": "nˈQtɪsɪz",
+          "whitespace": " "
+        },
+        {
+          "text": "every",
+          "tag": "DT",
+          "phonemes": "ˈɛvəɹi",
+          "whitespace": " "
+        },
+        {
+          "text": "Friday",
+          "tag": "NNP",
+          "phonemes": "fɹˈIdA",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "They read the notices every Friday.",
+      "tokenizer_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBD",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "notices",
+          "tag": "NNS",
+          "idx": 14,
+          "whitespace": " "
+        },
+        {
+          "text": "every",
+          "tag": "DT",
+          "idx": 22,
+          "whitespace": " "
+        },
+        {
+          "text": "Friday",
+          "tag": "NNP",
+          "idx": 28,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 34,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        157,
+        24,
+        16,
+        123,
+        156,
+        86,
+        46,
+        16,
+        81,
+        83,
+        16,
+        56,
+        156,
+        33,
+        62,
+        102,
+        61,
+        102,
+        68,
+        16,
+        156,
+        86,
+        64,
+        83,
+        123,
+        51,
+        16,
+        48,
+        123,
+        156,
+        25,
+        46,
+        24,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-read-past-01",
+      "route": "en-US",
+      "text": "They read the notices last Friday.",
+      "phonemes": "ðˌA ɹˈɛd ðə nˈOTəsᵻz lˈæst fɹˈIdˌA.",
+      "final_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "phonemes": "ðˌA",
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBD",
+          "phonemes": "ɹˈɛd",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "notices",
+          "tag": "NNS",
+          "phonemes": "nˈOTəsᵻz",
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "phonemes": "lˈæst",
+          "whitespace": " "
+        },
+        {
+          "text": "Friday",
+          "tag": "NNP",
+          "phonemes": "fɹˈIdˌA",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "They read the notices last Friday.",
+      "tokenizer_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBD",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "notices",
+          "tag": "NNS",
+          "idx": 14,
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "idx": 22,
+          "whitespace": " "
+        },
+        {
+          "text": "Friday",
+          "tag": "NNP",
+          "idx": 27,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 33,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        157,
+        24,
+        16,
+        123,
+        156,
+        86,
+        46,
+        16,
+        81,
+        83,
+        16,
+        56,
+        156,
+        31,
+        36,
+        83,
+        61,
+        177,
+        68,
+        16,
+        54,
+        156,
+        72,
+        61,
+        62,
+        16,
+        48,
+        123,
+        156,
+        25,
+        46,
+        157,
+        24,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-read-past-01",
+      "route": "en-GB",
+      "text": "They read the notices last Friday.",
+      "phonemes": "ðˌA ɹˈɛd ðə nˈQtɪsɪz lˈɑːst fɹˈIdA.",
+      "final_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "phonemes": "ðˌA",
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBD",
+          "phonemes": "ɹˈɛd",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "notices",
+          "tag": "NNS",
+          "phonemes": "nˈQtɪsɪz",
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "phonemes": "lˈɑːst",
+          "whitespace": " "
+        },
+        {
+          "text": "Friday",
+          "tag": "NNP",
+          "phonemes": "fɹˈIdA",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "They read the notices last Friday.",
+      "tokenizer_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBD",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "notices",
+          "tag": "NNS",
+          "idx": 14,
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "idx": 22,
+          "whitespace": " "
+        },
+        {
+          "text": "Friday",
+          "tag": "NNP",
+          "idx": 27,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 33,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        157,
+        24,
+        16,
+        123,
+        156,
+        86,
+        46,
+        16,
+        81,
+        83,
+        16,
+        56,
+        156,
+        33,
+        62,
+        102,
+        61,
+        102,
+        68,
+        16,
+        54,
+        156,
+        69,
+        158,
+        61,
+        62,
+        16,
+        48,
+        123,
+        156,
+        25,
+        46,
+        24,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-read-negative-base-01",
+      "route": "en-US",
+      "text": "They did not read the last notice.",
+      "phonemes": "ðˌA dˈɪd nˌɑt ɹˈid ðə lˈæst nˈOTəs.",
+      "final_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "phonemes": "ðˌA",
+          "whitespace": " "
+        },
+        {
+          "text": "did",
+          "tag": "VBD",
+          "phonemes": "dˈɪd",
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "phonemes": "nˌɑt",
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VB",
+          "phonemes": "ɹˈid",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "phonemes": "lˈæst",
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "phonemes": "nˈOTəs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "They did not read the last notice.",
+      "tokenizer_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "did",
+          "tag": "VBD",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "idx": 9,
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VB",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 18,
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "idx": 22,
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "idx": 27,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 33,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        157,
+        24,
+        16,
+        46,
+        156,
+        102,
+        46,
+        16,
+        56,
+        157,
+        69,
+        62,
+        16,
+        123,
+        156,
+        51,
+        46,
+        16,
+        81,
+        83,
+        16,
+        54,
+        156,
+        72,
+        61,
+        62,
+        16,
+        56,
+        156,
+        31,
+        36,
+        83,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-read-negative-base-01",
+      "route": "en-GB",
+      "text": "They did not read the last notice.",
+      "phonemes": "ðˌA dˈɪd nˌɒt ɹˈiːd ðə lˈɑːst nˈQtɪs.",
+      "final_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "phonemes": "ðˌA",
+          "whitespace": " "
+        },
+        {
+          "text": "did",
+          "tag": "VBD",
+          "phonemes": "dˈɪd",
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "phonemes": "nˌɒt",
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VB",
+          "phonemes": "ɹˈiːd",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "phonemes": "lˈɑːst",
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "phonemes": "nˈQtɪs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "They did not read the last notice.",
+      "tokenizer_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "did",
+          "tag": "VBD",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "idx": 9,
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VB",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 18,
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "idx": 22,
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "idx": 27,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 33,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        157,
+        24,
+        16,
+        46,
+        156,
+        102,
+        46,
+        16,
+        56,
+        157,
+        71,
+        62,
+        16,
+        123,
+        156,
+        51,
+        158,
+        46,
+        16,
+        81,
+        83,
+        16,
+        54,
+        156,
+        69,
+        158,
+        61,
+        62,
+        16,
+        56,
+        156,
+        33,
+        62,
+        102,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-read-participle-01",
+      "route": "en-US",
+      "text": "They have read the last notice.",
+      "phonemes": "ðˌA hæv ɹˈɛd ðə lˈæst nˈOTəs.",
+      "final_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "phonemes": "ðˌA",
+          "whitespace": " "
+        },
+        {
+          "text": "have",
+          "tag": "VBP",
+          "phonemes": "hæv",
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBN",
+          "phonemes": "ɹˈɛd",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "phonemes": "lˈæst",
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "phonemes": "nˈOTəs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "They have read the last notice.",
+      "tokenizer_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "have",
+          "tag": "VBP",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBN",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 15,
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "idx": 19,
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "idx": 24,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 30,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        157,
+        24,
+        16,
+        50,
+        72,
+        64,
+        16,
+        123,
+        156,
+        86,
+        46,
+        16,
+        81,
+        83,
+        16,
+        54,
+        156,
+        72,
+        61,
+        62,
+        16,
+        56,
+        156,
+        31,
+        36,
+        83,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-read-participle-01",
+      "route": "en-GB",
+      "text": "They have read the last notice.",
+      "phonemes": "ðˌA hav ɹˈɛd ðə lˈɑːst nˈQtɪs.",
+      "final_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "phonemes": "ðˌA",
+          "whitespace": " "
+        },
+        {
+          "text": "have",
+          "tag": "VBP",
+          "phonemes": "hav",
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBN",
+          "phonemes": "ɹˈɛd",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "phonemes": "lˈɑːst",
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "phonemes": "nˈQtɪs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "They have read the last notice.",
+      "tokenizer_tokens": [
+        {
+          "text": "They",
+          "tag": "PRP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "have",
+          "tag": "VBP",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "read",
+          "tag": "VBN",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 15,
+          "whitespace": " "
+        },
+        {
+          "text": "last",
+          "tag": "JJ",
+          "idx": 19,
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "idx": 24,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 30,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        157,
+        24,
+        16,
+        50,
+        43,
+        64,
+        16,
+        123,
+        156,
+        86,
+        46,
+        16,
+        81,
+        83,
+        16,
+        54,
+        156,
+        69,
+        158,
+        61,
+        62,
+        16,
+        56,
+        156,
+        33,
+        62,
+        102,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-email-plus-domain-01",
+      "route": "en-US",
+      "text": "Write ops+night@example.co.uk, then wait.",
+      "phonemes": "ɹˈIt ˈɑps plˈʌs nˈIt æt ɪɡzˈæmpəl sˌiˌOjˌukˈA, ðˈɛn wˈAt.",
+      "final_tokens": [
+        {
+          "text": "Write",
+          "tag": "VB",
+          "phonemes": "ɹˈIt",
+          "whitespace": " "
+        },
+        {
+          "text": "ops+night@example.co.uk",
+          "tag": "NN",
+          "phonemes": "ˈɑps plˈʌs nˈIt æt ɪɡzˈæmpəl sˌiˌOjˌukˈA",
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "phonemes": ",",
+          "whitespace": " "
+        },
+        {
+          "text": "then",
+          "tag": "RB",
+          "phonemes": "ðˈɛn",
+          "whitespace": " "
+        },
+        {
+          "text": "wait",
+          "tag": "VB",
+          "phonemes": "wˈAt",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Write ops+night@example.co.uk, then wait.",
+      "tokenizer_tokens": [
+        {
+          "text": "Write",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "ops+night@example.co.uk",
+          "tag": "NN",
+          "idx": 6,
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "idx": 29,
+          "whitespace": " "
+        },
+        {
+          "text": "then",
+          "tag": "RB",
+          "idx": 31,
+          "whitespace": " "
+        },
+        {
+          "text": "wait",
+          "tag": "VB",
+          "idx": 36,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 40,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        123,
+        156,
+        25,
+        62,
+        16,
+        156,
+        69,
+        58,
+        61,
+        16,
+        58,
+        54,
+        156,
+        138,
+        61,
+        16,
+        56,
+        156,
+        25,
+        62,
+        16,
+        72,
+        62,
+        16,
+        102,
+        92,
+        68,
+        156,
+        72,
+        55,
+        58,
+        83,
+        54,
+        16,
+        61,
+        157,
+        51,
+        157,
+        31,
+        52,
+        157,
+        63,
+        53,
+        156,
+        24,
+        3,
+        16,
+        81,
+        156,
+        86,
+        56,
+        16,
+        65,
+        156,
+        24,
+        62,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-email-plus-domain-01",
+      "route": "en-GB",
+      "text": "Write ops+night@example.co.uk, then wait.",
+      "phonemes": "ɹˈIt ˈɒps plˈʌs nˈIt at ɪɡzˈɑːmpᵊl sˌiːˌQjˌuːkˈA, ðˈɛn wˈAt.",
+      "final_tokens": [
+        {
+          "text": "Write",
+          "tag": "VB",
+          "phonemes": "ɹˈIt",
+          "whitespace": " "
+        },
+        {
+          "text": "ops+night@example.co.uk",
+          "tag": "NN",
+          "phonemes": "ˈɒps plˈʌs nˈIt at ɪɡzˈɑːmpᵊl sˌiːˌQjˌuːkˈA",
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "phonemes": ",",
+          "whitespace": " "
+        },
+        {
+          "text": "then",
+          "tag": "RB",
+          "phonemes": "ðˈɛn",
+          "whitespace": " "
+        },
+        {
+          "text": "wait",
+          "tag": "VB",
+          "phonemes": "wˈAt",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Write ops+night@example.co.uk, then wait.",
+      "tokenizer_tokens": [
+        {
+          "text": "Write",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "ops+night@example.co.uk",
+          "tag": "NN",
+          "idx": 6,
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "idx": 29,
+          "whitespace": " "
+        },
+        {
+          "text": "then",
+          "tag": "RB",
+          "idx": 31,
+          "whitespace": " "
+        },
+        {
+          "text": "wait",
+          "tag": "VB",
+          "idx": 36,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 40,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        123,
+        156,
+        25,
+        62,
+        16,
+        156,
+        71,
+        58,
+        61,
+        16,
+        58,
+        54,
+        156,
+        138,
+        61,
+        16,
+        56,
+        156,
+        25,
+        62,
+        16,
+        43,
+        62,
+        16,
+        102,
+        92,
+        68,
+        156,
+        69,
+        158,
+        55,
+        58,
+        42,
+        54,
+        16,
+        61,
+        157,
+        51,
+        158,
+        157,
+        33,
+        52,
+        157,
+        63,
+        158,
+        53,
+        156,
+        24,
+        3,
+        16,
+        81,
+        156,
+        86,
+        56,
+        16,
+        65,
+        156,
+        24,
+        62,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-email-dotted-local-01",
+      "route": "en-US",
+      "text": "Send it to first.last@sub-domain.example.org.",
+      "phonemes": "sˈɛnd ɪt tə fˈɜɹst lˈæst æt sˈʌb dOmˈAn ɪɡzˈæmpəl ˈɔɹɡ.",
+      "final_tokens": [
+        {
+          "text": "Send",
+          "tag": "VB",
+          "phonemes": "sˈɛnd",
+          "whitespace": " "
+        },
+        {
+          "text": "it",
+          "tag": "PRP",
+          "phonemes": "ɪt",
+          "whitespace": " "
+        },
+        {
+          "text": "to",
+          "tag": "IN",
+          "phonemes": "tə",
+          "whitespace": " "
+        },
+        {
+          "text": "first.last@sub-domain.example.org",
+          "tag": "NN",
+          "phonemes": "fˈɜɹst lˈæst æt sˈʌb dOmˈAn ɪɡzˈæmpəl ˈɔɹɡ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Send it to first.last@sub-domain.example.org.",
+      "tokenizer_tokens": [
+        {
+          "text": "Send",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "it",
+          "tag": "PRP",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "to",
+          "tag": "IN",
+          "idx": 8,
+          "whitespace": " "
+        },
+        {
+          "text": "first.last@sub-domain.example.org",
+          "tag": "NN",
+          "idx": 11,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 44,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        61,
+        156,
+        86,
+        56,
+        46,
+        16,
+        102,
+        62,
+        16,
+        62,
+        83,
+        16,
+        48,
+        156,
+        87,
+        123,
+        61,
+        62,
+        16,
+        54,
+        156,
+        72,
+        61,
+        62,
+        16,
+        72,
+        62,
+        16,
+        61,
+        156,
+        138,
+        44,
+        16,
+        46,
+        31,
+        55,
+        156,
+        24,
+        56,
+        16,
+        102,
+        92,
+        68,
+        156,
+        72,
+        55,
+        58,
+        83,
+        54,
+        16,
+        156,
+        76,
+        123,
+        92,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-email-dotted-local-01",
+      "route": "en-GB",
+      "text": "Send it to first.last@sub-domain.example.org.",
+      "phonemes": "sˈɛnd ɪt tuː fˈɜːst.lˈast at sˈʌbdəmˈAn.ɛɡzˈampᵊl.ˈɔːɡ.",
+      "final_tokens": [
+        {
+          "text": "Send",
+          "tag": "VB",
+          "phonemes": "sˈɛnd",
+          "whitespace": " "
+        },
+        {
+          "text": "it",
+          "tag": "PRP",
+          "phonemes": "ɪt",
+          "whitespace": " "
+        },
+        {
+          "text": "to",
+          "tag": "IN",
+          "phonemes": "tuː",
+          "whitespace": " "
+        },
+        {
+          "text": "first.last@sub-domain.example.org",
+          "tag": "NN",
+          "phonemes": "fˈɜːst.lˈast at sˈʌbdəmˈAn.ɛɡzˈampᵊl.ˈɔːɡ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Send it to first.last@sub-domain.example.org.",
+      "tokenizer_tokens": [
+        {
+          "text": "Send",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "it",
+          "tag": "PRP",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "to",
+          "tag": "IN",
+          "idx": 8,
+          "whitespace": " "
+        },
+        {
+          "text": "first.last@sub-domain.example.org",
+          "tag": "NN",
+          "idx": 11,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 44,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        61,
+        156,
+        86,
+        56,
+        46,
+        16,
+        102,
+        62,
+        16,
+        62,
+        63,
+        158,
+        16,
+        48,
+        156,
+        87,
+        158,
+        61,
+        62,
+        4,
+        54,
+        156,
+        43,
+        61,
+        62,
+        16,
+        43,
+        62,
+        16,
+        61,
+        156,
+        138,
+        44,
+        46,
+        83,
+        55,
+        156,
+        24,
+        56,
+        4,
+        86,
+        92,
+        68,
+        156,
+        43,
+        55,
+        58,
+        42,
+        54,
+        4,
+        156,
+        76,
+        158,
+        92,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-control-decimal-01",
+      "route": "en-US",
+      "text": "The gauge reads 7.25 volts.",
+      "phonemes": "ðə ɡˈAʤ ɹˈidz sˈɛvən pYnt tˈu fˈIv vˈOlts.",
+      "final_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "gauge",
+          "tag": "NN",
+          "phonemes": "ɡˈAʤ",
+          "whitespace": " "
+        },
+        {
+          "text": "reads",
+          "tag": "VBZ",
+          "phonemes": "ɹˈidz",
+          "whitespace": " "
+        },
+        {
+          "text": "7.25",
+          "tag": "CD",
+          "phonemes": "sˈɛvən pYnt tˈu fˈIv",
+          "whitespace": " "
+        },
+        {
+          "text": "volts",
+          "tag": "NNS",
+          "phonemes": "vˈOlts",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "The gauge reads 7.25 volts.",
+      "tokenizer_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "gauge",
+          "tag": "NN",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "reads",
+          "tag": "VBZ",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "7.25",
+          "tag": "CD",
+          "idx": 16,
+          "whitespace": " "
+        },
+        {
+          "text": "volts",
+          "tag": "NNS",
+          "idx": 21,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 26,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        83,
+        16,
+        92,
+        156,
+        24,
+        82,
+        16,
+        123,
+        156,
+        51,
+        46,
+        68,
+        16,
+        61,
+        156,
+        86,
+        64,
+        83,
+        56,
+        16,
+        58,
+        41,
+        56,
+        62,
+        16,
+        62,
+        156,
+        63,
+        16,
+        48,
+        156,
+        25,
+        64,
+        16,
+        64,
+        156,
+        31,
+        54,
+        62,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-control-decimal-01",
+      "route": "en-GB",
+      "text": "The gauge reads 7.25 volts.",
+      "phonemes": "ðə ɡˈAʤ ɹˈiːdz sˈɛvᵊn pYnt tˈuː fˈIv vˈQlts.",
+      "final_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "gauge",
+          "tag": "NN",
+          "phonemes": "ɡˈAʤ",
+          "whitespace": " "
+        },
+        {
+          "text": "reads",
+          "tag": "VBZ",
+          "phonemes": "ɹˈiːdz",
+          "whitespace": " "
+        },
+        {
+          "text": "7.25",
+          "tag": "CD",
+          "phonemes": "sˈɛvᵊn pYnt tˈuː fˈIv",
+          "whitespace": " "
+        },
+        {
+          "text": "volts",
+          "tag": "NNS",
+          "phonemes": "vˈQlts",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "The gauge reads 7.25 volts.",
+      "tokenizer_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "gauge",
+          "tag": "NN",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "reads",
+          "tag": "VBZ",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "7.25",
+          "tag": "CD",
+          "idx": 16,
+          "whitespace": " "
+        },
+        {
+          "text": "volts",
+          "tag": "NNS",
+          "idx": 21,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 26,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        83,
+        16,
+        92,
+        156,
+        24,
+        82,
+        16,
+        123,
+        156,
+        51,
+        158,
+        46,
+        68,
+        16,
+        61,
+        156,
+        86,
+        64,
+        42,
+        56,
+        16,
+        58,
+        41,
+        56,
+        62,
+        16,
+        62,
+        156,
+        63,
+        158,
+        16,
+        48,
+        156,
+        25,
+        64,
+        16,
+        64,
+        156,
+        33,
+        54,
+        62,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-control-version-01",
+      "route": "en-US",
+      "text": "Install version 3.14.2.",
+      "phonemes": "ɪnstˈɔl vˈɜɹʒən θɹˈi fˌɔɹtˈin tˈu.",
+      "final_tokens": [
+        {
+          "text": "Install",
+          "tag": "NN",
+          "phonemes": "ɪnstˈɔl",
+          "whitespace": " "
+        },
+        {
+          "text": "version",
+          "tag": "NN",
+          "phonemes": "vˈɜɹʒən",
+          "whitespace": " "
+        },
+        {
+          "text": "3.14.2",
+          "tag": "CD",
+          "phonemes": "θɹˈi fˌɔɹtˈin tˈu",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Install version 3.14.2.",
+      "tokenizer_tokens": [
+        {
+          "text": "Install",
+          "tag": "NN",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "version",
+          "tag": "NN",
+          "idx": 8,
+          "whitespace": " "
+        },
+        {
+          "text": "3.14.2",
+          "tag": "CD",
+          "idx": 16,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 22,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        102,
+        56,
+        61,
+        62,
+        156,
+        76,
+        54,
+        16,
+        64,
+        156,
+        87,
+        123,
+        147,
+        83,
+        56,
+        16,
+        119,
+        123,
+        156,
+        51,
+        16,
+        48,
+        157,
+        76,
+        123,
+        62,
+        156,
+        51,
+        56,
+        16,
+        62,
+        156,
+        63,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-control-version-01",
+      "route": "en-GB",
+      "text": "Install version 3.14.2.",
+      "phonemes": "ɪnstˈɔːl vˈɜːʃᵊn θɹˈiː fˌɔːtˈiːn tˈuː.",
+      "final_tokens": [
+        {
+          "text": "Install",
+          "tag": "NN",
+          "phonemes": "ɪnstˈɔːl",
+          "whitespace": " "
+        },
+        {
+          "text": "version",
+          "tag": "NN",
+          "phonemes": "vˈɜːʃᵊn",
+          "whitespace": " "
+        },
+        {
+          "text": "3.14.2",
+          "tag": "CD",
+          "phonemes": "θɹˈiː fˌɔːtˈiːn tˈuː",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Install version 3.14.2.",
+      "tokenizer_tokens": [
+        {
+          "text": "Install",
+          "tag": "NN",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "version",
+          "tag": "NN",
+          "idx": 8,
+          "whitespace": " "
+        },
+        {
+          "text": "3.14.2",
+          "tag": "CD",
+          "idx": 16,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 22,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        102,
+        56,
+        61,
+        62,
+        156,
+        76,
+        158,
+        54,
+        16,
+        64,
+        156,
+        87,
+        158,
+        131,
+        42,
+        56,
+        16,
+        119,
+        123,
+        156,
+        51,
+        158,
+        16,
+        48,
+        157,
+        76,
+        158,
+        62,
+        156,
+        51,
+        158,
+        56,
+        16,
+        62,
+        156,
+        63,
+        158,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-control-abbreviation-01",
+      "route": "en-US",
+      "text": "Dr. Reed arrived at 8 a.m.",
+      "phonemes": "dˈɑktəɹ ɹˈid əɹˈIvd æt ˈAt ˌAˈɛm",
+      "final_tokens": [
+        {
+          "text": "Dr.",
+          "tag": "NNP",
+          "phonemes": "dˈɑktəɹ",
+          "whitespace": " "
+        },
+        {
+          "text": "Reed",
+          "tag": "NNP",
+          "phonemes": "ɹˈid",
+          "whitespace": " "
+        },
+        {
+          "text": "arrived",
+          "tag": "VBD",
+          "phonemes": "əɹˈIvd",
+          "whitespace": " "
+        },
+        {
+          "text": "at",
+          "tag": "IN",
+          "phonemes": "æt",
+          "whitespace": " "
+        },
+        {
+          "text": "8",
+          "tag": "CD",
+          "phonemes": "ˈAt",
+          "whitespace": " "
+        },
+        {
+          "text": "a.m.",
+          "tag": "RB",
+          "phonemes": "ˌAˈɛm",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Dr. Reed arrived at 8 a.m.",
+      "tokenizer_tokens": [
+        {
+          "text": "Dr.",
+          "tag": "NNP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "Reed",
+          "tag": "NNP",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "arrived",
+          "tag": "VBD",
+          "idx": 9,
+          "whitespace": " "
+        },
+        {
+          "text": "at",
+          "tag": "IN",
+          "idx": 17,
+          "whitespace": " "
+        },
+        {
+          "text": "8",
+          "tag": "CD",
+          "idx": 20,
+          "whitespace": " "
+        },
+        {
+          "text": "a.m.",
+          "tag": "RB",
+          "idx": 22,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        46,
+        156,
+        69,
+        53,
+        62,
+        83,
+        123,
+        16,
+        123,
+        156,
+        51,
+        46,
+        16,
+        83,
+        123,
+        156,
+        25,
+        64,
+        46,
+        16,
+        72,
+        62,
+        16,
+        156,
+        24,
+        62,
+        16,
+        157,
+        24,
+        156,
+        86,
+        55
+      ]
+    },
+    {
+      "id": "en-GB-eval-control-abbreviation-01",
+      "route": "en-GB",
+      "text": "Dr. Reed arrived at 8 a.m.",
+      "phonemes": "dˈɒktə ɹˈiːd əɹˈIvd at ˈAt ˌAˈɛm",
+      "final_tokens": [
+        {
+          "text": "Dr.",
+          "tag": "NNP",
+          "phonemes": "dˈɒktə",
+          "whitespace": " "
+        },
+        {
+          "text": "Reed",
+          "tag": "NNP",
+          "phonemes": "ɹˈiːd",
+          "whitespace": " "
+        },
+        {
+          "text": "arrived",
+          "tag": "VBD",
+          "phonemes": "əɹˈIvd",
+          "whitespace": " "
+        },
+        {
+          "text": "at",
+          "tag": "IN",
+          "phonemes": "at",
+          "whitespace": " "
+        },
+        {
+          "text": "8",
+          "tag": "CD",
+          "phonemes": "ˈAt",
+          "whitespace": " "
+        },
+        {
+          "text": "a.m.",
+          "tag": "RB",
+          "phonemes": "ˌAˈɛm",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Dr. Reed arrived at 8 a.m.",
+      "tokenizer_tokens": [
+        {
+          "text": "Dr.",
+          "tag": "NNP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "Reed",
+          "tag": "NNP",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "arrived",
+          "tag": "VBD",
+          "idx": 9,
+          "whitespace": " "
+        },
+        {
+          "text": "at",
+          "tag": "IN",
+          "idx": 17,
+          "whitespace": " "
+        },
+        {
+          "text": "8",
+          "tag": "CD",
+          "idx": 20,
+          "whitespace": " "
+        },
+        {
+          "text": "a.m.",
+          "tag": "RB",
+          "idx": 22,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        46,
+        156,
+        71,
+        53,
+        62,
+        83,
+        16,
+        123,
+        156,
+        51,
+        158,
+        46,
+        16,
+        83,
+        123,
+        156,
+        25,
+        64,
+        46,
+        16,
+        43,
+        62,
+        16,
+        156,
+        24,
+        62,
+        16,
+        157,
+        24,
+        156,
+        86,
+        55
+      ]
+    },
+    {
+      "id": "en-US-eval-control-url-01",
+      "route": "en-US",
+      "text": "Visit https://example.com/a.b.",
+      "phonemes": "vˈɪzət ˌAʧtˌitˈipˌiˈɛs:slˈæʃslæʃ ɛɡzˈæmpᵊl.kˈɑm slˈæʃ ˈA.bˈi.",
+      "final_tokens": [
+        {
+          "text": "Visit",
+          "tag": "VB",
+          "phonemes": "vˈɪzət",
+          "whitespace": " "
+        },
+        {
+          "text": "https://example.com/a.b",
+          "tag": "RB",
+          "phonemes": "ˌAʧtˌitˈipˌiˈɛs:slˈæʃslæʃ ɛɡzˈæmpᵊl.kˈɑm slˈæʃ ˈA.bˈi",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Visit https://example.com/a.b.",
+      "tokenizer_tokens": [
+        {
+          "text": "Visit",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "https://example.com/a.b",
+          "tag": "RB",
+          "idx": 6,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 29,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        64,
+        156,
+        102,
+        68,
+        83,
+        62,
+        16,
+        157,
+        24,
+        133,
+        62,
+        157,
+        51,
+        62,
+        156,
+        51,
+        58,
+        157,
+        51,
+        156,
+        86,
+        61,
+        2,
+        61,
+        54,
+        156,
+        72,
+        131,
+        61,
+        54,
+        72,
+        131,
+        16,
+        86,
+        92,
+        68,
+        156,
+        72,
+        55,
+        58,
+        42,
+        54,
+        4,
+        53,
+        156,
+        69,
+        55,
+        16,
+        61,
+        54,
+        156,
+        72,
+        131,
+        16,
+        156,
+        24,
+        4,
+        44,
+        156,
+        51,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-control-url-01",
+      "route": "en-GB",
+      "text": "Visit https://example.com/a.b.",
+      "phonemes": "vˈɪzɪt ˌAʧtˌiːtˈiːpˌiːˈɛs:slˈaʃslaʃ ɛɡzˈampᵊl.kˈɒm slˈaʃ ˈA.bˈiː.",
+      "final_tokens": [
+        {
+          "text": "Visit",
+          "tag": "VB",
+          "phonemes": "vˈɪzɪt",
+          "whitespace": " "
+        },
+        {
+          "text": "https://example.com/a.b",
+          "tag": "RB",
+          "phonemes": "ˌAʧtˌiːtˈiːpˌiːˈɛs:slˈaʃslaʃ ɛɡzˈampᵊl.kˈɒm slˈaʃ ˈA.bˈiː",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Visit https://example.com/a.b.",
+      "tokenizer_tokens": [
+        {
+          "text": "Visit",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "https://example.com/a.b",
+          "tag": "RB",
+          "idx": 6,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 29,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        64,
+        156,
+        102,
+        68,
+        102,
+        62,
+        16,
+        157,
+        24,
+        133,
+        62,
+        157,
+        51,
+        158,
+        62,
+        156,
+        51,
+        158,
+        58,
+        157,
+        51,
+        158,
+        156,
+        86,
+        61,
+        2,
+        61,
+        54,
+        156,
+        43,
+        131,
+        61,
+        54,
+        43,
+        131,
+        16,
+        86,
+        92,
+        68,
+        156,
+        43,
+        55,
+        58,
+        42,
+        54,
+        4,
+        53,
+        156,
+        71,
+        55,
+        16,
+        61,
+        54,
+        156,
+        43,
+        131,
+        16,
+        156,
+        24,
+        4,
+        44,
+        156,
+        51,
+        158,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-control-localhost-01",
+      "route": "en-US",
+      "text": "Type user@host, not a full address.",
+      "phonemes": "tˈIp jˈuzəɹ æt hˈOst, nˌɑt ɐ fˈʊl ədɹˈɛs.",
+      "final_tokens": [
+        {
+          "text": "Type",
+          "tag": "NN",
+          "phonemes": "tˈIp",
+          "whitespace": " "
+        },
+        {
+          "text": "user@host",
+          "tag": "NN",
+          "phonemes": "jˈuzəɹ æt hˈOst",
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "phonemes": ",",
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "phonemes": "nˌɑt",
+          "whitespace": " "
+        },
+        {
+          "text": "a",
+          "tag": "DT",
+          "phonemes": "ɐ",
+          "whitespace": " "
+        },
+        {
+          "text": "full",
+          "tag": "JJ",
+          "phonemes": "fˈʊl",
+          "whitespace": " "
+        },
+        {
+          "text": "address",
+          "tag": "NN",
+          "phonemes": "ədɹˈɛs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Type user@host, not a full address.",
+      "tokenizer_tokens": [
+        {
+          "text": "Type",
+          "tag": "NN",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "user@host",
+          "tag": "NN",
+          "idx": 5,
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "idx": 14,
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "idx": 16,
+          "whitespace": " "
+        },
+        {
+          "text": "a",
+          "tag": "DT",
+          "idx": 20,
+          "whitespace": " "
+        },
+        {
+          "text": "full",
+          "tag": "JJ",
+          "idx": 22,
+          "whitespace": " "
+        },
+        {
+          "text": "address",
+          "tag": "NN",
+          "idx": 27,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 34,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        62,
+        156,
+        25,
+        58,
+        16,
+        52,
+        156,
+        63,
+        68,
+        83,
+        123,
+        16,
+        72,
+        62,
+        16,
+        50,
+        156,
+        31,
+        61,
+        62,
+        3,
+        16,
+        56,
+        157,
+        69,
+        62,
+        16,
+        70,
+        16,
+        48,
+        156,
+        135,
+        54,
+        16,
+        83,
+        46,
+        123,
+        156,
+        86,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-control-localhost-01",
+      "route": "en-GB",
+      "text": "Type user@host, not a full address.",
+      "phonemes": "tˈIp jˈuːzə at hˈQst, nˌɒt ɐ fˈʊl ədɹˈɛs.",
+      "final_tokens": [
+        {
+          "text": "Type",
+          "tag": "NN",
+          "phonemes": "tˈIp",
+          "whitespace": " "
+        },
+        {
+          "text": "user@host",
+          "tag": "NN",
+          "phonemes": "jˈuːzə at hˈQst",
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "phonemes": ",",
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "phonemes": "nˌɒt",
+          "whitespace": " "
+        },
+        {
+          "text": "a",
+          "tag": "DT",
+          "phonemes": "ɐ",
+          "whitespace": " "
+        },
+        {
+          "text": "full",
+          "tag": "JJ",
+          "phonemes": "fˈʊl",
+          "whitespace": " "
+        },
+        {
+          "text": "address",
+          "tag": "NN",
+          "phonemes": "ədɹˈɛs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Type user@host, not a full address.",
+      "tokenizer_tokens": [
+        {
+          "text": "Type",
+          "tag": "NN",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "user@host",
+          "tag": "NN",
+          "idx": 5,
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "idx": 14,
+          "whitespace": " "
+        },
+        {
+          "text": "not",
+          "tag": "RB",
+          "idx": 16,
+          "whitespace": " "
+        },
+        {
+          "text": "a",
+          "tag": "DT",
+          "idx": 20,
+          "whitespace": " "
+        },
+        {
+          "text": "full",
+          "tag": "JJ",
+          "idx": 22,
+          "whitespace": " "
+        },
+        {
+          "text": "address",
+          "tag": "NN",
+          "idx": 27,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 34,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        62,
+        156,
+        25,
+        58,
+        16,
+        52,
+        156,
+        63,
+        158,
+        68,
+        83,
+        16,
+        43,
+        62,
+        16,
+        50,
+        156,
+        33,
+        61,
+        62,
+        3,
+        16,
+        56,
+        157,
+        71,
+        62,
+        16,
+        70,
+        16,
+        48,
+        156,
+        135,
+        54,
+        16,
+        83,
+        46,
+        123,
+        156,
+        86,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-control-currency-01",
+      "route": "en-US",
+      "text": "The total is $4.75.",
+      "phonemes": "ðə tˈOTᵊl ɪz fˈɔɹ dˈɑləɹz ænd sˈɛvənti fˈIv sˈɛnts.",
+      "final_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "total",
+          "tag": "NN",
+          "phonemes": "tˈOTᵊl",
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "phonemes": "ɪz",
+          "whitespace": " "
+        },
+        {
+          "text": "$",
+          "tag": "$",
+          "phonemes": "",
+          "whitespace": ""
+        },
+        {
+          "text": "4.75",
+          "tag": "CD",
+          "phonemes": "fˈɔɹ dˈɑləɹz ænd sˈɛvənti fˈIv sˈɛnts",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "The total is $4.75.",
+      "tokenizer_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "total",
+          "tag": "NN",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "$",
+          "tag": "$",
+          "idx": 13,
+          "whitespace": ""
+        },
+        {
+          "text": "4.75",
+          "tag": "CD",
+          "idx": 14,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 18,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        83,
+        16,
+        62,
+        156,
+        31,
+        36,
+        42,
+        54,
+        16,
+        102,
+        68,
+        16,
+        48,
+        156,
+        76,
+        123,
+        16,
+        46,
+        156,
+        69,
+        54,
+        83,
+        123,
+        68,
+        16,
+        72,
+        56,
+        46,
+        16,
+        61,
+        156,
+        86,
+        64,
+        83,
+        56,
+        62,
+        51,
+        16,
+        48,
+        156,
+        25,
+        64,
+        16,
+        61,
+        156,
+        86,
+        56,
+        62,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-control-currency-01",
+      "route": "en-GB",
+      "text": "The total is $4.75.",
+      "phonemes": "ðə tˈQtᵊl ɪz fˈɔː dˈɒləz and sˈɛvnti fˈIv sˈɛnts.",
+      "final_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "total",
+          "tag": "NN",
+          "phonemes": "tˈQtᵊl",
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "phonemes": "ɪz",
+          "whitespace": " "
+        },
+        {
+          "text": "$",
+          "tag": "$",
+          "phonemes": "",
+          "whitespace": ""
+        },
+        {
+          "text": "4.75",
+          "tag": "CD",
+          "phonemes": "fˈɔː dˈɒləz and sˈɛvnti fˈIv sˈɛnts",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "The total is $4.75.",
+      "tokenizer_tokens": [
+        {
+          "text": "The",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "total",
+          "tag": "NN",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "is",
+          "tag": "VBZ",
+          "idx": 10,
+          "whitespace": " "
+        },
+        {
+          "text": "$",
+          "tag": "$",
+          "idx": 13,
+          "whitespace": ""
+        },
+        {
+          "text": "4.75",
+          "tag": "CD",
+          "idx": 14,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 18,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        81,
+        83,
+        16,
+        62,
+        156,
+        33,
+        62,
+        42,
+        54,
+        16,
+        102,
+        68,
+        16,
+        48,
+        156,
+        76,
+        158,
+        16,
+        46,
+        156,
+        71,
+        54,
+        83,
+        68,
+        16,
+        43,
+        56,
+        46,
+        16,
+        61,
+        156,
+        86,
+        64,
+        56,
+        62,
+        51,
+        16,
+        48,
+        156,
+        25,
+        64,
+        16,
+        61,
+        156,
+        86,
+        56,
+        62,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-US-eval-control-markup-01",
+      "route": "en-US",
+      "text": "Open [the guide](https://example.com/a.b).",
+      "phonemes": "ˈOpᵊn ðə ɡˈId.",
+      "final_tokens": [
+        {
+          "text": "Open",
+          "tag": "VB",
+          "phonemes": "ˈOpᵊn",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "guide",
+          "tag": "NN",
+          "phonemes": "ɡˈId",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Open the guide.",
+      "tokenizer_tokens": [
+        {
+          "text": "Open",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "guide",
+          "tag": "NN",
+          "idx": 9,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 14,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        156,
+        31,
+        58,
+        42,
+        56,
+        16,
+        81,
+        83,
+        16,
+        92,
+        156,
+        25,
+        46,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-eval-control-markup-01",
+      "route": "en-GB",
+      "text": "Open [the guide](https://example.com/a.b).",
+      "phonemes": "ˈQpᵊn ðə ɡˈId.",
+      "final_tokens": [
+        {
+          "text": "Open",
+          "tag": "VB",
+          "phonemes": "ˈQpᵊn",
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "phonemes": "ðə",
+          "whitespace": " "
+        },
+        {
+          "text": "guide",
+          "tag": "NN",
+          "phonemes": "ɡˈId",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Open the guide.",
+      "tokenizer_tokens": [
+        {
+          "text": "Open",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "the",
+          "tag": "DT",
+          "idx": 5,
+          "whitespace": " "
+        },
+        {
+          "text": "guide",
+          "tag": "NN",
+          "idx": 9,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 14,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        156,
+        33,
+        58,
+        42,
+        56,
+        16,
+        81,
+        83,
+        16,
+        92,
+        156,
+        25,
+        46,
+        4
+      ]
+    },
+    {
+      "id": "en-US-historical-email-add-01",
+      "route": "en-US",
+      "text": "Email support@example.com or call +1 (415) 555-0199.",
+      "phonemes": "ˈimˌAl səpˈɔɹt æt ɪɡzˈæmpəl dˌɑt kˈɑm ɔɹ kˈɔl plˈʌs wˈʌn (fˈɔɹ hˈʌndɹəd fˌɪftˈin) fˈIv hˈʌndɹəd fˈɪfti fˈIvwˌʌn nˌIndi nˌIn.",
+      "final_tokens": [
+        {
+          "text": "Email",
+          "tag": "NN",
+          "phonemes": "ˈimˌAl",
+          "whitespace": " "
+        },
+        {
+          "text": "support@example.com",
+          "tag": "ADD",
+          "phonemes": "səpˈɔɹt æt ɪɡzˈæmpəl dˌɑt kˈɑm",
+          "whitespace": " "
+        },
+        {
+          "text": "or",
+          "tag": "CC",
+          "phonemes": "ɔɹ",
+          "whitespace": " "
+        },
+        {
+          "text": "call",
+          "tag": "VB",
+          "phonemes": "kˈɔl",
+          "whitespace": " "
+        },
+        {
+          "text": "+1",
+          "tag": "NN",
+          "phonemes": "plˈʌs wˈʌn",
+          "whitespace": " "
+        },
+        {
+          "text": "(",
+          "tag": "-LRB-",
+          "phonemes": "(",
+          "whitespace": ""
+        },
+        {
+          "text": "415",
+          "tag": "CD",
+          "phonemes": "fˈɔɹ hˈʌndɹəd fˌɪftˈin",
+          "whitespace": ""
+        },
+        {
+          "text": ")",
+          "tag": "-RRB-",
+          "phonemes": ")",
+          "whitespace": " "
+        },
+        {
+          "text": "555-0199",
+          "tag": "CD",
+          "phonemes": "fˈIv hˈʌndɹəd fˈɪfti fˈIvwˌʌn nˌIndi nˌIn",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Email support@example.com or call +1 (415) 555-0199.",
+      "tokenizer_tokens": [
+        {
+          "text": "Email",
+          "tag": "NN",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "support@example.com",
+          "tag": "ADD",
+          "idx": 6,
+          "whitespace": " "
+        },
+        {
+          "text": "or",
+          "tag": "CC",
+          "idx": 26,
+          "whitespace": " "
+        },
+        {
+          "text": "call",
+          "tag": "VB",
+          "idx": 29,
+          "whitespace": " "
+        },
+        {
+          "text": "+1",
+          "tag": "NN",
+          "idx": 34,
+          "whitespace": " "
+        },
+        {
+          "text": "(",
+          "tag": "-LRB-",
+          "idx": 37,
+          "whitespace": ""
+        },
+        {
+          "text": "415",
+          "tag": "CD",
+          "idx": 38,
+          "whitespace": ""
+        },
+        {
+          "text": ")",
+          "tag": "-RRB-",
+          "idx": 41,
+          "whitespace": " "
+        },
+        {
+          "text": "555",
+          "tag": "CD",
+          "idx": 43,
+          "whitespace": ""
+        },
+        {
+          "text": "-",
+          "tag": "SYM",
+          "idx": 46,
+          "whitespace": ""
+        },
+        {
+          "text": "0199",
+          "tag": "CD",
+          "idx": 47,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 51,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        156,
+        51,
+        55,
+        157,
+        24,
+        54,
+        16,
+        61,
+        83,
+        58,
+        156,
+        76,
+        123,
+        62,
+        16,
+        72,
+        62,
+        16,
+        102,
+        92,
+        68,
+        156,
+        72,
+        55,
+        58,
+        83,
+        54,
+        16,
+        46,
+        157,
+        69,
+        62,
+        16,
+        53,
+        156,
+        69,
+        55,
+        16,
+        76,
+        123,
+        16,
+        53,
+        156,
+        76,
+        54,
+        16,
+        58,
+        54,
+        156,
+        138,
+        61,
+        16,
+        65,
+        156,
+        138,
+        56,
+        16,
+        12,
+        48,
+        156,
+        76,
+        123,
+        16,
+        50,
+        156,
+        138,
+        56,
+        46,
+        123,
+        83,
+        46,
+        16,
+        48,
+        157,
+        102,
+        48,
+        62,
+        156,
+        51,
+        56,
+        13,
+        16,
+        48,
+        156,
+        25,
+        64,
+        16,
+        50,
+        156,
+        138,
+        56,
+        46,
+        123,
+        83,
+        46,
+        16,
+        48,
+        156,
+        102,
+        48,
+        62,
+        51,
+        16,
+        48,
+        156,
+        25,
+        64,
+        65,
+        157,
+        138,
+        56,
+        16,
+        56,
+        157,
+        25,
+        56,
+        46,
+        51,
+        16,
+        56,
+        157,
+        25,
+        56,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-historical-email-add-01",
+      "route": "en-GB",
+      "text": "Email support@example.com or call +1 (415) 555-0199.",
+      "phonemes": "ˈiːmAl səpˈɔːt at ɪɡzˈɑːmpᵊl dˌɒt kˈɒm ɔː kˈɔːl plˈʌs wˈʌn (fˈɔː hˈʌndɹəd fˌɪftˈiːn) fˈIv hˈʌndɹəd fˈɪfti fˈIvwˌʌn nˌInti nˌIn.",
+      "final_tokens": [
+        {
+          "text": "Email",
+          "tag": "NN",
+          "phonemes": "ˈiːmAl",
+          "whitespace": " "
+        },
+        {
+          "text": "support@example.com",
+          "tag": "ADD",
+          "phonemes": "səpˈɔːt at ɪɡzˈɑːmpᵊl dˌɒt kˈɒm",
+          "whitespace": " "
+        },
+        {
+          "text": "or",
+          "tag": "CC",
+          "phonemes": "ɔː",
+          "whitespace": " "
+        },
+        {
+          "text": "call",
+          "tag": "VB",
+          "phonemes": "kˈɔːl",
+          "whitespace": " "
+        },
+        {
+          "text": "+1",
+          "tag": "NN",
+          "phonemes": "plˈʌs wˈʌn",
+          "whitespace": " "
+        },
+        {
+          "text": "(",
+          "tag": "-LRB-",
+          "phonemes": "(",
+          "whitespace": ""
+        },
+        {
+          "text": "415",
+          "tag": "CD",
+          "phonemes": "fˈɔː hˈʌndɹəd fˌɪftˈiːn",
+          "whitespace": ""
+        },
+        {
+          "text": ")",
+          "tag": "-RRB-",
+          "phonemes": ")",
+          "whitespace": " "
+        },
+        {
+          "text": "555-0199",
+          "tag": "CD",
+          "phonemes": "fˈIv hˈʌndɹəd fˈɪfti fˈIvwˌʌn nˌInti nˌIn",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Email support@example.com or call +1 (415) 555-0199.",
+      "tokenizer_tokens": [
+        {
+          "text": "Email",
+          "tag": "NN",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "support@example.com",
+          "tag": "ADD",
+          "idx": 6,
+          "whitespace": " "
+        },
+        {
+          "text": "or",
+          "tag": "CC",
+          "idx": 26,
+          "whitespace": " "
+        },
+        {
+          "text": "call",
+          "tag": "VB",
+          "idx": 29,
+          "whitespace": " "
+        },
+        {
+          "text": "+1",
+          "tag": "NN",
+          "idx": 34,
+          "whitespace": " "
+        },
+        {
+          "text": "(",
+          "tag": "-LRB-",
+          "idx": 37,
+          "whitespace": ""
+        },
+        {
+          "text": "415",
+          "tag": "CD",
+          "idx": 38,
+          "whitespace": ""
+        },
+        {
+          "text": ")",
+          "tag": "-RRB-",
+          "idx": 41,
+          "whitespace": " "
+        },
+        {
+          "text": "555",
+          "tag": "CD",
+          "idx": 43,
+          "whitespace": ""
+        },
+        {
+          "text": "-",
+          "tag": "SYM",
+          "idx": 46,
+          "whitespace": ""
+        },
+        {
+          "text": "0199",
+          "tag": "CD",
+          "idx": 47,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 51,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        156,
+        51,
+        158,
+        55,
+        24,
+        54,
+        16,
+        61,
+        83,
+        58,
+        156,
+        76,
+        158,
+        62,
+        16,
+        43,
+        62,
+        16,
+        102,
+        92,
+        68,
+        156,
+        69,
+        158,
+        55,
+        58,
+        42,
+        54,
+        16,
+        46,
+        157,
+        71,
+        62,
+        16,
+        53,
+        156,
+        71,
+        55,
+        16,
+        76,
+        158,
+        16,
+        53,
+        156,
+        76,
+        158,
+        54,
+        16,
+        58,
+        54,
+        156,
+        138,
+        61,
+        16,
+        65,
+        156,
+        138,
+        56,
+        16,
+        12,
+        48,
+        156,
+        76,
+        158,
+        16,
+        50,
+        156,
+        138,
+        56,
+        46,
+        123,
+        83,
+        46,
+        16,
+        48,
+        157,
+        102,
+        48,
+        62,
+        156,
+        51,
+        158,
+        56,
+        13,
+        16,
+        48,
+        156,
+        25,
+        64,
+        16,
+        50,
+        156,
+        138,
+        56,
+        46,
+        123,
+        83,
+        46,
+        16,
+        48,
+        156,
+        102,
+        48,
+        62,
+        51,
+        16,
+        48,
+        156,
+        25,
+        64,
+        65,
+        157,
+        138,
+        56,
+        16,
+        56,
+        157,
+        25,
+        56,
+        62,
+        51,
+        16,
+        56,
+        157,
+        25,
+        56,
+        4
+      ]
+    },
+    {
+      "id": "en-US-historical-use-imperative-01",
+      "route": "en-US",
+      "text": "Wait... what?! Use quotes and an arrow.",
+      "phonemes": "wˈAt... wˌʌt?! jˈuz kwˈOts ænd ɐn ˈɛɹO.",
+      "final_tokens": [
+        {
+          "text": "Wait",
+          "tag": "VB",
+          "phonemes": "wˈAt",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ":",
+          "phonemes": ".",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ":",
+          "phonemes": ".",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ":",
+          "phonemes": ".",
+          "whitespace": " "
+        },
+        {
+          "text": "what",
+          "tag": "WP",
+          "phonemes": "wˌʌt",
+          "whitespace": ""
+        },
+        {
+          "text": "?",
+          "tag": ".",
+          "phonemes": "?",
+          "whitespace": ""
+        },
+        {
+          "text": "!",
+          "tag": ".",
+          "phonemes": "!",
+          "whitespace": " "
+        },
+        {
+          "text": "Use",
+          "tag": "VB",
+          "phonemes": "jˈuz",
+          "whitespace": " "
+        },
+        {
+          "text": "quotes",
+          "tag": "NNS",
+          "phonemes": "kwˈOts",
+          "whitespace": " "
+        },
+        {
+          "text": "and",
+          "tag": "CC",
+          "phonemes": "ænd",
+          "whitespace": " "
+        },
+        {
+          "text": "an",
+          "tag": "DT",
+          "phonemes": "ɐn",
+          "whitespace": " "
+        },
+        {
+          "text": "arrow",
+          "tag": "NN",
+          "phonemes": "ˈɛɹO",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Wait... what?! Use quotes and an arrow.",
+      "tokenizer_tokens": [
+        {
+          "text": "Wait",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": ""
+        },
+        {
+          "text": "...",
+          "tag": ":",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "what",
+          "tag": "WP",
+          "idx": 8,
+          "whitespace": ""
+        },
+        {
+          "text": "?",
+          "tag": ".",
+          "idx": 12,
+          "whitespace": ""
+        },
+        {
+          "text": "!",
+          "tag": ".",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "Use",
+          "tag": "VB",
+          "idx": 15,
+          "whitespace": " "
+        },
+        {
+          "text": "quotes",
+          "tag": "NNS",
+          "idx": 19,
+          "whitespace": " "
+        },
+        {
+          "text": "and",
+          "tag": "CC",
+          "idx": 26,
+          "whitespace": " "
+        },
+        {
+          "text": "an",
+          "tag": "DT",
+          "idx": 30,
+          "whitespace": " "
+        },
+        {
+          "text": "arrow",
+          "tag": "NN",
+          "idx": 33,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 38,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        65,
+        156,
+        24,
+        62,
+        4,
+        4,
+        4,
+        16,
+        65,
+        157,
+        138,
+        62,
+        6,
+        5,
+        16,
+        52,
+        156,
+        63,
+        68,
+        16,
+        53,
+        65,
+        156,
+        31,
+        62,
+        61,
+        16,
+        72,
+        56,
+        46,
+        16,
+        70,
+        56,
+        16,
+        156,
+        86,
+        123,
+        31,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-historical-use-imperative-01",
+      "route": "en-GB",
+      "text": "Wait... what?! Use quotes and an arrow.",
+      "phonemes": "wˈAt... wˌɒt?! jˈuːz kwˈQts and ɐn ˈaɹQ.",
+      "final_tokens": [
+        {
+          "text": "Wait",
+          "tag": "VB",
+          "phonemes": "wˈAt",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ":",
+          "phonemes": ".",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ":",
+          "phonemes": ".",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ":",
+          "phonemes": ".",
+          "whitespace": " "
+        },
+        {
+          "text": "what",
+          "tag": "WP",
+          "phonemes": "wˌɒt",
+          "whitespace": ""
+        },
+        {
+          "text": "?",
+          "tag": ".",
+          "phonemes": "?",
+          "whitespace": ""
+        },
+        {
+          "text": "!",
+          "tag": ".",
+          "phonemes": "!",
+          "whitespace": " "
+        },
+        {
+          "text": "Use",
+          "tag": "VB",
+          "phonemes": "jˈuːz",
+          "whitespace": " "
+        },
+        {
+          "text": "quotes",
+          "tag": "NNS",
+          "phonemes": "kwˈQts",
+          "whitespace": " "
+        },
+        {
+          "text": "and",
+          "tag": "CC",
+          "phonemes": "and",
+          "whitespace": " "
+        },
+        {
+          "text": "an",
+          "tag": "DT",
+          "phonemes": "ɐn",
+          "whitespace": " "
+        },
+        {
+          "text": "arrow",
+          "tag": "NN",
+          "phonemes": "ˈaɹQ",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Wait... what?! Use quotes and an arrow.",
+      "tokenizer_tokens": [
+        {
+          "text": "Wait",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": ""
+        },
+        {
+          "text": "...",
+          "tag": ":",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "what",
+          "tag": "WP",
+          "idx": 8,
+          "whitespace": ""
+        },
+        {
+          "text": "?",
+          "tag": ".",
+          "idx": 12,
+          "whitespace": ""
+        },
+        {
+          "text": "!",
+          "tag": ".",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "Use",
+          "tag": "VB",
+          "idx": 15,
+          "whitespace": " "
+        },
+        {
+          "text": "quotes",
+          "tag": "NNS",
+          "idx": 19,
+          "whitespace": " "
+        },
+        {
+          "text": "and",
+          "tag": "CC",
+          "idx": 26,
+          "whitespace": " "
+        },
+        {
+          "text": "an",
+          "tag": "DT",
+          "idx": 30,
+          "whitespace": " "
+        },
+        {
+          "text": "arrow",
+          "tag": "NN",
+          "idx": 33,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 38,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        65,
+        156,
+        24,
+        62,
+        4,
+        4,
+        4,
+        16,
+        65,
+        157,
+        71,
+        62,
+        6,
+        5,
+        16,
+        52,
+        156,
+        63,
+        158,
+        68,
+        16,
+        53,
+        65,
+        156,
+        33,
+        62,
+        61,
+        16,
+        43,
+        56,
+        46,
+        16,
+        70,
+        56,
+        16,
+        156,
+        43,
+        123,
+        33,
+        4
+      ]
+    },
+    {
+      "id": "en-US-historical-increase-present-01",
+      "route": "en-US",
+      "text": "Prices increase when demand shows an increase.",
+      "phonemes": "pɹˈIsᵻz ɪnkɹˈis wˌɛn dəmˈænd ʃˈOz ɐn ˈɪnkɹˌis.",
+      "final_tokens": [
+        {
+          "text": "Prices",
+          "tag": "NNS",
+          "phonemes": "pɹˈIsᵻz",
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "VBP",
+          "phonemes": "ɪnkɹˈis",
+          "whitespace": " "
+        },
+        {
+          "text": "when",
+          "tag": "WRB",
+          "phonemes": "wˌɛn",
+          "whitespace": " "
+        },
+        {
+          "text": "demand",
+          "tag": "NN",
+          "phonemes": "dəmˈænd",
+          "whitespace": " "
+        },
+        {
+          "text": "shows",
+          "tag": "VBZ",
+          "phonemes": "ʃˈOz",
+          "whitespace": " "
+        },
+        {
+          "text": "an",
+          "tag": "DT",
+          "phonemes": "ɐn",
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "phonemes": "ˈɪnkɹˌis",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Prices increase when demand shows an increase.",
+      "tokenizer_tokens": [
+        {
+          "text": "Prices",
+          "tag": "NNS",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "VBP",
+          "idx": 7,
+          "whitespace": " "
+        },
+        {
+          "text": "when",
+          "tag": "WRB",
+          "idx": 16,
+          "whitespace": " "
+        },
+        {
+          "text": "demand",
+          "tag": "NN",
+          "idx": 21,
+          "whitespace": " "
+        },
+        {
+          "text": "shows",
+          "tag": "VBZ",
+          "idx": 28,
+          "whitespace": " "
+        },
+        {
+          "text": "an",
+          "tag": "DT",
+          "idx": 34,
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "idx": 37,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 45,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        58,
+        123,
+        156,
+        25,
+        61,
+        177,
+        68,
+        16,
+        102,
+        56,
+        53,
+        123,
+        156,
+        51,
+        61,
+        16,
+        65,
+        157,
+        86,
+        56,
+        16,
+        46,
+        83,
+        55,
+        156,
+        72,
+        56,
+        46,
+        16,
+        131,
+        156,
+        31,
+        68,
+        16,
+        70,
+        56,
+        16,
+        156,
+        102,
+        56,
+        53,
+        123,
+        157,
+        51,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-historical-increase-present-01",
+      "route": "en-GB",
+      "text": "Prices increase when demand shows an increase.",
+      "phonemes": "pɹˈIsɪz ɪnkɹˈiːs wˌɛn dɪmˈɑːnd ʃˈQz ɐn ˈɪnkɹiːs.",
+      "final_tokens": [
+        {
+          "text": "Prices",
+          "tag": "NNS",
+          "phonemes": "pɹˈIsɪz",
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "VBP",
+          "phonemes": "ɪnkɹˈiːs",
+          "whitespace": " "
+        },
+        {
+          "text": "when",
+          "tag": "WRB",
+          "phonemes": "wˌɛn",
+          "whitespace": " "
+        },
+        {
+          "text": "demand",
+          "tag": "NN",
+          "phonemes": "dɪmˈɑːnd",
+          "whitespace": " "
+        },
+        {
+          "text": "shows",
+          "tag": "VBZ",
+          "phonemes": "ʃˈQz",
+          "whitespace": " "
+        },
+        {
+          "text": "an",
+          "tag": "DT",
+          "phonemes": "ɐn",
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "phonemes": "ˈɪnkɹiːs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "Prices increase when demand shows an increase.",
+      "tokenizer_tokens": [
+        {
+          "text": "Prices",
+          "tag": "NNS",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "VBP",
+          "idx": 7,
+          "whitespace": " "
+        },
+        {
+          "text": "when",
+          "tag": "WRB",
+          "idx": 16,
+          "whitespace": " "
+        },
+        {
+          "text": "demand",
+          "tag": "NN",
+          "idx": 21,
+          "whitespace": " "
+        },
+        {
+          "text": "shows",
+          "tag": "VBZ",
+          "idx": 28,
+          "whitespace": " "
+        },
+        {
+          "text": "an",
+          "tag": "DT",
+          "idx": 34,
+          "whitespace": " "
+        },
+        {
+          "text": "increase",
+          "tag": "NN",
+          "idx": 37,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 45,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        58,
+        123,
+        156,
+        25,
+        61,
+        102,
+        68,
+        16,
+        102,
+        56,
+        53,
+        123,
+        156,
+        51,
+        158,
+        61,
+        16,
+        65,
+        157,
+        86,
+        56,
+        16,
+        46,
+        102,
+        55,
+        156,
+        69,
+        158,
+        56,
+        46,
+        16,
+        131,
+        156,
+        33,
+        68,
+        16,
+        70,
+        56,
+        16,
+        156,
+        102,
+        56,
+        53,
+        123,
+        51,
+        158,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-US-markup-read",
+      "route": "en-US",
+      "text": "[read](/ɹˈid/) this.",
+      "phonemes": "ɹˈid ðˈɪs.",
+      "final_tokens": [
+        {
+          "text": "read",
+          "tag": "VB",
+          "phonemes": "ɹˈid",
+          "whitespace": " "
+        },
+        {
+          "text": "this",
+          "tag": "DT",
+          "phonemes": "ðˈɪs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "read this.",
+      "tokenizer_tokens": [
+        {
+          "text": "read",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "this",
+          "tag": "DT",
+          "idx": 5,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 9,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        123,
+        156,
+        51,
+        46,
+        16,
+        81,
+        156,
+        102,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-US-markup-stress",
+      "route": "en-US",
+      "text": "[important](2) notice.",
+      "phonemes": "ɪmpˈɔɹtᵊnt nˈOTəs.",
+      "final_tokens": [
+        {
+          "text": "important",
+          "tag": "JJ",
+          "phonemes": "ɪmpˈɔɹtᵊnt",
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "phonemes": "nˈOTəs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "important notice.",
+      "tokenizer_tokens": [
+        {
+          "text": "important",
+          "tag": "JJ",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "idx": 10,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 16,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        102,
+        55,
+        58,
+        156,
+        76,
+        123,
+        62,
+        42,
+        56,
+        62,
+        16,
+        56,
+        156,
+        31,
+        36,
+        83,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-US-contraction",
+      "route": "en-US",
+      "text": "I can't do it, but she won’t.",
+      "phonemes": "ˌI kˈænt dˈu ɪt, bˌʌt ʃi wˈOnt.",
+      "final_tokens": [
+        {
+          "text": "I",
+          "tag": "PRP",
+          "phonemes": "ˌI",
+          "whitespace": " "
+        },
+        {
+          "text": "can't",
+          "tag": "RB",
+          "phonemes": "kˈænt",
+          "whitespace": " "
+        },
+        {
+          "text": "do",
+          "tag": "VB",
+          "phonemes": "dˈu",
+          "whitespace": " "
+        },
+        {
+          "text": "it",
+          "tag": "PRP",
+          "phonemes": "ɪt",
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "phonemes": ",",
+          "whitespace": " "
+        },
+        {
+          "text": "but",
+          "tag": "CC",
+          "phonemes": "bˌʌt",
+          "whitespace": " "
+        },
+        {
+          "text": "she",
+          "tag": "PRP",
+          "phonemes": "ʃi",
+          "whitespace": " "
+        },
+        {
+          "text": "won’t",
+          "tag": "NNP",
+          "phonemes": "wˈOnt",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "I can't do it, but she won’t.",
+      "tokenizer_tokens": [
+        {
+          "text": "I",
+          "tag": "PRP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "ca",
+          "tag": "MD",
+          "idx": 2,
+          "whitespace": ""
+        },
+        {
+          "text": "n't",
+          "tag": "RB",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "do",
+          "tag": "VB",
+          "idx": 8,
+          "whitespace": " "
+        },
+        {
+          "text": "it",
+          "tag": "PRP",
+          "idx": 11,
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "but",
+          "tag": "CC",
+          "idx": 15,
+          "whitespace": " "
+        },
+        {
+          "text": "she",
+          "tag": "PRP",
+          "idx": 19,
+          "whitespace": " "
+        },
+        {
+          "text": "wo",
+          "tag": "MD",
+          "idx": 23,
+          "whitespace": ""
+        },
+        {
+          "text": "n’t",
+          "tag": "NNP",
+          "idx": 25,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 28,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        157,
+        25,
+        16,
+        53,
+        156,
+        72,
+        56,
+        62,
+        16,
+        46,
+        156,
+        63,
+        16,
+        102,
+        62,
+        3,
+        16,
+        44,
+        157,
+        138,
+        62,
+        16,
+        131,
+        51,
+        16,
+        65,
+        156,
+        31,
+        56,
+        62,
+        4
+      ]
+    },
+    {
+      "id": "en-US-oov-padding",
+      "route": "en-US",
+      "text": "  A quizzacious flibbertigibbet!  ",
+      "phonemes": "ɐ kwɪzˈAʃəs flˌɪbəɹTiʤˈɪbət! ",
+      "final_tokens": [
+        {
+          "text": "A",
+          "tag": "DT",
+          "phonemes": "ɐ",
+          "whitespace": " "
+        },
+        {
+          "text": "quizzacious",
+          "tag": "JJ",
+          "phonemes": "kwɪzˈAʃəs",
+          "whitespace": " "
+        },
+        {
+          "text": "flibbertigibbet",
+          "tag": "NN",
+          "phonemes": "flˌɪbəɹTiʤˈɪbət",
+          "whitespace": ""
+        },
+        {
+          "text": "!",
+          "tag": ".",
+          "phonemes": "!",
+          "whitespace": " "
+        },
+        {
+          "text": " ",
+          "tag": "_SP",
+          "phonemes": "",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "A quizzacious flibbertigibbet!  ",
+      "tokenizer_tokens": [
+        {
+          "text": "A",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "quizzacious",
+          "tag": "JJ",
+          "idx": 2,
+          "whitespace": " "
+        },
+        {
+          "text": "flibbertigibbet",
+          "tag": "NN",
+          "idx": 14,
+          "whitespace": ""
+        },
+        {
+          "text": "!",
+          "tag": ".",
+          "idx": 29,
+          "whitespace": " "
+        },
+        {
+          "text": " ",
+          "tag": "_SP",
+          "idx": 31,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        70,
+        16,
+        53,
+        65,
+        102,
+        68,
+        156,
+        24,
+        131,
+        83,
+        61,
+        16,
+        48,
+        54,
+        157,
+        102,
+        44,
+        83,
+        123,
+        36,
+        51,
+        82,
+        156,
+        102,
+        44,
+        83,
+        62,
+        5,
+        16
+      ]
+    },
+    {
+      "id": "en-GB-markup-read",
+      "route": "en-GB",
+      "text": "[read](/ɹˈid/) this.",
+      "phonemes": "ɹˈid ðˈɪs.",
+      "final_tokens": [
+        {
+          "text": "read",
+          "tag": "VB",
+          "phonemes": "ɹˈid",
+          "whitespace": " "
+        },
+        {
+          "text": "this",
+          "tag": "DT",
+          "phonemes": "ðˈɪs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "read this.",
+      "tokenizer_tokens": [
+        {
+          "text": "read",
+          "tag": "VB",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "this",
+          "tag": "DT",
+          "idx": 5,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 9,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        123,
+        156,
+        51,
+        46,
+        16,
+        81,
+        156,
+        102,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-markup-stress",
+      "route": "en-GB",
+      "text": "[important](2) notice.",
+      "phonemes": "ɪmpˈɔːtᵊnt nˈQtɪs.",
+      "final_tokens": [
+        {
+          "text": "important",
+          "tag": "JJ",
+          "phonemes": "ɪmpˈɔːtᵊnt",
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "phonemes": "nˈQtɪs",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "important notice.",
+      "tokenizer_tokens": [
+        {
+          "text": "important",
+          "tag": "JJ",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "notice",
+          "tag": "NN",
+          "idx": 10,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 16,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        102,
+        55,
+        58,
+        156,
+        76,
+        158,
+        62,
+        42,
+        56,
+        62,
+        16,
+        56,
+        156,
+        33,
+        62,
+        102,
+        61,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-contraction",
+      "route": "en-GB",
+      "text": "I can't do it, but she won’t.",
+      "phonemes": "ˌI kˈɑːnt dˈuː ɪt, bˌʌt ʃiː wˈQnt.",
+      "final_tokens": [
+        {
+          "text": "I",
+          "tag": "PRP",
+          "phonemes": "ˌI",
+          "whitespace": " "
+        },
+        {
+          "text": "can't",
+          "tag": "RB",
+          "phonemes": "kˈɑːnt",
+          "whitespace": " "
+        },
+        {
+          "text": "do",
+          "tag": "VB",
+          "phonemes": "dˈuː",
+          "whitespace": " "
+        },
+        {
+          "text": "it",
+          "tag": "PRP",
+          "phonemes": "ɪt",
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "phonemes": ",",
+          "whitespace": " "
+        },
+        {
+          "text": "but",
+          "tag": "CC",
+          "phonemes": "bˌʌt",
+          "whitespace": " "
+        },
+        {
+          "text": "she",
+          "tag": "PRP",
+          "phonemes": "ʃiː",
+          "whitespace": " "
+        },
+        {
+          "text": "won’t",
+          "tag": "NNP",
+          "phonemes": "wˈQnt",
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "phonemes": ".",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "I can't do it, but she won’t.",
+      "tokenizer_tokens": [
+        {
+          "text": "I",
+          "tag": "PRP",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "ca",
+          "tag": "MD",
+          "idx": 2,
+          "whitespace": ""
+        },
+        {
+          "text": "n't",
+          "tag": "RB",
+          "idx": 4,
+          "whitespace": " "
+        },
+        {
+          "text": "do",
+          "tag": "VB",
+          "idx": 8,
+          "whitespace": " "
+        },
+        {
+          "text": "it",
+          "tag": "PRP",
+          "idx": 11,
+          "whitespace": ""
+        },
+        {
+          "text": ",",
+          "tag": ",",
+          "idx": 13,
+          "whitespace": " "
+        },
+        {
+          "text": "but",
+          "tag": "CC",
+          "idx": 15,
+          "whitespace": " "
+        },
+        {
+          "text": "she",
+          "tag": "PRP",
+          "idx": 19,
+          "whitespace": " "
+        },
+        {
+          "text": "wo",
+          "tag": "MD",
+          "idx": 23,
+          "whitespace": ""
+        },
+        {
+          "text": "n’t",
+          "tag": "NNP",
+          "idx": 25,
+          "whitespace": ""
+        },
+        {
+          "text": ".",
+          "tag": ".",
+          "idx": 28,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        157,
+        25,
+        16,
+        53,
+        156,
+        69,
+        158,
+        56,
+        62,
+        16,
+        46,
+        156,
+        63,
+        158,
+        16,
+        102,
+        62,
+        3,
+        16,
+        44,
+        157,
+        138,
+        62,
+        16,
+        131,
+        51,
+        158,
+        16,
+        65,
+        156,
+        33,
+        56,
+        62,
+        4
+      ]
+    },
+    {
+      "id": "en-GB-oov-padding",
+      "route": "en-GB",
+      "text": "  A quizzacious flibbertigibbet!  ",
+      "phonemes": "ɐ kwɪzˈAʃəs flˈɪbətɪʤˌɪbɪt! ",
+      "final_tokens": [
+        {
+          "text": "A",
+          "tag": "DT",
+          "phonemes": "ɐ",
+          "whitespace": " "
+        },
+        {
+          "text": "quizzacious",
+          "tag": "JJ",
+          "phonemes": "kwɪzˈAʃəs",
+          "whitespace": " "
+        },
+        {
+          "text": "flibbertigibbet",
+          "tag": "NN",
+          "phonemes": "flˈɪbətɪʤˌɪbɪt",
+          "whitespace": ""
+        },
+        {
+          "text": "!",
+          "tag": ".",
+          "phonemes": "!",
+          "whitespace": " "
+        },
+        {
+          "text": " ",
+          "tag": "_SP",
+          "phonemes": "",
+          "whitespace": ""
+        }
+      ],
+      "preprocessed_text": "A quizzacious flibbertigibbet!  ",
+      "tokenizer_tokens": [
+        {
+          "text": "A",
+          "tag": "DT",
+          "idx": 0,
+          "whitespace": " "
+        },
+        {
+          "text": "quizzacious",
+          "tag": "JJ",
+          "idx": 2,
+          "whitespace": " "
+        },
+        {
+          "text": "flibbertigibbet",
+          "tag": "NN",
+          "idx": 14,
+          "whitespace": ""
+        },
+        {
+          "text": "!",
+          "tag": ".",
+          "idx": 29,
+          "whitespace": " "
+        },
+        {
+          "text": " ",
+          "tag": "_SP",
+          "idx": 31,
+          "whitespace": ""
+        }
+      ],
+      "accepted": true,
+      "ids": [
+        70,
+        16,
+        53,
+        65,
+        102,
+        68,
+        156,
+        24,
+        131,
+        83,
+        61,
+        16,
+        48,
+        54,
+        156,
+        102,
+        44,
+        83,
+        62,
+        102,
+        82,
+        157,
+        102,
+        44,
+        102,
+        62,
+        5,
+        16
+      ]
+    }
+  ]
+}
