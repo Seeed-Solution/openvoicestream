@@ -8303,18 +8303,40 @@ async def v2v_stream(ws: WebSocket):
                             and state.get("asr_prepare_gen") == finalize_gen
                             and not prep_task.done()
                         ):
-                            try:
-                                await asyncio.wait_for(
-                                    prep_task,
-                                    timeout=remaining_finalize_s,
-                                )
-                            except asyncio.TimeoutError:
+                            # asyncio.wait, not wait_for: a non-kept
+                            # CLIENT_ABORT cancels prep_task, and wait_for
+                            # would re-raise that child cancellation here as
+                            # if this task had been cancelled, tearing down
+                            # the whole session through the work-task gather.
+                            # asyncio.wait only raises CancelledError when
+                            # THIS task is cancelled (connection teardown).
+                            _prep_done, _ = await asyncio.wait(
+                                {prep_task}, timeout=remaining_finalize_s,
+                            )
+                            if not _prep_done:
                                 logger.warning(
                                     "v2v ASR prepare_finalize timed out gen=%s",
                                     finalize_gen,
                                 )
-                            except Exception:
-                                pass
+                                prep_task.cancel()
+                        if (
+                            not state["asr_active"]
+                            or state["asr_active_gen"] != finalize_gen
+                        ):
+                            # The generation was retired while prepare ran
+                            # (non-kept abort, or a newer utterance). Drop it:
+                            # finalizing would either be rejected or, worse,
+                            # finalize the next utterance. The ASR loop stays
+                            # alive for the next speech-start.
+                            logger.info(
+                                "v2v ASR gen=%s retired during prepare_finalize;"
+                                " dropping without finalize",
+                                finalize_gen,
+                            )
+                            if state.get("endpoint_pending_gen") == finalize_gen:
+                                state["endpoint_pending"] = None
+                                state["endpoint_pending_gen"] = None
+                            continue
                         state["finalizing_gen"] = finalize_gen
                         if turn_started_for_finalize is not None:
                             remaining_finalize_s = max(

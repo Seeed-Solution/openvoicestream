@@ -1101,9 +1101,89 @@ def test_v2v_finalize_waits_for_same_generation_prepare():
 
     assert 'prep_task = state.get("asr_prepare_task")' in src
     assert 'state.get("asr_prepare_gen") == finalize_gen' in src
-    assert re.search(r"await\s+asyncio\.wait_for\(\s*prep_task", src)
+    # asyncio.wait (not wait_for): an abort-cancelled prepare must not
+    # re-raise CancelledError into asr_out_task.
+    assert re.search(r"await\s+asyncio\.wait\(\s*\{prep_task\}", src)
     assert "async def _finalize_with_coord" in src
 
+
+def test_abort_cancelling_blocked_prepare_keeps_session_alive(
+    fake_asr_backend, monkeypatch
+):
+    """Non-kept abort while finalize awaits a blocked prepare.
+
+    Interleaving: asr_out_task is inside a partial poll (holding the manager
+    lock) when the client sends asr_prepare + asr_eos, so it leaves the poll,
+    sees the endpoint and parks on the same-generation prepare task, which
+    then blocks in the worker. The abort cancels that prepare task; the
+    finalize path must treat it as a retired generation rather than as its
+    own cancellation, so the session stays up and the next utterance works.
+    """
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    prepare_gate = threading.Event()
+    prepare_started = threading.Event()
+    partial_gate = threading.Event()
+    partial_entered = threading.Event()
+    partial_armed = threading.Event()
+    orig_create = fake_asr_backend.create_stream
+
+    def _create_stream(language: str = "auto"):
+        stream = orig_create(language)
+        if stream._stream_index == 0:
+            def _get_partial():
+                if partial_armed.is_set() and not partial_entered.is_set():
+                    partial_entered.set()
+                    partial_gate.wait(timeout=5.0)
+                return "", False
+
+            def _prepare_finalize():
+                prepare_started.set()
+                prepare_gate.wait(timeout=5.0)
+
+            stream.get_partial = _get_partial
+            stream.prepare_finalize = _prepare_finalize
+        return stream
+
+    monkeypatch.setattr(fake_asr_backend, "create_stream", _create_stream)
+    fake_asr_backend._finals = ["after-abort"]
+    fake_asr_backend._final_idx = 0
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True)
+    try:
+        ws.send_bytes(_silence_pcm16(100))
+        partial_armed.set()
+        assert partial_entered.wait(timeout=2.0)
+        ws.send_json({"type": "asr_prepare"})
+        ws.send_json({"type": "asr_eos"})
+        time.sleep(0.10)
+        partial_gate.set()
+        assert prepare_started.wait(timeout=2.0)
+        # asr_out_task is now parked on the blocked prepare for gen 1.
+        time.sleep(0.10)
+        ws.send_json({"type": "abort"})
+        time.sleep(0.10)
+        prepare_gate.set()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if fake_asr_backend.streams_created[0].cancelled:
+                break
+            time.sleep(0.01)
+        assert fake_asr_backend.streams_created[0].cancelled is True
+        assert fake_asr_backend.streams_created[0].finalized is False
+        # Session survived: a new utterance opens a stream and finalizes.
+        ws.send_bytes(_silence_pcm16(300))
+        ws.send_json({"type": "asr_eos"})
+        final, seen = _drain_until_final(ws)
+        assert final.get("text") == "after-abort", seen
+        assert final.get("session_complete") is not True
+        assert len(fake_asr_backend.streams_created) == 2
+        assert fake_asr_backend.streams_created[1].accepted_chunks == [4800]
+    finally:
+        partial_gate.set()
+        prepare_gate.set()
+        ws.__exit__(None, None, None)
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
