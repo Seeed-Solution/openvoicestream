@@ -25,9 +25,11 @@ services:
       - KOKORO_LONG32_FRONTEND_ROOT=/opt/kokoro-long32-frontend
       - KOKORO_LONG32_PLATFORM=${KOKORO_CANARY_TARGET:?set KOKORO_CANARY_TARGET}
       - KOKORO_RKNN_PLATFORM=${KOKORO_CANARY_TARGET:?set KOKORO_CANARY_TARGET}
-      # Empty by default: profile owns the reviewed two-bucket route; an
-      # operator may explicitly supply a strict comma-separated override.
-      - KOKORO_LONG32_ROUTE_TS=${KOKORO_LONG32_ROUTE_TS:-}
+      # Bare key: compose forwards it only when the operator exported it, so
+      # by default the container has no KOKORO_LONG32_ROUTE_TS and the
+      # profile's reviewed two-bucket route applies. An explicit strict
+      # comma-separated value is an operator override.
+      - KOKORO_LONG32_ROUTE_TS
       - KOKORO_RKNN_MODE=long32
       - KOKORO_LONG32_MAX_SNAP_RATIO=${KOKORO_LONG32_MAX_SNAP_RATIO:-0.10}
       - KOKORO_LONG32_MAX_GENERATOR_RTF=${KOKORO_LONG32_MAX_GENERATOR_RTF:-0.30}
