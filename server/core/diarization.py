@@ -139,13 +139,14 @@ def diarization_concurrency_capability(
             return None
 
         trt = (env_map.get("DIAR_CAMPPLUS_ENGINE_FILE", "") or "").strip()
+        strict_trt = (env_map.get("OVS_SPEAKER_EMB_BACKEND", "auto") or "auto").strip().lower() == "jetson_trt"
         vram = 90 if (trt and os.path.exists(trt)) else 120
         return ConcurrencyCapability(
-            supports_parallel=True,
-            max_concurrent=_max_concurrent(env_map),
+            supports_parallel=not strict_trt,
+            max_concurrent=1 if strict_trt else _max_concurrent(env_map),
             is_stateful=True,
-            requires_exclusive_device=False,
-            scaling_mode="per_call_isolated",
+            requires_exclusive_device=strict_trt,
+            scaling_mode="serialized_context" if strict_trt else "per_call_isolated",
             vram_mb_per_slot=vram,
         )
     except Exception:
@@ -229,12 +230,78 @@ def diarize_response(segments: List, return_embeddings: bool = False) -> dict:
             except Exception:
                 dim = 0
             break
-    return {
+    response = {
         "num_speakers": _num_speakers(segments),
         "segments": [segment_to_dict(s, include_embedding=return_embeddings) for s in segments],
         "embedding_model": SPEAKER_MODEL_NAME,
         "dim": dim,
     }
+    try:
+        from server.core import speaker_embedding as _spk
+        response.update(_spk.embedding_metadata())
+    except Exception:
+        pass
+    return response
+
+
+def _trt_frame_count(sample_count: int, sr: int) -> int:
+    """kaldi-native-fbank frame count for snip_edges=False.
+
+    The production extractor uses a 10ms shift and ``snip_edges=False``;
+    with that mode Kaldi rounds the sample count to the nearest shift. This
+    matches the installed NX probe (640240 samples -> 4002 frames), unlike the
+    snip-edges formula which silently under-counts boundary frames.
+    """
+    shift = max(1, round(sr * 0.010))
+    return max(1, (int(sample_count) + shift // 2) // shift)
+
+
+def _strict_span_chunks(samples, start_s: float, end_s: float, sr: int, bounds):
+    """Partition one VAD span into bounded, contiguous CAM++ profile chunks."""
+    from server.core import speaker_embedding as _spk
+    import math
+    min_frames, max_frames = (int(bounds[0]), int(bounds[1]))
+    if min_frames <= 0 or max_frames < min_frames:
+        raise _spk.SpeakerBackendError("invalid CAM++ TRT frame profile")
+    a, b = round(start_s * sr), round(end_s * sr)
+    total = max(0, b - a)
+    if not total:
+        return []
+
+    # With snip_edges=False, frame count is non-additive across independently
+    # chunked signals. Derive the legal sample interval for one chunk instead
+    # of dividing a rounded whole-span frame count.
+    shift = max(1, int(sr * 0.010))
+    lo = max(0, min_frames * shift - shift // 2)
+    hi = (max_frames + 1) * shift - shift // 2 - 1
+    if lo <= 0 or hi < lo:
+        raise _spk.SpeakerEmbeddingInputError("invalid CAM++ TRT sample profile bounds")
+    min_chunks = max(1, math.ceil(total / hi))
+    max_chunks = total // lo
+    if min_chunks > max_chunks:
+        raise _spk.SpeakerEmbeddingInputError(
+            "speech span cannot be partitioned into CAM++ TRT profile bounds"
+        )
+    count = min_chunks
+    base, remainder = divmod(total, count)
+    sizes = [base + (1 if i < remainder else 0) for i in range(count)]
+    if any(size < lo or size > hi for size in sizes):
+        raise _spk.SpeakerEmbeddingInputError(
+            "speech span cannot be partitioned into CAM++ TRT sample bounds"
+        )
+    chunks = []
+    offset = a
+    for size in sizes:
+        ca, cb = offset, offset + size
+        offset = cb
+        piece = samples[ca:cb]
+        actual = _trt_frame_count(len(piece), sr)
+        if actual < min_frames or actual > max_frames:
+            raise _spk.SpeakerEmbeddingInputError(
+                "CAM++ TRT chunk does not satisfy the actual frame profile"
+            )
+        chunks.append((piece, ca / float(sr), cb / float(sr)))
+    return chunks
 
 
 # ── offline: audio → segments → embeddings → clustering ──────────────────────
@@ -285,7 +352,7 @@ def _segment_audio_silero(samples, sr: int, min_segment_ms: int):
         return None
 
     try:
-        window = vad.WINDOW_16K  # 256 samples = 16 ms at 16 kHz
+        window = vad.WINDOW_16K  # 512 samples = 32 ms at 16 kHz
         silence_s = silence_ms / 1000.0
         spans = []
         cur_start = None
@@ -397,12 +464,17 @@ def diarize_audio(samples, sr: int, num_speakers: Optional[int] = None):
     opt to return them). Never raises — returns ``[]`` on any failure or when
     the embedding model / kernel is unavailable.
     """
+    from server.core import speaker_embedding as _spk
+    strict = _spk.speaker_embedding_strict()
     if not _KERNEL_OK:
+        if strict:
+            raise _spk.SpeakerBackendError("diarization clustering kernel is unavailable")
         logger.warning("diarization kernel unavailable; /diarize is a no-op")
         return []
     try:
-        from server.core import speaker_embedding as _spk
-
+        # Initialize strict backend even for silent input so an empty result
+        # carries provenance and cannot mask an unavailable GPU artifact.
+        bounds = _spk._get_embedder().frame_bounds if strict else None
         spans = _segment_audio(samples, sr, _min_segment_ms())
         if not spans:
             return []
@@ -412,15 +484,17 @@ def diarize_audio(samples, sr: int, num_speakers: Optional[int] = None):
         samples = np.asarray(samples, dtype=np.float32)
         items = []  # (embedding, start, end)
         for (start_s, end_s) in spans:
-            a = int(start_s * sr)
-            b = int(end_s * sr)
-            slice_ = samples[a:b]
-            if slice_.size == 0:
-                continue
-            emb = _spk.compute_embedding(slice_, sr)
-            if emb is None:
-                continue
-            items.append((np.asarray(emb, dtype=np.float32), start_s, end_s))
+            chunks = (_strict_span_chunks(samples, start_s, end_s, sr, bounds)
+                      if strict else [(samples[int(start_s * sr):int(end_s * sr)], start_s, end_s)])
+            for slice_, chunk_start, chunk_end in chunks:
+                if slice_.size == 0:
+                    continue
+                emb = _spk.compute_embedding(slice_, sr)
+                if emb is None:
+                    if strict:
+                        raise _spk.SpeakerBackendError("CAM++ TRT returned no embedding")
+                    continue
+                items.append((np.asarray(emb, dtype=np.float32), chunk_start, chunk_end))
 
         if not items:
             return []
@@ -431,7 +505,11 @@ def diarize_audio(samples, sr: int, num_speakers: Optional[int] = None):
             min_sim=_offline_min_sim(),
             max_speakers=_max_speakers(),
         ).cluster(items, num_speakers=num_speakers)
-    except Exception:
+    except (_spk.SpeakerBackendError, _spk.SpeakerEmbeddingInputError):
+        raise
+    except Exception as exc:
+        if strict:
+            raise _spk.SpeakerBackendError("strict diarization execution failed") from exc
         logger.exception("diarize_audio failed; returning empty result")
         return []
 

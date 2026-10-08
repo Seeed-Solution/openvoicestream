@@ -158,3 +158,76 @@ def test_diarize_audio_silent_input(monkeypatch):
     monkeypatch.setattr(spk, "compute_embedding", _fake_embed)
     silent = np.zeros(16000, dtype=np.float32)
     assert diar.diarize_audio(silent, 16000) == []
+
+
+def test_strict_segmenter_failure_is_typed(monkeypatch):
+    monkeypatch.setenv("OVS_SPEAKER_EMB_BACKEND", "jetson_trt")
+    monkeypatch.setattr(diar, "_KERNEL_OK", True)
+    monkeypatch.setattr(spk, "_get_embedder", lambda: type("E", (), {"frame_bounds": (40, 4000)})())
+    monkeypatch.setattr(diar, "_segment_audio", lambda *args: (_ for _ in ()).throw(RuntimeError("segmenter")))
+    with pytest.raises(spk.SpeakerBackendError):
+        diar.diarize_audio(np.ones(16000, dtype=np.float32), 16000)
+
+
+def test_strict_kernel_missing_is_typed(monkeypatch):
+    monkeypatch.setenv("OVS_SPEAKER_EMB_BACKEND", "jetson_trt")
+    monkeypatch.setattr(diar, "_KERNEL_OK", False)
+    with pytest.raises(spk.SpeakerBackendError):
+        diar.diarize_audio(np.ones(16000, dtype=np.float32), 16000)
+
+
+def test_strict_frame_count_matches_nx_snip_false_probe():
+    # Values are from the installed kaldi_native_fbank 1.22.3 NX probe,
+    # root-nx-installed-fbank-frame-probe-r2.raw.
+    cases = {
+        640000: 4000, 640080: 4001, 640240: 4002, 640400: 4003,
+        479840: 2999, 479999: 3000, 480000: 3000,
+    }
+    assert {n: diar._trt_frame_count(n, 16000) for n in cases} == cases
+
+
+def test_strict_chunks_use_bounds_and_cover_without_gaps():
+    samples = np.zeros(640240, dtype=np.float32)
+    chunks = diar._strict_span_chunks(samples, 0.0, len(samples) / 16000.0,
+                                       16000, (40, 4000))
+    assert len(chunks) == 2
+    assert chunks[0][1] == 0.0
+    assert chunks[-1][2] == len(samples) / 16000.0
+    for i, (piece, start, end) in enumerate(chunks):
+        assert diar._trt_frame_count(len(piece), 16000) <= 4000
+        if i:
+            assert start == chunks[i - 1][2]
+
+
+def test_strict_chunks_do_not_add_frames_across_snip_false_boundaries():
+    # NX fbank observation: two independent 640240-sample inputs each have
+    # 4002 frames. A whole-span frame sum would incorrectly call this fixed
+    # (4002,4002) profile impossible.
+    samples = np.zeros(1280480, dtype=np.float32)
+    chunks = diar._strict_span_chunks(samples, 0.0, len(samples) / 16000.0,
+                                       16000, (4002, 4002))
+    assert [len(piece) for piece, _, _ in chunks] == [640240, 640240]
+    assert all(diar._trt_frame_count(len(piece), 16000) == 4002
+               for piece, _, _ in chunks)
+    assert chunks[0][2] == chunks[1][1]
+    assert chunks[-1][2] == len(samples) / 16000.0
+
+
+@pytest.mark.parametrize("samples, bounds, accepted", [
+    (479840, (3000, 3000), False),  # NX observation is 2999 frames.
+    (479999, (3000, 3000), True),
+    (480000, (3000, 3000), True),
+    (6400, (40, 1500), True),       # exact min-frame short span.
+])
+def test_strict_sample_bounds_short_tail_and_unpartitionable(samples, bounds, accepted):
+    audio = np.zeros(samples, dtype=np.float32)
+    if accepted:
+        chunks = diar._strict_span_chunks(audio, 0.0, samples / 16000.0,
+                                           16000, bounds)
+        assert sum(len(piece) for piece, _, _ in chunks) == samples
+        assert all(bounds[0] <= diar._trt_frame_count(len(piece), 16000) <= bounds[1]
+                   for piece, _, _ in chunks)
+    else:
+        with pytest.raises(spk.SpeakerEmbeddingInputError):
+            diar._strict_span_chunks(audio, 0.0, samples / 16000.0,
+                                     16000, bounds)

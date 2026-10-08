@@ -5319,7 +5319,15 @@ async def diarize(
             samples = _spk.decode_audio_to_16k_mono(audio_bytes, fallback_sr=sample_rate)
             return _diar.diarize_audio(samples, 16000, num_speakers=num_speakers)
 
-        segments = await loop.run_in_executor(None, _run)
+        try:
+            segments = await loop.run_in_executor(None, _run)
+        except Exception as exc:
+            from server.core.speaker_embedding import SpeakerBackendError, SpeakerEmbeddingInputError
+            if isinstance(exc, SpeakerEmbeddingInputError):
+                raise HTTPException(status_code=422, detail={"error": "speaker_profile_unsupported", "message": str(exc)}) from exc
+            if isinstance(exc, SpeakerBackendError):
+                raise HTTPException(status_code=503, detail={"error": "speaker_backend_unavailable", "message": str(exc)}) from exc
+            raise
     return _diar.diarize_response(segments, return_embeddings=return_embeddings)
 
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from pathlib import Path
 
 from server.core.env_helpers import truthy
 
@@ -42,6 +43,16 @@ _HF_URL_DEFAULT = (
 _embedder = None        # cached voxedge SpeakerEmbedder
 _lock = threading.Lock()
 _load_failed = False
+_embedder_backend = None
+_embedder_fallback = False
+
+
+class SpeakerBackendError(RuntimeError):
+    """A requested speaker-embedding backend is unavailable or failed."""
+
+
+class SpeakerEmbeddingInputError(ValueError):
+    """Audio cannot be represented by the selected embedding profile."""
 
 
 def _trt_engine_file() -> str:
@@ -52,6 +63,27 @@ def _trt_engine_file() -> str:
     the existing sherpa behavior byte-for-byte.
     """
     return os.environ.get("DIAR_CAMPPLUS_ENGINE_FILE", "").strip()
+
+
+def speaker_embedding_backend() -> str:
+    value = os.environ.get("OVS_SPEAKER_EMB_BACKEND", "auto").strip().lower()
+    if value in {"auto", "jetson_trt", "cpu_sherpa"}:
+        return value
+    raise SpeakerBackendError(f"unsupported speaker embedding backend: {value}")
+
+
+def speaker_embedding_strict() -> bool:
+    return speaker_embedding_backend() == "jetson_trt"
+
+
+def embedding_metadata() -> dict:
+    if _embedder_backend == "jetson_trt":
+        return {"embedding_backend": "jetson_trt", "embedding_device": "cuda",
+                "embedding_fallback": False}
+    if _embedder_backend == "cpu_sherpa":
+        return {"embedding_backend": "cpu_sherpa", "embedding_device": "cpu",
+                "embedding_fallback": bool(_embedder_fallback)}
+    return {}
 
 
 class _TRTEmbedderAdapter:
@@ -67,6 +99,13 @@ class _TRTEmbedderAdapter:
     @property
     def dim(self) -> int:
         return self._ext.dim
+
+    @property
+    def frame_bounds(self):
+        bounds = getattr(self._ext, "frame_bounds", None)
+        if bounds is None:
+            raise SpeakerBackendError("CAM++ TRT profile bounds are unavailable")
+        return tuple(int(v) for v in bounds)
 
     def compute(self, samples, sample_rate):
         # JetsonCampplusTRT.extract: mono float32 [-1,1] -> 192-d L2-norm | None.
@@ -96,6 +135,12 @@ def _hf_url() -> str:
 def _ensure_model(path: str) -> None:
     if os.path.exists(path) and os.path.getsize(path) > 0:
         return
+    if os.environ.get("OVS_AUTO_DOWNLOAD_ARTIFACTS", "1").strip().lower() in {
+        "0", "false", "no", "off"
+    }:
+        raise SpeakerBackendError(
+            f"speaker CPU artifact is missing and OVS_AUTO_DOWNLOAD_ARTIFACTS is disabled: {path}"
+        )
     import shutil
     import subprocess
 
@@ -123,40 +168,55 @@ def _ensure_model(path: str) -> None:
 
 
 def _get_embedder():
-    global _embedder, _load_failed
-    if _embedder is not None:
+    global _embedder, _load_failed, _embedder_backend, _embedder_fallback
+    backend = speaker_embedding_backend()
+    strict = backend == "jetson_trt"
+    cache_ok = _embedder_backend == backend or backend == "auto"
+    if _embedder is not None and cache_ok:
         return _embedder
-    if _load_failed:
+    if _load_failed and not strict:
         return None
     with _lock:
-        if _embedder is not None:
+        cache_ok = _embedder_backend == backend or backend == "auto"
+        if _embedder is not None and cache_ok:
             return _embedder
-        if _load_failed:
+        if _load_failed and not strict:
             return None
-        # Jetson TRT backend (opt-in): only when an engine *file* is configured
-        # and present. On any problem (missing voxedge module, engine not ready)
-        # fall through to the sherpa CPU path below — never raise, never wedge.
         engine_file = _trt_engine_file()
-        if engine_file and os.path.exists(engine_file):
+        if strict:
+            path = Path(engine_file)
+            if not engine_file or not path.is_file() or path.stat().st_size <= 0:
+                raise SpeakerBackendError("strict CAM++ TRT backend requires a non-empty local engine file")
             try:
                 from voxedge.capabilities.embedding_extractor import JetsonCampplusTRT
-
+                ext = JetsonCampplusTRT(engine_file, strict=True)
+                if not ext.ready():
+                    raise SpeakerBackendError("CAM++ TRT engine is not ready")
+                _embedder = _TRTEmbedderAdapter(ext)
+                _embedder_backend = "jetson_trt"
+                _load_failed = False
+                return _embedder
+            except (SpeakerBackendError, SpeakerEmbeddingInputError):
+                raise
+            except Exception as exc:
+                raise SpeakerBackendError("CAM++ TRT backend initialization failed") from exc
+        # Legacy auto mode retains the existing TRT-preferred/CPU-fallback path.
+        if (speaker_embedding_backend() != "cpu_sherpa" and engine_file
+                and os.path.isfile(engine_file) and os.path.getsize(engine_file) > 0):
+            try:
+                from voxedge.capabilities.embedding_extractor import JetsonCampplusTRT
                 ext = JetsonCampplusTRT(engine_file)
                 if ext.ready():
                     _embedder = _TRTEmbedderAdapter(ext)
+                    _embedder_backend = "jetson_trt"
                     logger.info("Speaker embedding via Jetson TRT engine (%s).", engine_file)
                     return _embedder
-                logger.warning(
-                    "CAM++ TRT engine not ready (%s); falling back to sherpa CPU.",
-                    engine_file,
-                )
+                _embedder_fallback = True
             except Exception:
-                logger.exception(
-                    "Jetson TRT speaker backend init failed; falling back to sherpa CPU."
-                )
+                _embedder_fallback = True
+                logger.exception("Jetson TRT speaker backend init failed; falling back to sherpa CPU.")
         try:
             from voxedge.capabilities.speaker_embedding import SpeakerEmbedder
-
             path = _model_path()
             _ensure_model(path)
             num_threads = int(os.environ.get("OVS_SPEAKER_THREADS", "2"))
@@ -165,6 +225,17 @@ def _get_embedder():
                 _load_failed = True
                 return None
             _embedder = emb
+            _embedder_backend = "cpu_sherpa"
+            if backend == "cpu_sherpa":
+                _embedder_fallback = False
+        except SpeakerBackendError:
+            if os.environ.get("OVS_AUTO_DOWNLOAD_ARTIFACTS", "1").strip().lower() in {
+                "0", "false", "no", "off"
+            }:
+                raise
+            _load_failed = True
+            logger.exception("Failed to init speaker embedding; feature disabled.")
+            return None
         except Exception:
             _load_failed = True
             logger.exception("Failed to init speaker embedding; feature disabled.")
@@ -187,4 +258,29 @@ def compute_embedding(samples, sample_rate: int):
     emb = _get_embedder()
     if emb is None:
         return None
-    return emb.compute(samples, sample_rate)
+    try:
+        result = emb.compute(samples, sample_rate)
+    except (SpeakerBackendError, SpeakerEmbeddingInputError):
+        raise
+    except Exception as exc:
+        # Bridge the extractor's typed errors into the product API without
+        # matching exception text. The optional import keeps CPU-only images
+        # importable.
+        try:
+            from voxedge.capabilities import embedding_extractor as _extractor
+            input_error = getattr(_extractor, "EmbeddingInputError", ())
+            backend_error = getattr(_extractor, "EmbeddingBackendError", ())
+            if input_error and isinstance(exc, input_error):
+                raise SpeakerEmbeddingInputError(str(exc)) from exc
+            if backend_error and isinstance(exc, backend_error):
+                raise SpeakerBackendError(str(exc)) from exc
+        except (SpeakerEmbeddingInputError, SpeakerBackendError):
+            raise
+        except Exception:
+            pass
+        if speaker_embedding_strict():
+            raise SpeakerBackendError("CAM++ TRT inference failed") from exc
+        raise
+    if result is None and speaker_embedding_strict():
+        raise SpeakerEmbeddingInputError("audio is outside the CAM++ TRT profile")
+    return result
