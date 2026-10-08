@@ -1,8 +1,8 @@
 {
   "source": "/tmp/piper_dp_eval_prompts.json",
-  "runtime_source": "/home/cat/conversational_voice_ai/cloud_rk3576/releases/piper-dp128-20260922/context/piper.py",
+  "runtime_source": "<rk3576-device-home>/conversational_voice_ai/cloud_rk3576/releases/piper-dp128-20260922/context/piper.py",
   "runtime_source_sha256": "735c4d30b79bb0f5f53b40ab7068ae5678dae705d64a2417516a5dc709a9b082",
-  "model_config": "/home/cat/piper-512/en_US/model.onnx.json",
+  "model_config": "<rk3576-device-home>/piper-512/en_US/model.onnx.json",
   "model_config_sha256": "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0",
   "loaded_config_only": true,
   "inference": false,

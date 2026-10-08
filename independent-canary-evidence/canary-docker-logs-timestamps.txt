@@ -43,17 +43,17 @@
 2026-09-25T05:09:51.614483468Z 2026-09-25 05:09:51,614 [INFO] uvicorn.error: Uvicorn running on http://0.0.0.0:18621 (Press CTRL+C to quit)
 2026-09-25T05:10:30.833418461Z 2026-09-25 05:10:30,833 [INFO] uvicorn.access: 127.0.0.1:32966 - "GET /readyz HTTP/1.1" 200
 2026-09-25T05:10:49.453204498Z 2026-09-25 05:10:49,452 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 50364 bytes -> /tmp/trt_edgellm_asr_020uwxyt/audio.wav
-2026-09-25T05:10:49.559542456Z 2026-09-25 05:10:49,559 [INFO] uvicorn.access: 172.17.0.1:36498 - "POST /asr?language=Chinese HTTP/1.1" 200
+2026-09-25T05:10:49.559542456Z 2026-09-25 05:10:49,559 [INFO] uvicorn.access: <docker-bridge-gw>:36498 - "POST /asr?language=Chinese HTTP/1.1" 200
 2026-09-25T05:10:54.401529729Z 2026-09-25 05:10:54,401 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 50364 bytes -> /tmp/trt_edgellm_asr_1nkrit_0/audio.wav
-2026-09-25T05:10:54.434596726Z 2026-09-25 05:10:54,434 [INFO] uvicorn.access: 172.17.0.1:36502 - "POST /asr HTTP/1.1" 200
+2026-09-25T05:10:54.434596726Z 2026-09-25 05:10:54,434 [INFO] uvicorn.access: <docker-bridge-gw>:36502 - "POST /asr HTTP/1.1" 200
 2026-09-25T05:10:58.911624839Z 2026-09-25 05:10:58,911 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 19232 bytes -> /tmp/trt_edgellm_asr_rdpc6es3/audio.wav
-2026-09-25T05:10:58.938292105Z 2026-09-25 05:10:58,937 [INFO] uvicorn.access: 172.17.0.1:35546 - "POST /asr?language=English HTTP/1.1" 200
+2026-09-25T05:10:58.938292105Z 2026-09-25 05:10:58,937 [INFO] uvicorn.access: <docker-bridge-gw>:35546 - "POST /asr?language=English HTTP/1.1" 200
 2026-09-25T05:11:11.565649904Z 2026-09-25 05:11:11,565 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 19232 bytes -> /tmp/trt_edgellm_asr_y26x4itu/audio.wav
-2026-09-25T05:11:11.591166203Z 2026-09-25 05:11:11,590 [INFO] uvicorn.access: 172.17.0.1:34442 - "POST /asr HTTP/1.1" 200
+2026-09-25T05:11:11.591166203Z 2026-09-25 05:11:11,590 [INFO] uvicorn.access: <docker-bridge-gw>:34442 - "POST /asr HTTP/1.1" 200
 2026-09-25T05:11:17.989278107Z 2026-09-25 05:11:17,988 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 18232 bytes -> /tmp/trt_edgellm_asr_t2xvkoyf/audio.wav
-2026-09-25T05:11:18.012182024Z 2026-09-25 05:11:18,011 [INFO] uvicorn.access: 172.17.0.1:34444 - "POST /asr?language=Chinese HTTP/1.1" 200
+2026-09-25T05:11:18.012182024Z 2026-09-25 05:11:18,011 [INFO] uvicorn.access: <docker-bridge-gw>:34444 - "POST /asr?language=Chinese HTTP/1.1" 200
 2026-09-25T05:11:22.311294820Z 2026-09-25 05:11:22,310 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 18618 bytes -> /tmp/trt_edgellm_asr_gayg3ab1/audio.wav
-2026-09-25T05:11:22.338100038Z 2026-09-25 05:11:22,337 [INFO] uvicorn.access: 172.17.0.1:34404 - "POST /asr?language=Chinese HTTP/1.1" 200
+2026-09-25T05:11:22.338100038Z 2026-09-25 05:11:22,337 [INFO] uvicorn.access: <docker-bridge-gw>:34404 - "POST /asr?language=Chinese HTTP/1.1" 200
 2026-09-25T05:12:01.875888604Z 2026-09-25 05:12:01,875 [INFO] uvicorn.error: 127.0.0.1:37428 - "WebSocket /v2v/stream" [accepted] request_id=1b70536110ad4b52a35da8e2217115f3
 2026-09-25T05:12:01.875924540Z 2026-09-25 05:12:01,875 [INFO] uvicorn.error: connection open request_id=1b70536110ad4b52a35da8e2217115f3
 2026-09-25T05:12:01.876636256Z 2026-09-25 05:12:01,876 [INFO] server.main: v2v stream opened (asr=Chinese tts=off vad=none spk_id=None spk_kwargs=None) request_id=1b70536110ad4b52a35da8e2217115f3

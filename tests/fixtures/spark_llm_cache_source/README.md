@@ -4,8 +4,8 @@ These two Python files are a read-only snapshot of the Spark source after the
 historical `spark-llm-serialize-syscache-pybind.patch` baseline and before the
 new cache-control patch. They were pulled from:
 
-- `/home/harvest/spark-build/upstream/experimental/server/engine.py`
-- `/home/harvest/spark-build/upstream/experimental/server/api_server.py`
+- `<build-host-home>/spark-build/upstream/experimental/server/engine.py`
+- `<build-host-home>/spark-build/upstream/experimental/server/api_server.py`
 
 Hashes at capture time:
 

@@ -42,9 +42,9 @@
   "comparator": {
     "role": "baseline_comparator_only_not_b2_release_payload",
     "b1_raw_sha256": "432c6a79cd305aaa401a3bce79733bceac5196edd3e07a0e3d7dbe4e6859a00f",
-    "b1_raw_source_path": "/home/harvest/slv-v011-asr-nx-native-run/quality-b1-20261003/out/20261002T220257Z/b1-results.jsonl",
+    "b1_raw_source_path": "<build-host-home>/slv-v011-asr-nx-native-run/quality-b1-20261003/out/20261002T220257Z/b1-results.jsonl",
     "b1_comparator_identity_sha256": "cb4625eb6582f1aac1929659d6675f407287ceef06d8e7e3c2bb75f359f71836",
-    "b1_comparator_identity_source_path": "/home/harvest/slv-v011-asr-nx-native-run/quality-b1-20261003/out/20261002T220257Z/b1-comparator-identity.json",
+    "b1_comparator_identity_source_path": "<build-host-home>/slv-v011-asr-nx-native-run/quality-b1-20261003/out/20261002T220257Z/b1-comparator-identity.json",
     "b1_hash_evidence": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
     "b1_comparator_identity_note": "B1 is a comparator identity only and must never be bound as the B2 release payload. Both full hashes were read from the actual retry preflight pin evidence and cross-checked against the accepted identity manifest / root acceptance.",
     "b1_vmhwm_kib": 693736,
@@ -143,14 +143,14 @@
   "worker_identity": {
     "worker_bin": {
       "planned_path": "/opt/edgellm-v011/bin/qwen3_asr_worker",
-      "source_evidence_path": "/home/harvest/slv-v011-asr-nx-native-run/bin/qwen3_asr_worker",
+      "source_evidence_path": "<build-host-home>/slv-v011-asr-nx-native-run/bin/qwen3_asr_worker",
       "sha256": "dffa049c0498cf9cd42072e8ac8ce66f5dde8f1939d010abf268d9694443add3",
       "hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
       "status": "sha256_bound_actual"
     },
     "plugin": {
       "planned_path": "/opt/edgellm-v011/libNvInfer_edgellm_plugin.so",
-      "source_evidence_path": "/home/harvest/slv-v011-asr-nx-native-run/bin/libNvInfer_edgellm_plugin.so.1.0",
+      "source_evidence_path": "<build-host-home>/slv-v011-asr-nx-native-run/bin/libNvInfer_edgellm_plugin.so.1.0",
       "sha256": "b9c210c30b3d17fe6efbdc5babe292c833fafbbe2e07d102e21be522550cae50",
       "hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
       "status": "sha256_bound_actual",
@@ -165,17 +165,17 @@
       "status": "sha256_bound_actual"
     },
     "worker_source": {
-      "source_evidence_path": "/home/harvest/slv-v011-asr-nx-native-run/ready-prep-20261003/identity-src/qwen3_asr_worker.cpp",
+      "source_evidence_path": "<build-host-home>/slv-v011-asr-nx-native-run/ready-prep-20261003/identity-src/qwen3_asr_worker.cpp",
       "sha256": "c6f6a44792027d19eb758416b519c7a89b244b6bcd592c704e110d2ee2689ed6",
       "status": "sha256_bound_actual"
     },
     "coordinator_header": {
-      "source_evidence_path": "/home/harvest/slv-v011-asr-nx-native-run/ready-prep-20261003/identity-src/asrIfbCoordinator.h",
+      "source_evidence_path": "<build-host-home>/slv-v011-asr-nx-native-run/ready-prep-20261003/identity-src/asrIfbCoordinator.h",
       "sha256": "64a0fa5a474799f05d698aa27c619fa059f20e41ce439e68c6772b006c40fab1",
       "status": "sha256_bound_actual"
     },
     "build_cmakelists": {
-      "source_evidence_path": "/home/harvest/slv-v011-asr-nx-native-run/ready-prep-20261003/identity-src/CMakeLists.txt",
+      "source_evidence_path": "<build-host-home>/slv-v011-asr-nx-native-run/ready-prep-20261003/identity-src/CMakeLists.txt",
       "sha256": "df813c7b2496c4c89aa18b8cbd29a9c059a76533268384848a1591c9f3c51a49",
       "status": "sha256_bound_actual"
     }
@@ -184,7 +184,7 @@
     "thinker_b2": {
       "profile": "b2",
       "planned_dir": "/opt/edgellm-v011/models/qwen3-asr-0.6b/thinker-b2",
-      "source_evidence_dir": "/home/harvest/slv-v011-asr-nx-native-run/physical-build-20261003/thinker-b2",
+      "source_evidence_dir": "<build-host-home>/slv-v011-asr-nx-native-run/physical-build-20261003/thinker-b2",
       "tree_sha256": "6bedec266fab7f1ff9aa951fe1381aac6ee3d8a4ae4c4504db1aff7b708bbe7e",
       "tree_sha256_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-treehash.txt",
       "files": {
@@ -201,11 +201,11 @@
     },
     "audio_encoder": {
       "planned_parent_dir": "/opt/edgellm-v011/models/qwen3-asr-0.6b/audio",
-      "source_evidence_dir": "/home/harvest/slv-v011-asr-nx-native-run/multimodal/audio",
+      "source_evidence_dir": "<build-host-home>/slv-v011-asr-nx-native-run/multimodal/audio",
       "tree_sha256": "ef0253cd567c15a1befef22b7b35c38d22ef1d4399a614be9b6eb43a8363f949",
       "tree_sha256_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-treehash.txt",
       "audio_encoder_engine_sha256": "32a4971ddd54cbb0e851811b46202a8a947da7d06a68b2051a34ec1361db00e5",
-      "audio_encoder_engine_source_path": "/home/harvest/slv-v011-asr-nx-native-run/multimodal/audio/audio_encoder.engine",
+      "audio_encoder_engine_source_path": "<build-host-home>/slv-v011-asr-nx-native-run/multimodal/audio/audio_encoder.engine",
       "audio_encoder_engine_hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
       "layout_notice": "EDGE_LLM_ASR_AUDIO_ENC_DIR points at the PARENT (models/qwen3-asr-0.6b/audio); the runtime appends the audio/ level itself (audio/audio/audio_encoder.engine).",
       "status": "sha256_bound_actual"
@@ -214,7 +214,7 @@
   "audio_identity": {
     "mel_settings": {
       "planned_path": "/opt/edgellm-v011/models/qwen3-asr-0.6b/mel/whisper_feature_extractor.json",
-      "source_evidence_path": "/home/harvest/slv-v011-qualification/baseline/whisper_feature_extractor.json",
+      "source_evidence_path": "<build-host-home>/slv-v011-qualification/baseline/whisper_feature_extractor.json",
       "sha256": "cf973cd3fab0f06b93214975d66366751217809c805b40700eb686defc1d48ff",
       "hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
       "status": "sha256_bound_actual",
@@ -222,14 +222,14 @@
     },
     "mel_filters": {
       "planned_path": "/opt/edgellm-v011/models/qwen3-asr-0.6b/mel/mel_filters.bin",
-      "source_evidence_path": "/home/harvest/slv-v011-qualification/baseline/mel_filters.bin",
+      "source_evidence_path": "<build-host-home>/slv-v011-qualification/baseline/mel_filters.bin",
       "sha256": "7b5d7251fbad8a593a6564d92c6069e282812404adfcf8505161108c4aa159d8",
       "hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
       "status": "sha256_bound_actual",
       "not_fallback_notice": "Pinned so the app uses the planned candidate mel rather than falling back to a host mel."
     },
     "corpus_frozen": {
-      "source_evidence_path": "/home/harvest/slv-v011-qualification/baseline/corpus-frozen.json",
+      "source_evidence_path": "<build-host-home>/slv-v011-qualification/baseline/corpus-frozen.json",
       "sha256": "b144c34538d889c93663476857c79bd5c346c91b11a356695a20cdebd1abf493",
       "hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
       "status": "sha256_bound_actual",
