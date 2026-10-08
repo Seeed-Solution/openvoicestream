@@ -10,11 +10,13 @@ function SHA-256) is printed for evidence.
 import ast
 import builtins
 import hashlib
+import importlib.util
 import typing
 
-BACKEND_PATH = (
-    "/home/harvest/project/voxedge/voxedge/backends/jetson/trt_edge_llm_asr.py"
-)
+# The voxedge that the server would import (installed wheel or PYTHONPATH).
+BACKEND_PATH = importlib.util.find_spec(
+    "voxedge.backends.jetson.trt_edge_llm_asr"
+).origin
 CLASS_NAME = "TRTEdgeLLMASRBackend"
 HELPER_NAME = "_strip_language_prefix"
 

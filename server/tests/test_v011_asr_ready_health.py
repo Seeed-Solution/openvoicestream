@@ -24,23 +24,18 @@ import json
 import os
 import queue
 import subprocess
-import sys
 import threading
 import time
 from types import SimpleNamespace
 
 import pytest
 
-VOXEDGE_ROOT = "/home/harvest/project/voxedge"
-if VOXEDGE_ROOT not in sys.path:
-    sys.path.insert(0, VOXEDGE_ROOT)
-
-import voxedge.backends.jetson.trt_edge_llm_asr as asr_mod  # noqa: E402
-from voxedge.backends.jetson.trt_edge_llm_asr import (  # noqa: E402
+import voxedge.backends.jetson.trt_edge_llm_asr as asr_mod
+from voxedge.backends.jetson.trt_edge_llm_asr import (
     TRTEdgeLLMASRConfig,
     build_config_from_env,
 )
-from voxedge.backends.jetson.worker_io import WorkerIO  # noqa: E402
+from voxedge.backends.jetson.worker_io import WorkerIO
 
 pytestmark = pytest.mark.timeout(60)
 
