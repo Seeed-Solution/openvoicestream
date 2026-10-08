@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -8543,6 +8544,16 @@ async def v2v_stream(ws: WebSocket):
             # errors must remain visible instead of silently bypassing cleanup.
             from voxedge.engine.tts_sequencer import _to_speakable
 
+            # voxedge 0.0.15a2 adds the ``language`` keyword; the pinned
+            # 0.0.15a1 (server/requirements.txt, CI) does not accept it.
+            # Pass it only when the installed helper takes it.
+            try:
+                _speakable_takes_language = "language" in inspect.signature(
+                    _to_speakable
+                ).parameters
+            except (TypeError, ValueError):
+                _speakable_takes_language = False
+
             sr_header_sent = False
             while not state["client_closed"]:
                 # Exit when client said flush and the queue is drained.
@@ -8568,9 +8579,12 @@ async def v2v_stream(ws: WebSocket):
                 except asyncio.TimeoutError:
                     continue
                 original_sentence = sentence
-                synth_sentence = _to_speakable(
-                    original_sentence, language=tts_language_norm
-                )
+                if _speakable_takes_language:
+                    synth_sentence = _to_speakable(
+                        original_sentence, language=tts_language_norm
+                    )
+                else:
+                    synth_sentence = _to_speakable(original_sentence)
                 if not synth_sentence:
                     # Keep markup-only fragments out of the backend. There is
                     # no protocol event because no synthesis was started.

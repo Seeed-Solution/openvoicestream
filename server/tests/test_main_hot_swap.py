@@ -579,6 +579,18 @@ def test_v2v_deadline_propagates_cancel_and_releases_backend_slot(client, monkey
         ws.send_json({"type": "asr_eos"})
 
 
+def _speakable_takes_language() -> bool:
+    import inspect
+
+    from voxedge.engine.tts_sequencer import _to_speakable
+
+    return "language" in inspect.signature(_to_speakable).parameters
+
+
+@pytest.mark.skipif(
+    not _speakable_takes_language(),
+    reason="zh URL spelling needs voxedge>=0.0.15a2 (_to_speakable(language=))",
+)
 def test_v2v_tts_speakable_normalizes_markdown_before_backend(client):
     """V2V sends speakable text to TTS while protocol events keep the source."""
     backend = client.tts_be
