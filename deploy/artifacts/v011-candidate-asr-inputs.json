@@ -1,0 +1,421 @@
+{
+  "schema_version": 1,
+  "artifact_set": "orin-nx-sm87-edgellm-v011-candidate-asr",
+  "release_state": "candidate_published_unqualified",
+  "deployable": false,
+  "candidate_notice": "Published immutable HF revision 862ae0db85703e894ed9ae7448ae1ce11a79cda3 is wired through the profile model_artifacts request. The 12-file manifest is strict and candidate-unqualified; no image, deployment, app-level readiness, or production qualification claim is made.",
+  "rollback_release_lock": "deploy/artifacts/v010-release-lock.json",
+  "rollback_note": "Rollback remains the published v010 release (deploy/artifacts/v010-release-lock.json) via the existing BackendManager FIX_4 profile-ref re-apply. v010 profiles and locks are untouched by this candidate. This ASR candidate must never replace the v010 production ASR payload in place.",
+  "candidate_profile": "configs/profiles/jetson-edgellm-v011-candidate-asr.json",
+  "candidate_profile_name": "jetson-edgellm-v011-candidate-asr",
+  "local_payload_contract": {
+    "key_purpose_not_a_dispatch_key": false,
+    "dispatch_notice": "This is the strict model_artifacts input contract consumed by server/core/model_downloader.py. It is bound to the published immutable revision and exact 12 required paths.",
+    "model_id": "qwen3-asr",
+    "canonical_model_id": "qwen3-asr-0.6b",
+    "root": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b",
+    "relative_root_notice": "Required files are relative to the strict model root above; the provider receives EDGE_LLM_ASR_AUDIO_ENC_DIR=root/audio and appends audio/ for audio/audio/* assets.",
+    "required_files": [
+      "audio/audio/audio_encoder.engine",
+      "audio/audio/config.json",
+      "bin/qwen3_asr_worker",
+      "lib/libNvInfer_edgellm_plugin.so",
+      "mel/mel_filters.bin",
+      "mel/whisper_feature_extractor.json",
+      "thinker-b2/chat_template.model",
+      "thinker-b2/config.json",
+      "thinker-b2/embedding.safetensors",
+      "thinker-b2/llm.engine",
+      "thinker-b2/tokenizer.json",
+      "thinker-b2/tokenizer_config.json"
+    ],
+    "audio_double_level_notice": "EDGE_LLM_ASR_AUDIO_ENC_DIR points at root/audio; provider preload appends audio/, resolving root/audio/audio/config.json and root/audio/audio/audio_encoder.engine.",
+    "mel_notice": "Both mel files are pinned so the app never falls back to a host mel.",
+    "repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+    "revision": "862ae0db85703e894ed9ae7448ae1ce11a79cda3",
+    "revision_notice": "Immutable published revision pinned; candidate remains unqualified until independent runtime and app gates pass.",
+    "provenance": "deploy/artifacts/v011-candidate-asr-inputs.json",
+    "manifest": "v011/orin-nx-sm87/asr-b2-20261006-native32/manifest.json",
+    "cache_root": "/opt/models/v011-candidate-cache",
+    "strict": true
+  },
+  "comparator": {
+    "role": "baseline_comparator_only_not_b2_release_payload",
+    "b1_raw_sha256": "432c6a79cd305aaa401a3bce79733bceac5196edd3e07a0e3d7dbe4e6859a00f",
+    "b1_raw_source_path": "<build-host-home>/slv-v011-asr-nx-native-run/quality-b1-20261003/out/20261002T220257Z/b1-results.jsonl",
+    "b1_comparator_identity_sha256": "cb4625eb6582f1aac1929659d6675f407287ceef06d8e7e3c2bb75f359f71836",
+    "b1_comparator_identity_source_path": "<build-host-home>/slv-v011-asr-nx-native-run/quality-b1-20261003/out/20261002T220257Z/b1-comparator-identity.json",
+    "b1_hash_evidence": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
+    "b1_comparator_identity_note": "B1 is a comparator identity only and must never be bound as the B2 release payload. Both full hashes were read from the actual retry preflight pin evidence and cross-checked against the accepted identity manifest / root acceptance.",
+    "b1_vmhwm_kib": 693736,
+    "b1_sequential_throughput_audio_per_s": 14.8504,
+    "b1_sequential_p95_ms": 268.9
+  },
+  "identity_source": {
+    "accepted_identity_manifest": "/tmp/slv-v011-nx-b2-retry-preflight/staging/identity-manifest-b2.json",
+    "accepted_identity_manifest_sha256": "d68606571233efdfbe58be23681aa0f946c685097dc750b428bbc01a6e6aa18c",
+    "accepted_identity_manifest_status": "accepted_pin_matches_root_approval",
+    "accepted_preflight_pins": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
+    "accepted_preflight_treehash": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-treehash.txt",
+    "accepted_preflight_engine_closure": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-engine-closure.txt",
+    "actual_results": "/tmp/slv-v011-nx-b2-retry-actual/collected/out/b2-results.json",
+    "actual_results_sha256": "13deb4871856f281ac558b3864b367e78805883f460a47cac29635728dd1aa2f",
+    "actual_quality_jsonl": "/tmp/slv-v011-nx-b2-retry-actual/collected/out/b2-quality-results.jsonl",
+    "actual_quality_jsonl_sha256": "140484137877e73abb44d2d668b54ff20798de9e5ab834d094b6b759f626977b",
+    "actual_launch_meta": "/tmp/slv-v011-nx-b2-retry-actual/collected/out/launch-wrapper.meta.json",
+    "actual_launch_meta_sha256": "0535851195cb322cc71adbd62be8e25ae2c742236e26391c863894c740b4b0c1",
+    "root_approval": "/tmp/slv-v011-nx-asr-b2-retry-root-execution-approval.json",
+    "root_approval_sha256": "f831355dc4a2b2652d0b0fa7a34a9f82af691eac297f6e5c0bab9339ebc83c40",
+    "root_acceptance": "/tmp/slv-v011-nx-asr-b2-retry-root-acceptance.json",
+    "actual_report": "/tmp/slv-v011-nx-b2-retry-actual/REPORT.md",
+    "actual_evidence": "/tmp/slv-v011-nx-b2-retry-actual/EVIDENCE.md",
+    "independent_report": "/tmp/slv-v011-nx-b2-retry-evidence-independent/REPORT.md",
+    "audit_report": "/tmp/slv-v011-asr-production-integration-audit/REPORT.md",
+    "audit_evidence": "/tmp/slv-v011-asr-production-integration-audit/EVIDENCE.md"
+  },
+  "device_run": {
+    "device": "orin-nx",
+    "hostname": "orinnx",
+    "target": "jetson-orin-sm87",
+    "os_sdk": "L4T R36.4.3 / JetPack 6.2",
+    "cuda": "12.6.68",
+    "tensorrt": "10.3.0.30",
+    "candidate_profile_runtime_label": "orin-nx-sm87-trt10.3-jp6.2-cuda12.6-b1-b2-int4-awq-g128-plugin-v1",
+    "profile_runtime": "profile_not_verifiable_at_runtime",
+    "run_start_utc": "2026-10-03T01:53:38Z",
+    "run_end_utc": "2026-10-03T01:55:03Z",
+    "runid": "20261003T012926Z",
+    "fleet_job": "6daa35ec",
+    "harness_verdict": "pass",
+    "obligations_pass": 26,
+    "obligations_total": 26,
+    "independent_acceptance_status": "accepted",
+    "root_acceptance": "/tmp/slv-v011-nx-asr-b2-retry-root-acceptance.json",
+    "root_acceptance_accepted": true,
+    "status": "native_root_accepted_no_app_or_release_qualification",
+    "production_release_permission": false
+  },
+  "source": {
+    "upstream_commit": "95515c2f87fba8982db5a519f9022277667b3cc9",
+    "upstream_remote": "https://github.com/NVIDIA/TensorRT-Edge-LLM",
+    "upstream_version": "0.11.0",
+    "server_entry_module": "experimental.server",
+    "in_flight_batching_flag": "--enable-in-flight-batching",
+    "status": "candidate_pinned",
+    "patches": {
+      "status": "candidate_applied_in_actual_build",
+      "series": [
+        "v011-0002-xqa-cuda126-headers.patch",
+        "v011-0004-qkv-empty-opt-descriptors.patch",
+        "v011-0005-attention-empty-opt-descriptors.patch",
+        "v011-0006-cutedsl-shim-library-queries.patch"
+      ],
+      "evidence": "/tmp/slv-v011-nx-b2-retry-preflight/staging/identity-manifest-b2.json",
+      "note": "Patch series is bound by sha256 in worker_identity.patches below; the patch files themselves live only on the NX build host and are UNPROVEN locally."
+    }
+  },
+  "target": {
+    "target_id": "jetson-orin-sm87",
+    "platform": "NVIDIA Jetson Orin NX (SM87), custom compatibility candidate",
+    "sm": "87",
+    "cpu_arch": "aarch64",
+    "os_sdk": "L4T R36.4.3",
+    "cuda": "12.6.68",
+    "tensorrt": "10.3.0.30",
+    "precision": "int4_awq_g128_thinker / fp16_audio_encoder",
+    "qualification_status": "not_qualified",
+    "qualification_evidence": null,
+    "qualification_notice": "custom_compatibility_candidate; no official JetPack support claim. The root-accepted native B2 run is a native performance/quality acceptance, NOT a JetPack qualification and NOT an app/release qualification."
+  },
+  "planned_runtime_layout": {
+    "engine_root": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b",
+    "worker_bin": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/bin/qwen3_asr_worker",
+    "plugin_path": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/lib/libNvInfer_edgellm_plugin.so",
+    "engine_dir": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/thinker-b2",
+    "audio_enc_dir": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/audio",
+    "audio_engine_file": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/audio/audio/audio_encoder.engine",
+    "mel_dir": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/mel",
+    "mel_settings_file": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/mel/whisper_feature_extractor.json",
+    "mel_filters_file": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/mel/mel_filters.bin",
+    "layout_status": "PLANNED_PROFILE_BOUND_UNQUALIFIED",
+    "layout_notice": "Profile and strict manifest share this relative layout. Provider preload appends audio/ to audio_enc_dir. Staging/image realization and production qualification remain pending."
+  },
+  "worker_identity": {
+    "worker_bin": {
+      "planned_path": "/opt/edgellm-v011/bin/qwen3_asr_worker",
+      "source_evidence_path": "<build-host-home>/slv-v011-asr-nx-native-run/bin/qwen3_asr_worker",
+      "sha256": "dffa049c0498cf9cd42072e8ac8ce66f5dde8f1939d010abf268d9694443add3",
+      "hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
+      "status": "sha256_bound_actual"
+    },
+    "plugin": {
+      "planned_path": "/opt/edgellm-v011/libNvInfer_edgellm_plugin.so",
+      "source_evidence_path": "<build-host-home>/slv-v011-asr-nx-native-run/bin/libNvInfer_edgellm_plugin.so.1.0",
+      "sha256": "b9c210c30b3d17fe6efbdc5babe292c833fafbbe2e07d102e21be522550cae50",
+      "hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
+      "status": "sha256_bound_actual",
+      "plugin_alias_notice": "MUST NOT alias the v010 plugin or any TTS plugin .so; this is a distinct v011 IFB plugin."
+    },
+    "patches": {
+      "v011-0002-xqa-cuda126-headers.patch": "825555c6f31830904809ff45d3f30c573d3e902ae72589ff52a55ac2bc5f66ae",
+      "v011-0004-qkv-empty-opt-descriptors.patch": "caf33711a868248f3d8a834f72c506799af7e76671f8e2a0608b0257a0d05b2b",
+      "v011-0005-attention-empty-opt-descriptors.patch": "b6ec842458a9e9d00d783d5906436a094e00d3b9a27eb4af70a8b40485002090",
+      "v011-0006-cutedsl-shim-library-queries.patch": "29360adba3902d4c7b38fea0556d2b5aaf2a0ffdd1e9b8fc7a3192ee9b0a0dc0",
+      "hash_source": "/tmp/slv-v011-nx-b2-retry-preflight/staging/identity-manifest-b2.json",
+      "status": "sha256_bound_actual"
+    },
+    "worker_source": {
+      "source_evidence_path": "<build-host-home>/slv-v011-asr-nx-native-run/ready-prep-20261003/identity-src/qwen3_asr_worker.cpp",
+      "sha256": "c6f6a44792027d19eb758416b519c7a89b244b6bcd592c704e110d2ee2689ed6",
+      "status": "sha256_bound_actual"
+    },
+    "coordinator_header": {
+      "source_evidence_path": "<build-host-home>/slv-v011-asr-nx-native-run/ready-prep-20261003/identity-src/asrIfbCoordinator.h",
+      "sha256": "64a0fa5a474799f05d698aa27c619fa059f20e41ce439e68c6772b006c40fab1",
+      "status": "sha256_bound_actual"
+    },
+    "build_cmakelists": {
+      "source_evidence_path": "<build-host-home>/slv-v011-asr-nx-native-run/ready-prep-20261003/identity-src/CMakeLists.txt",
+      "sha256": "df813c7b2496c4c89aa18b8cbd29a9c059a76533268384848a1591c9f3c51a49",
+      "status": "sha256_bound_actual"
+    }
+  },
+  "engine_identity": {
+    "thinker_b2": {
+      "profile": "b2",
+      "planned_dir": "/opt/edgellm-v011/models/qwen3-asr-0.6b/thinker-b2",
+      "source_evidence_dir": "<build-host-home>/slv-v011-asr-nx-native-run/physical-build-20261003/thinker-b2",
+      "tree_sha256": "6bedec266fab7f1ff9aa951fe1381aac6ee3d8a4ae4c4504db1aff7b708bbe7e",
+      "tree_sha256_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-treehash.txt",
+      "files": {
+        "llm.engine": "f90f2db141d65976e43bd5fde93302b2d266f369dc47bd8cc9a2ae894594062c",
+        "config.json": "5aa93ba7bac3b6cf3c38884fb5d5fdda4162a02358c6c180820481843ac82726",
+        "tokenizer.json": "fe1fad59be22a41ee293363fcf95fdedbc7c93f3b49270b1d2e18bd1399a7a05",
+        "tokenizer_config.json": "945e980986de2ca7768f3326bfdbb4fbea3406f972b8ae0be233089f2b253c11",
+        "chat_template.model": "e785a750e8631ecc74334265bd242bbe7dc5eecdacbfe700de73ec26cf17606c",
+        "embedding.safetensors": "70fb4840066b259c8a90aea869a9ed204dd7f13240665ab8bbb7980046dc8964"
+      },
+      "files_hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt and /tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-engine-closure.txt",
+      "status": "sha256_bound_actual",
+      "closure_evidence_discrepancy": "The file evidence/preflight-engine-closure.txt also prints a separate 'tree closure hash' line e345eb60ebe939938eb33721e919cd0151d09d368a107cce5c89ad4e22045ef6. That closure line disagrees with the accepted identity-manifest tree hash 6bedec26... (preflight-treehash.txt) and is treated as a non-authoritative partial/summary closure; the accepted identity manifest'tree_sha256' (6bedec26...) governs. This discrepancy is recorded, not resolved by inference."
+    },
+    "audio_encoder": {
+      "planned_parent_dir": "/opt/edgellm-v011/models/qwen3-asr-0.6b/audio",
+      "source_evidence_dir": "<build-host-home>/slv-v011-asr-nx-native-run/multimodal/audio",
+      "tree_sha256": "ef0253cd567c15a1befef22b7b35c38d22ef1d4399a614be9b6eb43a8363f949",
+      "tree_sha256_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-treehash.txt",
+      "audio_encoder_engine_sha256": "32a4971ddd54cbb0e851811b46202a8a947da7d06a68b2051a34ec1361db00e5",
+      "audio_encoder_engine_source_path": "<build-host-home>/slv-v011-asr-nx-native-run/multimodal/audio/audio_encoder.engine",
+      "audio_encoder_engine_hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
+      "layout_notice": "EDGE_LLM_ASR_AUDIO_ENC_DIR points at the PARENT (models/qwen3-asr-0.6b/audio); the runtime appends the audio/ level itself (audio/audio/audio_encoder.engine).",
+      "status": "sha256_bound_actual"
+    }
+  },
+  "audio_identity": {
+    "mel_settings": {
+      "planned_path": "/opt/edgellm-v011/models/qwen3-asr-0.6b/mel/whisper_feature_extractor.json",
+      "source_evidence_path": "<build-host-home>/slv-v011-qualification/baseline/whisper_feature_extractor.json",
+      "sha256": "cf973cd3fab0f06b93214975d66366751217809c805b40700eb686defc1d48ff",
+      "hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
+      "status": "sha256_bound_actual",
+      "not_fallback_notice": "Pinned so the app uses the planned candidate mel rather than falling back to a host mel."
+    },
+    "mel_filters": {
+      "planned_path": "/opt/edgellm-v011/models/qwen3-asr-0.6b/mel/mel_filters.bin",
+      "source_evidence_path": "<build-host-home>/slv-v011-qualification/baseline/mel_filters.bin",
+      "sha256": "7b5d7251fbad8a593a6564d92c6069e282812404adfcf8505161108c4aa159d8",
+      "hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
+      "status": "sha256_bound_actual",
+      "not_fallback_notice": "Pinned so the app uses the planned candidate mel rather than falling back to a host mel."
+    },
+    "corpus_frozen": {
+      "source_evidence_path": "<build-host-home>/slv-v011-qualification/baseline/corpus-frozen.json",
+      "sha256": "b144c34538d889c93663476857c79bd5c346c91b11a356695a20cdebd1abf493",
+      "hash_source": "/tmp/slv-v011-nx-b2-retry-actual/evidence/preflight-critical-pins.txt",
+      "status": "sha256_bound_actual",
+      "note": "Frozen evaluation corpus (not a runtime payload); comparator/binding only."
+    }
+  },
+  "native_validation": {
+    "verdict": "pass",
+    "obligations_pass": 26,
+    "obligations_total": 26,
+    "wer": 0.0343,
+    "wer_errors": 27,
+    "wer_frozen_bound": 0.03803684879288437,
+    "ref_words": 787,
+    "requests": 100,
+    "pairs": 50,
+    "cancels": 20,
+    "lifecycle_reopens": 100,
+    "sessions": 200,
+    "lat_p50_ms": 245.8,
+    "lat_p95_ms": 330.0,
+    "rtf_p95": 0.10910714285714285,
+    "b2_concurrent_throughput_audio_per_s_batch_wall": 21.2353,
+    "throughput_ratio_vs_b1": 1.4299,
+    "p95_ratio_vs_b1": 1.2272,
+    "cancel_ack_p95_ms": 0.5165319889783859,
+    "cancel_ack_p95_method": "frozen pct_ceil 0-based, n=20, sorted index 19 (idx19)",
+    "recovery_first_output_ms": 81.0,
+    "peak_worker_vmhwm_kib": 693324,
+    "b2_vmhwm_budget_kib": 1218024,
+    "native_close_branch": "stdin_eof",
+    "sigkill_sent": false,
+    "ready_line": {
+      "event": "ready",
+      "ifb": true,
+      "max_slots": 2,
+      "gpu_slots": 2,
+      "engine_max_batch_size": 2
+    },
+    "worker_process_group_note": "The native worker's /proc/<pid>/stat pgrp equals the wrapper's own process group/session (1888743), i.e. the worker runs in the SAME group as its parent, NOT a separate session/group. This is why any app close path must NOT killpg; see PLAN section 3.",
+    "scope_notice": "These are NATIVE HARNESS numbers obtained through the direct protocol path, NOT app-level WS/REST numbers. No app performance claim is made here. App-level WS/REST performance remains UNPROVEN (see app_integration.unproven)."
+  },
+  "runtime_images": {
+    "asr": {
+      "ref": null,
+      "image_id": null,
+      "registry_digest": null,
+      "size_bytes": null,
+      "service_revision": null,
+      "image_identity_status": "unproven_no_image_built",
+      "target_ids": [
+        "jetson-orin-sm87"
+      ]
+    }
+  },
+  "runtime_artifacts": {
+    "bin/qwen3_asr_worker": {
+      "path": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/bin/qwen3_asr_worker",
+      "sha256": "dffa049c0498cf9cd42072e8ac8ce66f5dde8f1939d010abf268d9694443add3",
+      "size": null,
+      "status": "hash_bound_published_manifest_not_staged"
+    },
+    "libNvInfer_edgellm_plugin.so": {
+      "path": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/lib/libNvInfer_edgellm_plugin.so",
+      "sha256": "b9c210c30b3d17fe6efbdc5babe292c833fafbbe2e07d102e21be522550cae50",
+      "size": null,
+      "status": "hash_bound_published_manifest_not_staged"
+    },
+    "models/qwen3-asr-0.6b/thinker-b2": {
+      "path": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/thinker-b2",
+      "tree_sha256": "6bedec266fab7f1ff9aa951fe1381aac6ee3d8a4ae4c4504db1aff7b708bbe7e",
+      "status": "tree_bound_published_manifest_not_staged"
+    },
+    "models/qwen3-asr-0.6b/audio/audio": {
+      "path": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b/audio/audio",
+      "tree_sha256": "ef0253cd567c15a1befef22b7b35c38d22ef1d4399a614be9b6eb43a8363f949",
+      "status": "tree_bound_published_manifest_not_staged"
+    }
+  },
+  "artifact_provisioning": {
+    "wired": true,
+    "mechanism": "profile.model_artifacts -> server.core.model_downloader._ensure_profile_model_artifacts -> strict qwen3_artifact_downloader.ensure_model_artifacts",
+    "auto_download": true,
+    "auto_download_env": "OVS_AUTO_DOWNLOAD_ARTIFACTS=1; QWEN3_ARTIFACT_AUTO_DOWNLOAD=0 legacy path remains disabled",
+    "manifest_override_env": "prefixv011/orin-nx-sm87/asr-b2-20261006-native32/manifest.json",
+    "engine_root_override_env": "/opt/models/v011-candidate-cache/qwen3-asr-0.6b",
+    "cache_root": "/opt/models/v011-candidate-cache",
+    "archive_tmp_dir": "/opt/models/v011-candidate-cache/archive",
+    "hf_repo": "harvestsu/qwen3-asr-0.6b-jetson-artifacts",
+    "hf_prefix": "v011/orin-nx-sm87/asr-b2-20261006-native32",
+    "revision": "862ae0db85703e894ed9ae7448ae1ce11a79cda3",
+    "required_file_count": 12,
+    "status": "wired_candidate_unqualified",
+    "note": "Strict provisioning dispatch is CPU/source-wired and pinned. No download or deployment was executed in this task."
+  },
+  "tts_isolation": {
+    "tts_plugin_mounted": false,
+    "tts_models_root_mounted": false,
+    "co_load_v010_plugin": false,
+    "note": "Avoid TTS plugin co-load and unchanged production paths; existing v010 profiles/locks untouched."
+  },
+  "candidate_feature_status": {
+    "require_ifb_ready_capacity_validation": {
+      "env": "EDGE_LLM_ASR_REQUIRE_IFB",
+      "profile_value": "1",
+      "config_flag": "require_ifb",
+      "config_flag_default": false,
+      "state": "requires_implementation_independent_review_app_validation",
+      "currently_proven": false,
+      "implementation_owner_task": "/tmp/slv-v011-asr-ready-health-implementation-task.md",
+      "note": "Separate source owner implements config.require_ifb (default false) + EDGE_LLM_ASR_REQUIRE_IFB mapping + actual-ready capacity validation + bounded own-Popen EOF/TERM cleanup, under root acceptance. This candidate DECLARES the request; it does NOT prove the feature. Independent review and app validation are still required."
+    },
+    "workerio_health_trace_telemetry": {
+      "state": "requires_implementation_independent_review_app_validation",
+      "currently_proven": false,
+      "note": "Optional WorkerIO telemetry callback (default None) and backend runtime_diagnostics() are not implemented/proven; no HTTP exposure is claimed."
+    },
+    "cleanup_ownpopen_eof_term": {
+      "state": "requires_implementation_independent_review_app_validation",
+      "currently_proven": false,
+      "note": "Bounded own-Popen EOF->TERM no-KILL cleanup is not implemented/proven app-side; the native accepted run only demonstrates the wrapper's own EOF exit0."
+    }
+  },
+  "app_integration": {
+    "audit_report": "/tmp/slv-v011-asr-production-integration-audit/REPORT.md",
+    "gaps": [
+      {
+        "id": "G1",
+        "severity": "P0",
+        "title": "v011 ASR candidate configuration surface",
+        "status": "ADDRESSED_BY_THIS_CANDIDATE_PARTIAL",
+        "note": "This profile + inputs identity JSON provide the candidate configuration/identity surface. Compose/start/health/rollback (G6) still absent."
+      },
+      {
+        "id": "G2",
+        "severity": "P1",
+        "title": "worker-ready IFB provenance captured but not validated/exposed",
+        "status": "IMPLEMENTATION_DISPATCHED_NOT_PROVEN",
+        "implementation_owner_task": "/tmp/slv-v011-asr-ready-health-implementation-task.md"
+      },
+      {
+        "id": "G3",
+        "severity": "P1",
+        "title": "asr_ifb_health / asr_ifb_trace not consumed app-side",
+        "status": "IMPLEMENTATION_DISPATCHED_NOT_PROVEN",
+        "implementation_owner_task": "/tmp/slv-v011-asr-ready-health-implementation-task.md"
+      },
+      {
+        "id": "G4",
+        "severity": "P0",
+        "title": "app-level WS/REST performance unmeasured",
+        "status": "UNPROVEN"
+      },
+      {
+        "id": "G5",
+        "severity": "P2",
+        "title": "production voxedge WorkerIO copy not covered by IFB routing regression",
+        "status": "UNPROVEN_SOURCE_GAP"
+      },
+      {
+        "id": "G6",
+        "severity": "P2",
+        "title": "v011 ASR compose/start/health/rollback absent",
+        "status": "ABSENT"
+      }
+    ],
+    "unproven": [
+      "app-level first-partial latency with simultaneous reader (metric UNPROVEN)",
+      "app-level EOS-to-final latency",
+      "app-level P50/P95 and RTF B1 vs B2",
+      "app-level throughput B1 vs B2",
+      "app-level RSS/RAM under load",
+      "app-level concurrent admission/cancel/recovery fairness"
+    ]
+  },
+  "gate_policy": {
+    "draft_gate": "input-schema-only",
+    "runtime_gate": "verify-runtime-required",
+    "image_identity_gate": "external-deployment-gate-required",
+    "image_build_state": "artifacts_unqualified_inputs_pending",
+    "image_self_identity_fields": [
+      "ref",
+      "image_id",
+      "registry_digest",
+      "size_bytes"
+    ]
+  },
+  "production_release_permission": false
+}

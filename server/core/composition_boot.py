@@ -169,6 +169,7 @@ def apply_composition(profile: Mapping[str, object] | None) -> list[str]:
                 "revision": source.revision, "canonical_model_id": source.canonical_id,
                 "root": source.root, "manifest": source.manifest,
                 "cache_root": source.cache_root, "files": list(source.files),
+                "strict": source.strict,
             }
             for source in sources
         ], separators=(",", ":"))

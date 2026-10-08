@@ -63,11 +63,15 @@ class FakeStickyStream:
         self.ident = ident
         self.endpoint_after = endpoint_after
         self.chunks = 0
+        self.sample_lengths = []
         self.finalized = False
         self.closed = False
+        self.prepare_calls = 0
+        self.finalize_calls = 0
 
     def accept_waveform(self, sr: int, samples) -> None:  # noqa: ANN001
         self.chunks += 1
+        self.sample_lengths.append(len(samples))
 
     def get_partial(self):
         if (self.endpoint_after is not None
@@ -79,9 +83,10 @@ class FakeStickyStream:
         return "", False
 
     def prepare_finalize(self) -> None:
-        pass
+        self.prepare_calls += 1
 
     def finalize(self):
+        self.finalize_calls += 1
         return f"第一句文本-s{self.ident}", None
 
     def close(self) -> None:
@@ -130,6 +135,15 @@ class FakeWS:
         self.close_calls.append((code, reason))
 
 
+class FailFinalWS(FakeWS):
+    """Simulate a client disappearing while the final is sent."""
+
+    async def send_json(self, payload) -> None:
+        if payload.get("type") == "final":
+            raise RuntimeError("client gone")
+        await super().send_json(payload)
+
+
 class FakeVADSession:
     """Never fires SPEECH_END — isolates the backend-endpoint branch."""
 
@@ -138,6 +152,23 @@ class FakeVADSession:
 
     def process(self, samples):  # noqa: ANN001
         return None  # != VADSession.SPEECH_END
+
+    def reset(self) -> None:
+        self.reset_calls += 1
+
+
+class FakeMultiEventVAD:
+    """Return an end→start pair from one PCM block with explicit offsets."""
+
+    def __init__(self):
+        self.reset_calls = 0
+
+    def process_events(self, samples):  # noqa: ANN001
+        from server.core.vad import VADSession
+        return [
+            (VADSession.SPEECH_END, 400),
+            (VADSession.SPEECH_START, 800),
+        ]
 
     def reset(self) -> None:
         self.reset_calls += 1
@@ -228,6 +259,67 @@ async def test_endpoint_rearm_resets_vad_session():
     await _run(ws, backend, vad_session=vad)
     assert len(_finals(ws)) == 1
     assert vad.reset_calls == 1
+
+
+@_asynctest
+async def test_disconnect_message_abandons_without_prepare_or_finalize():
+    """ASGI disconnect messages are teardown, not an empty-audio EOS frame."""
+    backend = FakeBackend(schedule=(None,))
+    ws = FakeWS([{"bytes": _CHUNK}, {"type": "websocket.disconnect"}])
+    await _run(ws, backend)
+    assert _finals(ws) == []
+    stream = backend.streams[0]
+    assert stream.prepare_calls == 0
+    assert stream.finalize_calls == 0
+    assert stream.closed is True
+
+
+@_asynctest
+async def test_vad_end_start_in_one_block_rearms_and_preserves_offsets():
+    """A same-block end→start keeps each segment on its own stream."""
+    backend = FakeBackend(schedule=(None, None))
+    vad = FakeMultiEventVAD()
+    ws = FakeWS([{"bytes": _CHUNK}, {"type": "websocket.disconnect"}])
+
+    await _run(ws, backend, vad_session=vad)
+
+    assert [p["type"] for p in ws.sent] == ["vad_endpoint", "final"]
+    assert backend.create_calls == 2
+    first, second = backend.streams
+    assert first.sample_lengths == [400]
+    assert second.sample_lengths == [400, 800]
+    assert first.closed is True
+    assert second.closed is True
+    # process_events already advanced VAD state for the later start; resetting
+    # here would erase that state before the next block arrives.
+    assert vad.reset_calls == 0
+
+
+@_asynctest
+async def test_vad_final_send_failure_exits_connection_without_rearm():
+    """A failed final send stops the outer receive loop and closes the stream."""
+    backend = FakeBackend(schedule=(None, None))
+    vad = FakeMultiEventVAD()
+    ws = FailFinalWS([{"bytes": _CHUNK}, {"type": "websocket.disconnect"}])
+
+    await _run(ws, backend, vad_session=vad)
+
+    assert backend.create_calls == 1
+    assert backend.streams[0].sample_lengths == [400]
+    assert backend.streams[0].closed is True
+
+
+@_asynctest
+async def test_empty_bytes_is_eos_and_finalizes_once():
+    """A real zero-length bytes frame remains the explicit EOS protocol."""
+    backend = FakeBackend(schedule=(None,))
+    ws = FakeWS([{"bytes": _CHUNK}, {"bytes": b""}])
+    await _run(ws, backend)
+    assert len(_finals(ws)) == 1
+    stream = backend.streams[0]
+    assert stream.prepare_calls == 1
+    assert stream.finalize_calls == 1
+    assert stream.closed is True
 
 
 @_asynctest

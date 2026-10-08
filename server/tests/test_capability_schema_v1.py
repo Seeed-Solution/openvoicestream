@@ -328,6 +328,25 @@ def test_moss_golden_is_reference_audio_not_embedding():
     assert tts["controls"]["speed"]["implementation"] == "dsp"
 
 
+def test_base_reference_mode_requires_backend_reference_readiness():
+    class ReadyBase(_Backend):
+        @property
+        def supports_reference_audio_cloning(self):
+            return True
+
+    ready = build_capabilities(
+        tts_backend=ReadyBase(), tts_ready=True, tts_configured=True,
+        asr_configured=False, limiter=None,
+    )
+    assert ready["tts"]["cloning"]["modes"] == ["embedding", "reference_audio"]
+
+    not_ready = build_capabilities(
+        tts_backend=_Backend(), tts_ready=True, tts_configured=True,
+        asr_configured=False, limiter=None,
+    )
+    assert not_ready["tts"]["cloning"]["modes"] == ["embedding"]
+
+
 def test_spark_golden_merges_live_profiles(monkeypatch):
     from server.core import sparktts_voices
 

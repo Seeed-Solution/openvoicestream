@@ -79,6 +79,17 @@ class _Moss(_Backend):
         return b"RIFFmoss", {"duration": 1}
 
 
+class _BaseReference(_Backend):
+    def supports_reference_audio_cloning(self):
+        return True
+
+    def clone_voice(self, text, language=None, **kwargs):
+        self.clone_calls.append((text, language, kwargs))
+        assert kwargs["reference_text"] == "reference transcript"
+        assert kwargs["reference_audio_wav"].startswith(b"RIFF")
+        return b"RIFFbase", {"duration": 1}
+
+
 @pytest.fixture()
 def clone_client(monkeypatch):
     pytest.importorskip("prometheus_client")
@@ -244,6 +255,64 @@ def test_moss_reference_rejects_ambiguous_duplicate_fmt(monkeypatch):
     with pytest.raises(Exception) as caught:
         main._v1_parse_moss_reference_wav(forged, moss)
     assert getattr(caught.value, "code", None) == "invalid_audio"
+
+
+def test_base_reference_preserves_wav_and_requires_transcript(clone_client):
+    client, _backend, manager = clone_client
+    base = _BaseReference()
+    manager.get_backend_unsafe = lambda: base
+    manager.acquire = lambda: _manager_cm(base)
+    reference = _wav(b"\x00\x00" * 1280, sample_rate=16_000)
+    response = client.post(
+        "/v1/tts/clone/reference",
+        files={"file": ("ref.wav", reference, "audio/wav")},
+        data={"model": base.model_id, "text": "hello", "ref_text": "reference transcript"},
+    )
+    assert response.status_code == 200, response.text
+    assert base.clone_calls[-1][2]["reference_audio_wav"] == reference
+
+    missing = client.post(
+        "/v1/tts/clone/reference",
+        files={"file": ("ref.wav", reference, "audio/wav")},
+        data={"model": base.model_id, "text": "hello"},
+    )
+    assert missing.status_code == 400
+    assert missing.json()["error"]["code"] == "missing_required_parameter"
+
+
+def test_base_reference_wav_rejects_trailing_and_truncated_bytes_but_accepts_metadata():
+    from server import main
+
+    payload = b"\x00\x00" * 2400  # 100 ms at 24 kHz, mono PCM16
+    valid = _wav(payload, sample_rate=24_000)
+    junk = valid + b"outside-riff"
+    with pytest.raises(Exception) as trailing:
+        main._v1_parse_base_reference_wav(junk)
+    assert getattr(trailing.value, "code", None) == "invalid_audio"
+
+    data_pos = valid.index(b"data")
+    truncated = valid[: data_pos + 8] + payload[:-2]
+    with pytest.raises(Exception) as short:
+        main._v1_parse_base_reference_wav(truncated)
+    assert getattr(short.value, "code", None) == "invalid_audio"
+
+    fmt_end = valid.index(b"data")
+    metadata = b"JUNK" + struct.pack("<I", 3) + b"abc" + b"\x00"
+    with_metadata = valid[:fmt_end] + metadata + valid[fmt_end:]
+    with_metadata = with_metadata[:4] + struct.pack("<I", len(with_metadata) - 8) + with_metadata[8:]
+    assert main._v1_parse_base_reference_wav(with_metadata) == with_metadata
+
+
+def test_base_reference_text_uses_ref_text_validation_contract(monkeypatch):
+    from server import main
+
+    monkeypatch.setenv("OVS_API_MAX_TEXT_BYTES", "3")
+    with pytest.raises(Exception) as too_long:
+        main._v1_validate_text("你好", param="ref_text")
+    assert getattr(too_long.value, "param", None) == "ref_text"
+    with pytest.raises(Exception) as surrogate:
+        main._v1_validate_text("\ud800", param="ref_text")
+    assert getattr(surrogate.value, "param", None) == "ref_text"
 
 
 def _manager_cm(backend):

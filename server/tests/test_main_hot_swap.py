@@ -24,6 +24,7 @@ import json
 import os
 import threading
 import time
+from types import MethodType
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
@@ -478,6 +479,298 @@ def test_tts_stream_disconnect_waits_for_backend_slot_before_recovery(
     finally:
         from server.core import backend_manager as bm
         bm._reset_for_tests()
+
+
+def test_v2v_deadline_propagates_cancel_and_releases_backend_slot(client, monkeypatch):
+    """The real v2v handler must cancel a blocked stream before the next turn.
+
+    The fake backend yields one chunk, then waits for ``cancel_event`` while
+    holding a single slot.  The first turn therefore reaches the v2v sentence
+    deadline.  The second turn proves that the handler waited for backend
+    cleanup rather than releasing the manager lease while native work was
+    still active.
+    """
+    backend = client.tts_be
+    slot = threading.Lock()
+    calls = []
+    cancel_events = []
+    cleaned = threading.Event()
+    manager_inflight_at_cleanup = []
+
+    def _stream(self, text, **kwargs):
+        cancel_event = kwargs.get("cancel_event")
+        assert cancel_event is not None
+        calls.append(text)
+        cancel_events.append(cancel_event)
+        if text == "second":
+            assert cleaned.wait(3.0), "second sentence raced the first native future"
+        assert slot.acquire(blocking=False), "previous v2v synth still owns slot"
+        try:
+            yield b"\x01\x00" * 8
+            if len(calls) == 1:
+                assert cancel_event.wait(1.0), "v2v deadline did not reach backend"
+                # The client deadline must return while the native future is
+                # still alive; its manager and coordinator leases stay held
+                # until this slow cancellation path actually exits.
+                time.sleep(2.2)
+                raise RuntimeError("late backend failure after cancellation")
+            yield b"\x02\x00" * 8
+        finally:
+            from server.core.backend_manager import tts_manager
+            manager_inflight_at_cleanup.append(
+                tts_manager().status()["inflight_http"]
+            )
+            slot.release()
+            cleaned.set()
+
+    backend.generate_streaming = MethodType(_stream, backend)
+    from server.core import coordinator as coord_mod
+    coordinator = coord_mod.init_coordinator({"mode": "serialized"})
+    monkeypatch.setenv("OVS_TTS_SENTENCE_TIMEOUT_S", "0.1")
+    with client.websocket_connect("/v2v/stream") as ws:
+        ws.send_json({
+            "type": "config", "asr_language": None, "tts_language": "en",
+            "vad": "none", "multi_utterance": True,
+        })
+        ws.send_json({"type": "text", "text": "first"})
+        ws.send_json({"type": "tts_flush"})
+        first_events = []
+        while True:
+            frame = ws.receive()
+            if frame.get("bytes") is not None:
+                continue
+            event = json.loads(frame["text"])
+            first_events.append(event)
+            if event.get("type") == "tts_done":
+                break
+        assert any(e.get("type") == "error" for e in first_events), first_events
+        from server.core.backend_manager import tts_manager
+        assert tts_manager().status()["inflight_http"] == 1
+        assert not cleaned.is_set(), "deadline waited for the slow native future"
+        assert coordinator._lock is not None and coordinator._lock.locked()
+
+        # Enqueue the next sentence while the detached owner is still
+        # sleeping. It must wait for the old lease, then use fresh closures.
+        monkeypatch.setenv("OVS_TTS_SENTENCE_TIMEOUT_S", "3.0")
+        ws.send_json({"type": "text", "text": "second"})
+        ws.send_json({"type": "tts_flush"})
+        second_events = []
+        while True:
+            frame = ws.receive()
+            if frame.get("bytes") is not None:
+                continue
+            event = json.loads(frame["text"])
+            second_events.append(event)
+            if event.get("type") == "tts_done":
+                break
+        assert calls == ["first", "second"]
+        assert cancel_events[0] is not cancel_events[1]
+        assert cancel_events[0].is_set()
+        assert not cancel_events[1].is_set()
+        assert not any(e.get("type") == "error" for e in second_events), second_events
+        assert cleaned.wait(1.0), "manager returned before backend slot cleanup"
+        assert manager_inflight_at_cleanup == [2, 1], manager_inflight_at_cleanup
+        for _ in range(20):
+            if tts_manager().status()["inflight_http"] == 0:
+                break
+            time.sleep(0.05)
+        assert tts_manager().status()["inflight_http"] == 0
+        assert coordinator._lock is not None and not coordinator._lock.locked()
+        ws.send_json({"type": "asr_eos"})
+
+
+def _speakable_takes_language() -> bool:
+    import inspect
+
+    from voxedge.engine.tts_sequencer import _to_speakable
+
+    return "language" in inspect.signature(_to_speakable).parameters
+
+
+@pytest.mark.skipif(
+    not _speakable_takes_language(),
+    reason="zh URL spelling needs voxedge>=0.0.15a2 (_to_speakable(language=))",
+)
+def test_v2v_tts_speakable_normalizes_markdown_before_backend(client):
+    """V2V sends speakable text to TTS while protocol events keep the source."""
+    backend = client.tts_be
+    with client.websocket_connect("/v2v/stream") as ws:
+        ws.send_json({
+            "type": "config", "asr_language": None, "tts_language": "zh",
+            "vad": "none", "multi_utterance": True,
+        })
+        source = "3. **访问权威气象网站**，如中国气象网 (www.nmc.cn)。"
+        ws.send_json({"type": "text", "text": source})
+        ws.send_json({"type": "tts_flush"})
+        events = []
+        while True:
+            frame = ws.receive()
+            if frame.get("bytes") is not None:
+                continue
+            event = json.loads(frame["text"])
+            events.append(event)
+            if event.get("type") == "tts_done":
+                break
+
+    assert [call["text"] for call in backend.streaming_calls] == [
+        "访问权威气象网站，如中国气象网 (w w w 点 n m c 点 c n)。"
+    ]
+    started = [e for e in events if e.get("type") == "tts_started"]
+    done = [e for e in events if e.get("type") == "tts_sentence_done"]
+    assert started[0]["sentence"] == source
+    assert done[0]["sentence"] == source
+
+
+def test_v2v_tts_drops_markup_only_and_keeps_plain_text(client):
+    """Markup-only input never starts TTS; ordinary text remains unchanged."""
+    backend = client.tts_be
+    with client.websocket_connect("/v2v/stream") as ws:
+        ws.send_json({
+            "type": "config", "asr_language": None, "tts_language": "en",
+            "vad": "none", "multi_utterance": True,
+        })
+        ws.send_json({"type": "text", "text": "***"})
+        ws.send_json({"type": "tts_flush"})
+        events = []
+        while True:
+            frame = ws.receive()
+            if frame.get("bytes") is not None:
+                continue
+            event = json.loads(frame["text"])
+            events.append(event)
+            if event.get("type") == "tts_done":
+                break
+        assert not any(e.get("type") == "tts_started" for e in events)
+        assert not backend.streaming_calls
+
+        ws.send_json({"type": "text", "text": "plain text"})
+        ws.send_json({"type": "tts_flush"})
+        while True:
+            frame = ws.receive()
+            if frame.get("bytes") is None and json.loads(frame["text"]).get("type") == "tts_done":
+                break
+
+    assert [call["text"] for call in backend.streaming_calls] == ["plain text"]
+
+
+def test_v2v_deadline_while_acquiring_does_not_start_cancelled_sentence(client, monkeypatch):
+    """A sentence canceled while waiting for a lease never starts native TTS."""
+    import server.main as main_mod
+
+    backend = client.tts_be
+    calls = []
+
+    def _stream(self, text, **kwargs):
+        calls.append(text)
+        yield b"\x01\x00" * 8
+
+    backend.generate_streaming = MethodType(_stream, backend)
+
+    class _DelayedAcquire:
+        async def __aenter__(self):
+            await asyncio.sleep(0.3)
+            return backend
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class _DelayedManager:
+        def acquire(self):
+            return _DelayedAcquire()
+
+        def register_ws(self, _handle):
+            pass
+
+        def unregister_ws(self, _handle):
+            pass
+
+    monkeypatch.setattr(main_mod, "_try_tts_manager", lambda: _DelayedManager())
+    monkeypatch.setenv("OVS_TTS_SENTENCE_TIMEOUT_S", "0.05")
+    with client.websocket_connect("/v2v/stream") as ws:
+        ws.send_json({
+            "type": "config", "asr_language": None, "tts_language": "en",
+            "vad": "none", "multi_utterance": True,
+        })
+        ws.send_json({"type": "text", "text": "acquire-wait"})
+        ws.send_json({"type": "tts_flush"})
+        events = []
+        while True:
+            frame = ws.receive()
+            if frame.get("bytes") is not None:
+                continue
+            event = json.loads(frame["text"])
+            events.append(event)
+            if event.get("type") == "tts_done":
+                break
+        assert any(event.get("type") == "error" for event in events)
+        assert not any(event.get("type") == "tts_started" for event in events)
+        time.sleep(0.4)
+    assert calls == []
+
+
+@pytest.mark.parametrize("trigger", ["barge_in", "websocket_disconnect"])
+def test_v2v_barge_in_and_disconnect_retain_slow_cleanup_leases(client, trigger):
+    """V2V abort/disconnect retain leases until a canceled backend unwinds."""
+    backend = client.tts_be
+    cancel_seen = threading.Event()
+    cleaned = threading.Event()
+    inflight_at_cleanup = []
+
+    def _stream(self, text, **kwargs):
+        cancel_event = kwargs.get("cancel_event")
+        assert cancel_event is not None
+        try:
+            yield b"\x01\x00" * 8
+            assert cancel_event.wait(1.0), "V2V trigger did not reach backend"
+            cancel_seen.set()
+            time.sleep(0.3)
+            raise RuntimeError("late failure after V2V cancellation")
+        finally:
+            from server.core.backend_manager import tts_manager
+            inflight_at_cleanup.append(tts_manager().status()["inflight_http"])
+            cleaned.set()
+
+    backend.generate_streaming = MethodType(_stream, backend)
+    with client.websocket_connect("/v2v/stream") as ws:
+        ws.send_json({
+            "type": "config", "asr_language": None, "tts_language": "en",
+            "vad": "none", "multi_utterance": True,
+        })
+        ws.send_json({"type": "text", "text": "trigger"})
+        ws.send_json({"type": "tts_flush"})
+        events = []
+        while True:
+            frame = ws.receive()
+            if frame.get("bytes") is not None:
+                continue
+            event = json.loads(frame["text"])
+            events.append(event)
+            if event.get("type") == "tts_started":
+                break
+        if trigger == "barge_in":
+            ws.send_json({"type": "abort"})
+            assert cancel_seen.wait(1.0)
+            assert not cleaned.is_set(), "barge-in waited for slow native cleanup"
+            while True:
+                frame = ws.receive()
+                if frame.get("bytes") is not None:
+                    continue
+                event = json.loads(frame["text"])
+                events.append(event)
+                if event.get("type") == "tts_done":
+                    break
+            assert not any(event.get("type") == "tts_sentence_done" for event in events)
+        else:
+            ws.close()
+
+        if trigger == "websocket_disconnect":
+            assert cancel_seen.wait(1.0)
+            assert not cleaned.is_set(), "disconnect waited for slow native cleanup"
+        assert any(event.get("type") == "tts_started" for event in events)
+        assert not any(event.get("error", "").startswith("tts: late failure") for event in events)
+
+    assert cleaned.wait(1.0)
+    assert inflight_at_cleanup == [1]
 
 
 def test_tts_cleanup_does_not_wait_for_unstarted_prefetch():

@@ -242,12 +242,15 @@ cells:
   - device: rk3576
     group: zh
     status: measured
-    ovs_profile: rk3576-default
+    ovs_profile: rk3576-piper
     asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
-    tts: {backend: rk.tts, model: matcha-icefall-zh-en, quant: ORT acoustic + RKNN Vocos}
+    tts: {backend: rk.tts, model: PiperDP128 English + Matcha Chinese fallback, quant: RKNN frontend + flow decoder / ORT acoustic + RKNN Vocos}
     env: {}
     evidence:
       - configs/profiles/rk3576-default.json:2 - W8A8 is the RK3576 default after the 2026-06-10 highperf long-dictation and V2V recheck
+      - docs/piper-frontend-npu-migration.md:147 - perf3-fix735 HTTP NPU/CPU measurements; this is component/runtime evidence, not a new full V2V acceptance
+      - docs/piper-frontend-npu-migration.md:149 - Chinese Matcha comparison and normalization boundary
+      - cat release/final-toggle1-validation.json SHA256 9a6140e6d9769ed97e7fa732880b8d4e1603a7d778a12c95167c420d31b190da - same-service TTS/ASR roundtrip; digit normalization retained, not a new LLM/V2V acceptance
     planned_alternative: null
 
   - device: rk3576
@@ -255,13 +258,19 @@ cells:
     status: measured
     ovs_profile: rk3576-piper
     asr: {backend: rk.asr, model: Qwen3-ASR RKNN encoder + RKLLM decoder, quant: w8a8}
-    tts: {backend: rk.tts, model: piper-en-us-lessac, quant: ORT encoder + RKNN flow_decoder 512mel}
+    tts: {backend: rk.tts, model: PiperDP128 English + Matcha Chinese fallback, quant: RKNN frontend + flow decoder / ORT acoustic + RKNN Vocos}
     env: {}
     evidence:
 
       - 'run on cat-remote 2026-09-20 with OVS_PROFILE=rk3576-piper: a 3.84 s corpus recording (bench/perf/corpus/short/en_short_01.wav) transcribed word for word by the in-service ASR, answered by a cloud LLM, and spoken back by Piper; the reply audio transcribed back word for word through the spark trt_edgellm ASR'
 
       - TTS first frame within 10 ms of the reply text; one decode of a full sentence is 291 ms for 5.2 s of audio (RTF 0.056), measured on the same board
+
+      - docs/piper-frontend-npu-migration.md:147 - perf3-fix735 HTTP NPU/CPU measurements; this is component/runtime evidence, not a new full V2V acceptance
+
+      - docs/piper-frontend-npu-migration.md:149 - Chinese fallback comparison is retained as component evidence; mixed-text normalization differs
+
+      - cat release/final-toggle1-validation.json SHA256 9a6140e6d9769ed97e7fa732880b8d4e1603a7d778a12c95167c420d31b190da - same-service TTS/ASR roundtrip; digit normalization retained, not a new LLM/V2V acceptance
 
       - 'send vad=none: the RK ASR backend owns endpointing, and a client-side VAD races it and silently truncates the turn (observed here: 1.20 s of a 3.84 s utterance)'
     planned_alternative:

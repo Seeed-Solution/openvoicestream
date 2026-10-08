@@ -37,6 +37,7 @@ def run_async(coro_fn):
 async def test_stop_capture_tap_unregisters():
     io = TappedAudioIO.__new__(TappedAudioIO)
     io._taps = []
+    io._tap_stats = {}
     q = await io.start_capture_tap()
     assert q in io._taps
     # A fanned chunk reaches a registered tap.

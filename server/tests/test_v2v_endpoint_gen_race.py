@@ -462,11 +462,10 @@ def test_vad_speech_end_stamps_gen_in_source():
     main_path = os.path.abspath(os.path.join(here, "..", "main.py"))
     with open(main_path, "r", encoding="utf-8") as f:
         src = f.read()
-    needle = (
-        "state[\"endpoint_pending\"] = \"vad\"\n"
-        "                                state[\"endpoint_pending_gen\"] = state[\"asr_active_gen\"]"
-    )
-    assert needle in src, (
+    assert (
+        'state["endpoint_pending"] = "vad"' in src
+        and 'state["endpoint_pending_gen"] = state["asr_active_gen"]' in src
+    ), (
         "VAD speech-end handler no longer stamps endpoint_pending_gen"
     )
 

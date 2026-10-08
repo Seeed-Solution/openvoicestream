@@ -240,3 +240,45 @@ def test_preroll_disabled_drops_onset(recording_backend, monkeypatch):
         f"preroll disabled should deliver only trigger+tail (1600), got "
         f"{stream.total_samples}"
     )
+
+
+def test_backend_owned_stream_does_not_drop_later_vad_start_chunk(
+    recording_backend, monkeypatch
+):
+    """A backend-owned stream may open before frontend VAD emits start.
+
+    Once that lazy-open path has set ``asr_started_once``, a later VAD start is
+    a barge-in notification only; its audio still belongs to the active stream
+    and must be accepted exactly once.
+    """
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    recording_backend.prefer_backend_endpoint_vad = True
+    monkeypatch.setattr(_RecordingStream, "prefer_backend_endpoint_vad", True, raising=False)
+    fake_vad = _ScriptedVAD(events=[
+        None,                         # backend-owned lazy open + accept
+        vad_mod.VADSession.SPEECH_START,  # must still be accepted
+        vad_mod.VADSession.SPEECH_END,
+    ])
+    monkeypatch.setattr(vad_mod, "create_vad", lambda *a, **kw: fake_vad)
+
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=False, vad="silero")
+    try:
+        ws.send_bytes(_const_pcm16(1000, ms=50))
+        ws.send_bytes(_const_pcm16(2000, ms=50))
+        ws.send_bytes(_const_pcm16(3000, ms=50))
+        ws.send_json({"type": "asr_eos"})
+        _drain_until(ws, "asr_final")
+    finally:
+        ws.__exit__(None, None, None)
+
+    stream = recording_backend.streams_created[0]
+    assert stream.total_samples == 2400, (
+        "backend-owned active stream must accept all three chunks exactly once"
+    )
+    audio = np.concatenate(stream.chunks)
+    assert np.allclose(audio[:800], 1000 / 32768.0, atol=1e-3)
+    assert np.allclose(audio[800:1600], 2000 / 32768.0, atol=1e-3)
+    assert np.allclose(audio[1600:], 3000 / 32768.0, atol=1e-3)

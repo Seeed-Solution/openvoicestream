@@ -58,6 +58,7 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from server.core.asr_backend import ASRBackend, ASRCapability
+from server.core import vad as vad_mod
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -73,13 +74,17 @@ class _FakeStream:
     nothing on the partial branch).
     """
 
-    def __init__(self, backend: "_FakeASRBackend"):
+    def __init__(self, backend: "_FakeASRBackend", stream_index: int):
         self._backend = backend
+        self._stream_index = stream_index
         self.accepted_chunks: List[int] = []
         self.finalized = False
         self.cancelled = False
+        self.prefer_backend_endpoint_vad = backend.prefer_backend_endpoint_vad
 
     def accept_waveform(self, sr: int, samples) -> None:
+        if self._backend.fail_accept_stream_index == self._stream_index:
+            raise RuntimeError("injected pending-turn accept failure")
         self.accepted_chunks.append(len(samples))
 
     def get_partial(self) -> Tuple[str, bool]:
@@ -89,6 +94,11 @@ class _FakeStream:
         return "", False
 
     def finalize(self):
+        gate = self._backend.finalize_gate
+        if self._backend.finalize_started is not None:
+            self._backend.finalize_started.set()
+        if gate is not None:
+            gate.wait(timeout=5.0)
         self.finalized = True
         text = self._backend._next_final_text()
         # ASRStream finalize ABC now returns ``(text, detected_language)``.
@@ -96,6 +106,8 @@ class _FakeStream:
 
     def cancel(self) -> None:
         self.cancelled = True
+        if self._backend.finalize_gate is not None:
+            self._backend.finalize_gate.set()
 
     def cancel_and_finalize(self) -> str:
         self.cancelled = True
@@ -115,6 +127,10 @@ class _FakeASRBackend(ASRBackend):
         self.streams_created: List[_FakeStream] = []
         self._lock = threading.Lock()
         self._final_idx = 0
+        self.prefer_backend_endpoint_vad = False
+        self.finalize_gate: Optional[threading.Event] = None
+        self.finalize_started: Optional[threading.Event] = None
+        self.fail_accept_stream_index: Optional[int] = None
 
     # ASRBackend abstract surface ──────────────────────────────────────
     @property
@@ -150,7 +166,7 @@ class _FakeASRBackend(ASRBackend):
 
     # Streaming surface called by ASRSessionManager ────────────────────
     def create_stream(self, language: str = "auto"):
-        s = _FakeStream(self)
+        s = _FakeStream(self, len(self.streams_created))
         self.streams_created.append(s)
         return s
 
@@ -192,6 +208,23 @@ def _drain_until_final(ws, timeout_s: float = 5.0):
     raise AssertionError(f"timed out waiting for asr_final; seen={seen}")
 
 
+class _ScriptedVAD:
+    def __init__(self, events):
+        self._events = iter(events)
+
+    def process(self, _samples):
+        return next(self._events, None)
+
+
+class _ScriptedEventsVAD:
+    def __init__(self, events):
+        self._events = iter(events)
+
+    def process_events(self, samples):
+        event = next(self._events, None)
+        return [(event, len(samples))] if event is not None else []
+
+
 @pytest.fixture
 def fake_asr_backend(monkeypatch):
     """Install a fake ASR backend into server.main so /v2v/stream can run.
@@ -203,15 +236,22 @@ def fake_asr_backend(monkeypatch):
     """
     import server.main as main_mod
     from server.core.coordinator import init_coordinator
+    from server.core import session_limiter
+    previous_limiter = session_limiter.get_limiter()
     init_coordinator({"mode": "concurrent"})
+    session_limiter._reset_for_tests()
+    session_limiter.init_limiter({})
 
     be = _FakeASRBackend(finals=["one", "two", "three", "four"])
     monkeypatch.setattr(main_mod, "_asr_backend", be, raising=False)
     monkeypatch.setattr(main_mod, "_get_asr_backend", lambda: be)
-    return be
+    try:
+        yield be
+    finally:
+        session_limiter._limiter = previous_limiter
 
 
-def _open_v2v(client, *, multi_utterance: bool):
+def _open_v2v(client, *, multi_utterance: bool, vad: str = "none"):
     """Open /v2v/stream and send the initial config frame.
 
     ``vad="none"`` disables VAD so audio chunks lazily open an utterance
@@ -221,7 +261,7 @@ def _open_v2v(client, *, multi_utterance: bool):
     cfg = {
         "type": "config",
         "asr_language": "en",
-        "vad": "none",
+        "vad": vad,
         "sample_rate": 16000,
         "multi_utterance": multi_utterance,
     }
@@ -235,6 +275,7 @@ def test_scenario1_multi_utterance_three_eos_three_finals(fake_asr_backend):
     """3× client asr_eos in multi_utterance mode → 3 finals, session stays open."""
     from fastapi.testclient import TestClient
     from server.main import app
+    from server.core.asr_session_manager import ASRSessionManager
 
     fake_asr_backend._finals = ["utterance one", "utterance two", "utterance three"]
     fake_asr_backend._final_idx = 0
@@ -282,6 +323,319 @@ def test_scenario1_multi_utterance_three_eos_three_finals(fake_asr_backend):
         assert payload.get("session_complete") is False
     finally:
         ws.__exit__(None, None, None)
+
+
+def test_vad_end_start_is_queued_while_old_finalize_is_blocked(
+    fake_asr_backend, monkeypatch
+):
+    """A real WS dispatcher keeps both generations while finalize blocks."""
+    from fastapi.testclient import TestClient
+    import server.main as main_mod
+    from server.main import app
+
+    fake_asr_backend._finals = ["first", "second"]
+    fake_asr_backend._final_idx = 0
+    fake_asr_backend.finalize_gate = threading.Event()
+    fake_asr_backend.finalize_started = threading.Event()
+    monkeypatch.setattr(
+        vad_mod,
+        "create_vad",
+        lambda *args, **kwargs: _ScriptedEventsVAD([
+            vad_mod.VADSession.SPEECH_START,
+            vad_mod.VADSession.SPEECH_END,
+            vad_mod.VADSession.SPEECH_START,
+            vad_mod.VADSession.SPEECH_END,
+        ]),
+    )
+    # Keep the assertion tied to the production fallback-free path.
+    assert hasattr(main_mod, "_split_vad_block")
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True, vad="silero")
+    try:
+        first_a = _silence_pcm16(100)
+        first_b = _silence_pcm16(200)
+        second_a = _silence_pcm16(300)
+        second_b = _silence_pcm16(400)
+        ws.send_bytes(first_a)
+        ws.send_bytes(first_b)
+        # Give asr_out_task time to enter the deliberately blocked finalize.
+        time.sleep(0.10)
+        ws.send_bytes(second_a)
+        ws.send_bytes(second_b)
+        # The receive task remains live while generation 1 is finalizing.
+        fake_asr_backend.finalize_gate.set()
+        first_final, _ = _drain_until_final(ws)
+        second_final, _ = _drain_until_final(ws)
+
+        assert [first_final.get("text"), second_final.get("text")] == [
+            "first", "second"
+        ]
+        assert [s.accepted_chunks for s in fake_asr_backend.streams_created] == [
+            [1600, 3200], [4800, 6400]
+        ]
+    finally:
+        fake_asr_backend.finalize_gate.set()
+        ws.__exit__(None, None, None)
+        fake_asr_backend.finalize_gate = None
+
+
+def test_pending_audio_overflow_is_explicit_error(fake_asr_backend, monkeypatch):
+    """A queued turn over the configured bound is rejected, never dropped."""
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    monkeypatch.setenv("OVS_V2V_PENDING_AUDIO_S", "1")
+    fake_asr_backend.finalize_gate = threading.Event()
+    fake_asr_backend.finalize_started = threading.Event()
+    monkeypatch.setattr(
+        vad_mod,
+        "create_vad",
+        lambda *args, **kwargs: _ScriptedEventsVAD([
+            vad_mod.VADSession.SPEECH_START,
+            vad_mod.VADSession.SPEECH_END,
+            vad_mod.VADSession.SPEECH_START,
+        ]),
+    )
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True, vad="silero")
+    try:
+        ws.send_bytes(_silence_pcm16(100))
+        ws.send_bytes(_silence_pcm16(100))
+        time.sleep(0.10)
+        ws.send_bytes(_silence_pcm16(2000))
+        seen = []
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            payload = ws.receive_json()
+            seen.append(payload)
+            if payload.get("type") == "error":
+                break
+        assert any(
+            "pending audio limit exceeded" in str(item.get("error"))
+            for item in seen
+        ), seen
+    finally:
+        fake_asr_backend.finalize_gate.set()
+        ws.__exit__(None, None, None)
+        fake_asr_backend.finalize_gate = None
+
+
+def test_pending_turn_activation_failure_cancels_new_stream(
+    fake_asr_backend, monkeypatch
+):
+    """A queued turn feed failure cancels its just-created native stream."""
+    from fastapi.testclient import TestClient
+    from server.main import app
+    from server.core.asr_session_manager import ASRSessionManager
+
+    fake_asr_backend._finals = ["first"]
+    fake_asr_backend._final_idx = 0
+    fake_asr_backend.finalize_gate = threading.Event()
+    fake_asr_backend.finalize_started = threading.Event()
+    monkeypatch.setattr(
+        vad_mod,
+        "create_vad",
+        lambda *args, **kwargs: _ScriptedEventsVAD([
+            vad_mod.VADSession.SPEECH_START,
+            vad_mod.VADSession.SPEECH_END,
+            vad_mod.VADSession.SPEECH_START,
+            vad_mod.VADSession.SPEECH_END,
+        ]),
+    )
+    _real_accept_audio = ASRSessionManager.accept_audio
+
+    async def _reject_second_generation(self, samples):
+        if self.current_generation == 2:
+            raise RuntimeError("injected pending-turn activation failure")
+        return await _real_accept_audio(self, samples)
+
+    monkeypatch.setattr(ASRSessionManager, "accept_audio", _reject_second_generation)
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True, vad="silero")
+    try:
+        ws.send_bytes(_silence_pcm16(100))
+        ws.send_bytes(_silence_pcm16(100))
+        assert fake_asr_backend.finalize_started.wait(timeout=2.0)
+        ws.send_bytes(_silence_pcm16(100))
+        ws.send_bytes(_silence_pcm16(100))
+        fake_asr_backend.finalize_gate.set()
+        seen = []
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            payload = ws.receive_json()
+            seen.append(payload)
+            if payload.get("type") == "error":
+                break
+        assert any(item.get("type") == "asr_final" for item in seen), seen
+        assert any(
+            "pending turn activation failed" in str(item.get("error"))
+            for item in seen
+        ), seen
+        assert len(fake_asr_backend.streams_created) == 2
+        assert fake_asr_backend.streams_created[1].cancelled is True
+    finally:
+        fake_asr_backend.finalize_gate.set()
+        ws.__exit__(None, None, None)
+        fake_asr_backend.finalize_gate = None
+        fake_asr_backend.finalize_started = None
+
+
+def test_finalize_timeout_emits_error_and_clears_pending(fake_asr_backend, monkeypatch):
+    """A bounded finalize timeout is visible to the WS client."""
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    monkeypatch.setenv("OVS_ASR_TURN_TIMEOUT_S", "0.2")
+    fake_asr_backend.finalize_gate = threading.Event()
+    monkeypatch.setattr(
+        vad_mod,
+        "create_vad",
+        lambda *args, **kwargs: _ScriptedEventsVAD([
+            vad_mod.VADSession.SPEECH_START,
+            vad_mod.VADSession.SPEECH_END,
+        ]),
+    )
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True, vad="silero")
+    try:
+        ws.send_bytes(_silence_pcm16(100))
+        ws.send_bytes(_silence_pcm16(100))
+        seen = []
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            payload = ws.receive_json()
+            seen.append(payload)
+            if payload.get("type") == "error":
+                break
+        assert any("finalize timeout" in str(item.get("error")) for item in seen), seen
+    finally:
+        fake_asr_backend.finalize_gate.set()
+        ws.__exit__(None, None, None)
+        fake_asr_backend.finalize_gate = None
+
+
+def test_rejected_finalize_emits_error_and_does_not_retry(
+    fake_asr_backend, monkeypatch
+):
+    """A non-abort rejected generation is explicit and terminal for that turn."""
+    from fastapi.testclient import TestClient
+    from server.main import app
+    from server.core.asr_session_manager import ASRSessionManager
+
+    async def reject_finalize(self, reason="vad_end"):
+        return self.current_generation, "", False, None
+
+    monkeypatch.setattr(ASRSessionManager, "finalize_with_status", reject_finalize)
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True, vad="none")
+    try:
+        ws.send_bytes(_silence_pcm16(100))
+        ws.send_json({"type": "asr_eos"})
+        seen = []
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            payload = ws.receive_json()
+            seen.append(payload)
+            if payload.get("type") == "error":
+                break
+        assert any("finalize rejected" in str(item.get("error")) for item in seen), seen
+        assert not any(item.get("type") == "asr_final" for item in seen)
+    finally:
+        ws.__exit__(None, None, None)
+
+
+def test_abort_clears_queued_generation_while_finalize_is_blocked(
+    fake_asr_backend, monkeypatch
+):
+    """Client abort cancels old finalize and discards queued audio explicitly."""
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    fake_asr_backend.finalize_gate = threading.Event()
+    fake_asr_backend.finalize_started = threading.Event()
+    monkeypatch.setattr(
+        vad_mod,
+        "create_vad",
+        lambda *args, **kwargs: _ScriptedEventsVAD([
+            vad_mod.VADSession.SPEECH_START,
+            vad_mod.VADSession.SPEECH_END,
+            vad_mod.VADSession.SPEECH_START,
+        ]),
+    )
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True, vad="silero")
+    try:
+        ws.send_bytes(_silence_pcm16(100))
+        ws.send_bytes(_silence_pcm16(100))
+        assert fake_asr_backend.finalize_started.wait(timeout=2.0)
+        ws.send_bytes(_silence_pcm16(300))
+        ws.send_json({"type": "abort"})
+        # Give the dispatcher a scheduling turn to cancel the child finalize
+        # task, then release the fake worker call.  The assertion below checks
+        # that the queued generation was discarded before drain, rather than
+        # accepting a second stream after the gate opens.
+        time.sleep(0.10)
+        fake_asr_backend.finalize_gate.set()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if fake_asr_backend.streams_created[0].cancelled:
+                break
+            time.sleep(0.01)
+        assert fake_asr_backend.streams_created[0].cancelled is True
+        time.sleep(0.10)
+        assert len(fake_asr_backend.streams_created) == 1, [
+            (s.accepted_chunks, s.cancelled, s.finalized)
+            for s in fake_asr_backend.streams_created
+        ]
+        assert fake_asr_backend.streams_created[0].cancelled is True
+    finally:
+        fake_asr_backend.finalize_gate.set()
+        ws.__exit__(None, None, None)
+        fake_asr_backend.finalize_gate = None
+        fake_asr_backend.finalize_started = None
+
+
+def test_abort_cleanup_cannot_cancel_following_generation(
+    fake_asr_backend, monkeypatch
+):
+    """Audio after abort waits for old cancel before opening a new stream."""
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    fake_asr_backend.finalize_gate = threading.Event()
+    fake_asr_backend.finalize_started = threading.Event()
+    monkeypatch.setattr(
+        vad_mod,
+        "create_vad",
+        lambda *args, **kwargs: _ScriptedEventsVAD([
+            vad_mod.VADSession.SPEECH_START,
+            vad_mod.VADSession.SPEECH_END,
+            vad_mod.VADSession.SPEECH_START,
+        ]),
+    )
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True, vad="silero")
+    try:
+        ws.send_bytes(_silence_pcm16(100))
+        ws.send_bytes(_silence_pcm16(100))
+        assert fake_asr_backend.finalize_started.wait(timeout=2.0)
+        ws.send_json({"type": "abort"})
+        time.sleep(0.05)
+        # This frame must not open a new stream until old cancel has completed.
+        ws.send_bytes(_silence_pcm16(300))
+        fake_asr_backend.finalize_gate.set()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and len(fake_asr_backend.streams_created) < 2:
+            time.sleep(0.01)
+        assert len(fake_asr_backend.streams_created) == 2
+        assert fake_asr_backend.streams_created[0].cancelled is True
+        assert fake_asr_backend.streams_created[1].cancelled is False
+        assert fake_asr_backend.streams_created[1].accepted_chunks == [4800]
+    finally:
+        fake_asr_backend.finalize_gate.set()
+        ws.__exit__(None, None, None)
+        fake_asr_backend.finalize_gate = None
+        fake_asr_backend.finalize_started = None
 
 
 def test_scenario2_single_utterance_eos_closes_session(fake_asr_backend):
@@ -612,50 +966,34 @@ def test_backend_endpoint_single_utterance_closes_input_before_finalize():
     )
 
 
-def test_backend_endpoint_single_utterance_stream_opens_once():
-    """Single-turn backend endpoint streams must not reopen on trailing audio."""
-    import re
+def test_backend_endpoint_single_utterance_stream_opens_once(
+    fake_asr_backend, monkeypatch
+):
+    """An active backend-owned stream accepts a later VAD start chunk once."""
+    from fastapi.testclient import TestClient
+    from server.main import app
 
-    here = os.path.dirname(__file__)
-    main_path = os.path.abspath(os.path.join(here, "..", "main.py"))
-    with open(main_path, "r", encoding="utf-8") as f:
-        src = f.read()
+    fake_asr_backend.prefer_backend_endpoint_vad = True
+    monkeypatch.setattr(
+        vad_mod, "create_vad",
+        lambda *args, **kwargs: _ScriptedVAD([
+            None, vad_mod.VADSession.SPEECH_START, vad_mod.VADSession.SPEECH_END
+        ]),
+    )
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=False, vad="silero")
+    try:
+        ws.send_bytes(_silence_pcm16(50))
+        ws.send_bytes(np.full(960, 1000, dtype=np.int16).tobytes())
+        ws.send_bytes(np.full(1120, 2000, dtype=np.int16).tobytes())
+        ws.send_json({"type": "asr_eos"})
+        payload, _seen = _drain_until_final(ws)
+        assert payload.get("type") == "asr_final"
+    finally:
+        ws.__exit__(None, None, None)
 
-    state_flag = re.compile(r'"asr_started_once": False')
-    drop_guard = re.compile(
-        r"not multi_utterance\s*\n"
-        r"\s*and state\[\"asr_started_once\"\]\s*\n"
-        r"\s*and not state\[\"asr_active\"\].*?continue",
-        re.S,
-    )
-    mark_started = re.compile(
-        r"state\[\"asr_active\"\] = True\s*\n"
-        r"\s*state\[\"asr_active_gen\"\] = new_gen\s*\n"
-        r"\s*state\[\"asr_audio_samples_accepted\"\] = 0\s*\n"
-        r"\s*state\[\"asr_turn_started_at\"\] = loop\.time\(\)\s*\n"
-        r"\s*state\[\"asr_started_once\"\] = True",
-        re.S,
-    )
-    speech_start_gate = re.compile(
-        r"if not multi_utterance and state\[\"asr_started_once\"\]:\s*\n"
-        r"\s*if \(\s*\n"
-        r"\s*state\[\"asr_active\"\]\s*\n"
-        r"\s*and _asr_stream_prefers_backend_endpoint_vad\(\)\s*\n"
-        r"\s*\):\s*\n"
-        r"\s*speech_started_now = True\s*\n"
-        r"\s*continue",
-        re.S,
-    )
-
-    assert state_flag.search(src), "missing asr_started_once state flag"
-    assert drop_guard.search(src), (
-        "single-turn backend endpoint streams can reopen after becoming inactive"
-    )
-    assert mark_started.search(src), "ASR stream start does not mark asr_started_once"
-    assert speech_start_gate.search(src), (
-        "single-turn VAD speech_start can create a second ASR stream"
-    )
-
+    assert len(fake_asr_backend.streams_created) == 1
+    assert fake_asr_backend.streams_created[0].accepted_chunks == [800, 960, 1120]
 
 def test_single_utterance_final_stops_dispatcher_and_skips_cleanup_cancel():
     """Normal single-turn final should not leave dispatcher/cancel racing."""
@@ -761,18 +1099,150 @@ def test_v2v_finalize_waits_for_same_generation_prepare():
     with open(main_path, "r", encoding="utf-8") as f:
         src = f.read()
 
-    finalize_wait = re.compile(
-        r"finalize_gen = state\[\"asr_active_gen\"\]\s*\n"
-        r"\s*prep_task = state\.get\(\"asr_prepare_task\"\).*?"
-        r"state\.get\(\"asr_prepare_gen\"\) == finalize_gen.*?"
-        r"await prep_task.*?"
-        r"async with coord\.acquire\(\"asr\"\):\s*\n"
-        r"\s*ran_gen, final_text, finalize_accepted, detected_language = \(",
-        re.S,
+    assert 'prep_task = state.get("asr_prepare_task")' in src
+    assert 'state.get("asr_prepare_gen") == finalize_gen' in src
+    # asyncio.wait (not wait_for): an abort-cancelled prepare must not
+    # re-raise CancelledError into asr_out_task.
+    assert re.search(r"await\s+asyncio\.wait\(\s*\{prep_task\}", src)
+    assert "async def _finalize_with_coord" in src
+
+
+def test_abort_cancelling_blocked_prepare_keeps_session_alive(
+    fake_asr_backend, monkeypatch
+):
+    """Non-kept abort while finalize awaits a blocked prepare.
+
+    Interleaving: asr_out_task is inside a partial poll (holding the manager
+    lock) when the client sends asr_prepare + asr_eos, so it leaves the poll,
+    sees the endpoint and parks on the same-generation prepare task, which
+    then blocks in the worker. The abort cancels that prepare task; the
+    finalize path must treat it as a retired generation rather than as its
+    own cancellation, so the session stays up and the next utterance works.
+    """
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    prepare_gate = threading.Event()
+    prepare_started = threading.Event()
+    partial_gate = threading.Event()
+    partial_entered = threading.Event()
+    partial_armed = threading.Event()
+    orig_create = fake_asr_backend.create_stream
+
+    def _create_stream(language: str = "auto"):
+        stream = orig_create(language)
+        if stream._stream_index == 0:
+            def _get_partial():
+                if partial_armed.is_set() and not partial_entered.is_set():
+                    partial_entered.set()
+                    partial_gate.wait(timeout=5.0)
+                return "", False
+
+            def _prepare_finalize():
+                prepare_started.set()
+                prepare_gate.wait(timeout=5.0)
+
+            stream.get_partial = _get_partial
+            stream.prepare_finalize = _prepare_finalize
+        return stream
+
+    monkeypatch.setattr(fake_asr_backend, "create_stream", _create_stream)
+    fake_asr_backend._finals = ["after-abort"]
+    fake_asr_backend._final_idx = 0
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True)
+    try:
+        ws.send_bytes(_silence_pcm16(100))
+        partial_armed.set()
+        assert partial_entered.wait(timeout=2.0)
+        ws.send_json({"type": "asr_prepare"})
+        ws.send_json({"type": "asr_eos"})
+        time.sleep(0.10)
+        partial_gate.set()
+        assert prepare_started.wait(timeout=2.0)
+        # asr_out_task is now parked on the blocked prepare for gen 1.
+        time.sleep(0.10)
+        ws.send_json({"type": "abort"})
+        time.sleep(0.10)
+        prepare_gate.set()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if fake_asr_backend.streams_created[0].cancelled:
+                break
+            time.sleep(0.01)
+        assert fake_asr_backend.streams_created[0].cancelled is True
+        assert fake_asr_backend.streams_created[0].finalized is False
+        # Session survived: a new utterance opens a stream and finalizes.
+        ws.send_bytes(_silence_pcm16(300))
+        ws.send_json({"type": "asr_eos"})
+        final, seen = _drain_until_final(ws)
+        assert final.get("text") == "after-abort", seen
+        assert final.get("session_complete") is not True
+        assert len(fake_asr_backend.streams_created) == 2
+        assert fake_asr_backend.streams_created[1].accepted_chunks == [4800]
+    finally:
+        partial_gate.set()
+        prepare_gate.set()
+        ws.__exit__(None, None, None)
+
+
+def test_keep_asr_abort_preserves_queued_turn_behind_slow_finalize(
+    fake_asr_backend, monkeypatch
+):
+    """keep_asr abort while finalize is blocked keeps the queued next turn.
+
+    Speech that starts while gen 1 finalizes is queued in pending_turns. A
+    keep_asr abort must not erase it or the endpoint/finalizing markers, so
+    PCM after the abort keeps routing into that pending turn (not into the
+    finalizing stream) and the queued speech is transcribed as gen 2.
+    """
+    from fastapi.testclient import TestClient
+    from server.main import app
+
+    fake_asr_backend._finals = ["first", "second"]
+    fake_asr_backend._final_idx = 0
+    fake_asr_backend.finalize_gate = threading.Event()
+    fake_asr_backend.finalize_started = threading.Event()
+    monkeypatch.setattr(
+        vad_mod,
+        "create_vad",
+        lambda *args, **kwargs: _ScriptedEventsVAD([
+            vad_mod.VADSession.SPEECH_START,
+            vad_mod.VADSession.SPEECH_END,
+            vad_mod.VADSession.SPEECH_START,
+            None,
+            vad_mod.VADSession.SPEECH_END,
+        ]),
     )
-    assert finalize_wait.search(src), (
-        "ASR finalize no longer waits for matching-generation prepare"
-    )
+    client = TestClient(app)
+    ws = _open_v2v(client, multi_utterance=True, vad="silero")
+    try:
+        ws.send_bytes(_silence_pcm16(100))
+        ws.send_bytes(_silence_pcm16(200))
+        assert fake_asr_backend.finalize_started.wait(timeout=2.0)
+        ws.send_bytes(_silence_pcm16(300))   # speech-start, queued
+        time.sleep(0.05)
+        ws.send_json({"type": "abort", "keep_asr": True})
+        time.sleep(0.05)
+        ws.send_bytes(_silence_pcm16(400))   # must route to the pending turn
+        ws.send_bytes(_silence_pcm16(500))   # speech-end of queued turn
+        time.sleep(0.10)
+        assert fake_asr_backend.streams_created[0].accepted_chunks == [1600, 3200]
+        fake_asr_backend.finalize_gate.set()
+        first_final, _ = _drain_until_final(ws)
+        second_final, _ = _drain_until_final(ws)
+        assert [first_final.get("text"), second_final.get("text")] == [
+            "first", "second"
+        ]
+        assert fake_asr_backend.streams_created[0].cancelled is False
+        assert [s.accepted_chunks for s in fake_asr_backend.streams_created] == [
+            [1600, 3200], [4800, 6400, 8000]
+        ]
+    finally:
+        fake_asr_backend.finalize_gate.set()
+        ws.__exit__(None, None, None)
+        fake_asr_backend.finalize_gate = None
+        fake_asr_backend.finalize_started = None
 
 
 if __name__ == "__main__":

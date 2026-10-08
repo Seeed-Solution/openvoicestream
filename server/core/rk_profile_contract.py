@@ -21,6 +21,7 @@ RK_RELEASE_PROFILES = frozenset(
     {
         "rk3576-default",
         "rk3576-multilang",
+        "rk3576-piper",
         "rk3588-default",
         "rk3588-multilang",
     }
@@ -100,6 +101,24 @@ _PLATFORM_EXPECTED: dict[str, dict[str, str]] = {
 
 _PROFILE_KEYS = (*_COMMON_EXPECTED, "QWEN3_ASR_VAD_FINAL_ASYNC")
 
+_PIPER_EXPECTED: dict[str, str] = {
+    "TTS_BACKEND": "piper_rknn",
+    "PIPER_MODEL_DIR": "/opt/tts/models/piper",
+    "PIPER_LANGUAGES": "en_US",
+    "PIPER_DEFAULT_LANG": "en_US",
+    "PIPER_SEQ_LEN": "256",
+    "PIPER_CHINESE_FALLBACK": "matcha_rknn",
+    "RK_ARTIFACT_AUTO_DOWNLOAD": "0",
+    "MATCHA_USE_ORT": "1",
+    "MATCHA_MODEL_SEQ_LEN": "80",
+    "MATCHA_MIN_MEL_FRAMES": "96",
+    "MATCHA_STREAM_CHUNK_MS": "40",
+    "VOCOS_FRAMES": "600",
+}
+
+_PIPER_FRONTEND_TOGGLE = "PIPER_ENABLE_FRONTEND_NPU"
+_PIPER_FRONTEND_VALUES = frozenset({"0", "1"})
+
 
 def _profile_name(profile: Mapping[str, object] | None) -> str:
     if not profile:
@@ -155,7 +174,12 @@ def runtime_status(
     device = _device_for(name, profile_env, actual)
     expected = dict(_COMMON_EXPECTED)
     expected.update(_PLATFORM_EXPECTED.get(device or "", {}))
-    keys = (*_PROFILE_KEYS, "VOCOS_FRAMES")
+    profile_expected = _PIPER_EXPECTED if name == "rk3576-piper" else {}
+    expected.update(profile_expected)
+    extra_keys = (_PIPER_FRONTEND_TOGGLE,) if name == "rk3576-piper" else ()
+    keys = tuple(
+        dict.fromkeys((*_PROFILE_KEYS, "VOCOS_FRAMES", *profile_expected, *extra_keys))
+    )
 
     missing_profile = [key for key in keys if str(profile_env.get(key, "")).strip() == ""]
     missing_runtime = [key for key in keys if str(actual.get(key, "")).strip() == ""]
@@ -176,6 +200,38 @@ def runtime_status(
                 "runtime": actual_value,
             }
 
+    if name == "rk3576-piper":
+        # The loader checks this flag literally (``== "1"``); accepting
+        # surrounding whitespace here would report a CPU/NPU mode as verified
+        # while the backend silently took the CPU path.
+        profile_value = str(profile_env.get(_PIPER_FRONTEND_TOGGLE, ""))
+        actual_value = str(actual.get(_PIPER_FRONTEND_TOGGLE, ""))
+        if profile_value and profile_value not in _PIPER_FRONTEND_VALUES:
+            mismatches[_PIPER_FRONTEND_TOGGLE] = {
+                "expected": "0 or 1",
+                "profile": profile_value,
+                "runtime": actual_value,
+            }
+        if actual_value and actual_value not in _PIPER_FRONTEND_VALUES:
+            mismatches[_PIPER_FRONTEND_TOGGLE] = {
+                "expected": (
+                    profile_value
+                    if profile_value in _PIPER_FRONTEND_VALUES
+                    else "0 or 1"
+                ),
+                "profile": profile_value,
+                "runtime": actual_value,
+            }
+        if (
+            profile_value in _PIPER_FRONTEND_VALUES
+            and actual_value in _PIPER_FRONTEND_VALUES
+            and profile_value != actual_value
+        ):
+            mismatches[_PIPER_FRONTEND_TOGGLE] = {
+                "expected": profile_value,
+                "profile": profile_value,
+                "runtime": actual_value,
+            }
     settings = {key: str(actual.get(key, "<missing>")) for key in keys}
     return {
         "required": True,

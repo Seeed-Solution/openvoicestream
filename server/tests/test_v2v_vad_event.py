@@ -195,6 +195,35 @@ def test_vad_event_constants_defined():
     assert v2v_proto.VAD_EVENT_SPEECH_END == "speech_end"
 
 
+def test_v2v_rejects_explicit_vad_when_initialization_fails(
+    fake_asr_backend, monkeypatch
+):
+    """An unavailable requested VAD must not silently become forced-EOS."""
+    from fastapi.testclient import TestClient
+    from server.core import vad as vad_mod
+    from server.main import app
+
+    def _fail(*_args, **_kwargs):
+        raise RuntimeError("onnxruntime missing")
+
+    monkeypatch.setattr(vad_mod, "create_vad", _fail)
+    client = TestClient(app)
+    with client.websocket_connect("/v2v/stream") as ws:
+        ws.send_json({
+            "type": "config", "asr_language": "en", "vad": "silero",
+            "sample_rate": 16000,
+        })
+        error = ws.receive_json()
+        assert error["type"] == "error"
+        assert "VAD init failed" in error["error"]
+
+
+def test_vad_none_remains_explicitly_disabled():
+    from server.core import vad as vad_mod
+
+    assert vad_mod.create_vad("none", sample_rate=16000) is None
+
+
 def _open_v2v(client, *, multi_utterance=False, vad="silero"):
     cfg = {
         "type": "config",
