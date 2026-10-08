@@ -123,6 +123,115 @@ def test_no_profile_zh_en_legacy_path_does_not_call_qwen3(tmp_path, monkeypatch)
     mock_qwen3.assert_not_called()
 
 
+@pytest.mark.parametrize("disabled", ["0", "false", "no", "off"])
+def test_whisper_profile_filters_zipformer_and_does_not_download(
+    tmp_path, monkeypatch, disabled,
+):
+    """An explicit Whisper ASR profile must not inherit the English Zipformer."""
+    from server.core import profile_loader
+
+    monkeypatch.setattr(
+        profile_loader,
+        "current_profile",
+        lambda: {"asr_backend": "jetson.whisper_trt", "tts_backend": None},
+    )
+    monkeypatch.setenv("OVS_AUTO_DOWNLOAD_ARTIFACTS", disabled)
+    with patch.object(model_downloader, "_ensure_whisper_artifacts") as mock_whisper, \
+            patch.object(model_downloader, "_download_and_extract") as mock_download, \
+            patch.object(model_downloader.os, "makedirs") as mock_makedirs:
+        model_downloader.ensure_models("en", str(tmp_path))
+
+    mock_whisper.assert_called_once_with("jetson.whisper_trt")
+    mock_download.assert_not_called()
+    mock_makedirs.assert_not_called()
+
+
+def test_cpu_sherpa_profile_retains_zipformer(tmp_path, monkeypatch):
+    """Selecting the CPU Sherpa ASR backend keeps its legacy Zipformer bundle."""
+    from server.core import profile_loader
+
+    monkeypatch.setattr(
+        profile_loader,
+        "current_profile",
+        lambda: {"asr_backend": "cpu.sherpa_asr", "tts_backend": None},
+    )
+    monkeypatch.setenv("OVS_AUTO_DOWNLOAD_ARTIFACTS", "0")
+    model = tmp_path / "zipformer-en"
+    model.mkdir()
+    (model / "encoder.int8.onnx").write_text("cached")
+    (model / "tokens.txt").write_text("cached")
+    with patch.object(model_downloader, "_download_and_extract") as mock_download:
+        model_downloader.ensure_models("en", str(tmp_path))
+
+    mock_download.assert_not_called()
+
+
+def test_no_profile_en_keeps_legacy_bundle(tmp_path, monkeypatch):
+    """No profile backend preserves both English legacy model requirements."""
+    from server.core import profile_loader
+
+    monkeypatch.setattr(profile_loader, "current_profile", lambda: {})
+    monkeypatch.setenv("OVS_AUTO_DOWNLOAD_ARTIFACTS", "0")
+    for name, files in {
+        "zipformer-en": ("encoder.int8.onnx", "tokens.txt"),
+        "kokoro-multi-lang-v1_0": (
+            "model.onnx", "voices.bin", "tokens.txt", "lexicon-us-en.txt",
+        ),
+    }.items():
+        model = tmp_path / name
+        model.mkdir()
+        for filename in files:
+            (model / filename).write_text("cached")
+    with patch.object(model_downloader, "_download_and_extract") as mock_download:
+        model_downloader.ensure_models("en", str(tmp_path))
+
+    mock_download.assert_not_called()
+
+
+@pytest.mark.parametrize("disabled", ["0", "false", "no", "off"])
+def test_legacy_offline_missing_fails_before_download_or_mkdir(
+    tmp_path, monkeypatch, disabled,
+):
+    """Disabled auto-download must fail closed for missing legacy artifacts."""
+    from server.core import profile_loader
+
+    monkeypatch.setattr(
+        profile_loader,
+        "current_profile",
+        lambda: {"asr_backend": "cpu.sherpa_asr", "tts_backend": None},
+    )
+    monkeypatch.setenv("OVS_AUTO_DOWNLOAD_ARTIFACTS", disabled)
+    with patch.object(model_downloader, "_download_and_extract") as mock_download, \
+            patch.object(model_downloader.os, "makedirs") as mock_makedirs:
+        with pytest.raises(RuntimeError, match="zipformer-en"):
+            model_downloader.ensure_models("en", str(tmp_path))
+
+    mock_download.assert_not_called()
+    mock_makedirs.assert_not_called()
+
+
+@pytest.mark.parametrize("enabled", ["1", None])
+def test_legacy_missing_keeps_download_behavior_when_enabled_or_unset(
+    tmp_path, monkeypatch, enabled,
+):
+    """Enabled and unset flags retain the existing legacy downloader path."""
+    from server.core import profile_loader
+
+    monkeypatch.setattr(
+        profile_loader,
+        "current_profile",
+        lambda: {"asr_backend": "cpu.sherpa_asr", "tts_backend": None},
+    )
+    if enabled is None:
+        monkeypatch.delenv("OVS_AUTO_DOWNLOAD_ARTIFACTS", raising=False)
+    else:
+        monkeypatch.setenv("OVS_AUTO_DOWNLOAD_ARTIFACTS", enabled)
+    with patch.object(model_downloader, "_download_and_extract") as mock_download:
+        model_downloader.ensure_models("en", str(tmp_path))
+
+    mock_download.assert_called_once()
+
+
 def test_explicit_qwen_model_source_skips_legacy_multilanguage_aggregate(
     tmp_path, monkeypatch,
 ):

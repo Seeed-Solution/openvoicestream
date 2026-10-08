@@ -874,6 +874,9 @@ def build_whisper_asr_config(
     env → WhisperASRConfig field map:
       WHISPER_ENCODER_PATH   → encoder_path   (required; .hef / .rknn / .plan)
       WHISPER_DECODER_DIR    → decoder_dir    ($MODEL_DIR/whisper/decoder_onnx)
+      WHISPER_DECODER_KIND   → decoder_kind   ("onnx_cpu"; "tensorrt" is explicit)
+      WHISPER_DECODER_PREFILL_PLAN → decoder_prefill_path (TRT prefill plan)
+      WHISPER_DECODER_STEP_PLAN    → decoder_step_path (TRT cached-step plan)
       WHISPER_VOCAB_DIR      → vocab_dir      ($MODEL_DIR/whisper)
       WHISPER_WINDOW_S       → window_s       (per-path default, see above)
       WHISPER_PADDING_CUTOFF_S → padding_cutoff_s (per-path default)
@@ -1015,6 +1018,20 @@ def build_whisper_asr_config(
     kwargs = _with_optional_max_concurrent(
         WhisperASRConfig, kwargs, max_concurrent, f"whisper.{encoder_kind}", default=1
     )
+    # The TensorRT decoder fields landed in voxedge after 0.0.15a1. Pass them
+    # only when the installed WhisperASRConfig declares them, so the default
+    # CPU-ONNX decoder keeps working on an older wheel; an explicit TensorRT
+    # request on such a wheel fails here instead of silently using the CPU.
+    decoder_kind = env.get("WHISPER_DECODER_KIND", "onnx_cpu").strip().lower()
+    if any(f.name == "decoder_kind" for f in dataclasses.fields(WhisperASRConfig)):
+        kwargs["decoder_kind"] = decoder_kind
+        kwargs["decoder_prefill_path"] = env.get("WHISPER_DECODER_PREFILL_PLAN") or None
+        kwargs["decoder_step_path"] = env.get("WHISPER_DECODER_STEP_PLAN") or None
+    elif decoder_kind != "onnx_cpu":
+        raise ValueError(
+            f"WHISPER_DECODER_KIND={decoder_kind!r} needs a voxedge build whose "
+            "WhisperASRConfig declares decoder_kind; this one does not"
+        )
     return WhisperASRConfig(**kwargs)
 
 

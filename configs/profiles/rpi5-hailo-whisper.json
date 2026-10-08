@@ -2,6 +2,7 @@
   "name": "rpi5-hailo-whisper",
   "description": "Raspberry Pi 5 + Hailo-8: Whisper base on the HEF encoder at a 5 s window, decoder as a CPU ONNX graph with a KV cache. ASR-only (no TTS). English: this measured 11.59% short-form and 14.60% long-form WER, both ahead of Hailo's own reference harness; Chinese is 56-74% CER, which is Whisper base's own ceiling — use SenseVoice or Paraformer for zh. max_concurrent_sessions is 1 because HailoRT grants /dev/hailo0 to a single process.",
   "asr_backend": "hailo.whisper",
+  "asr_model_id": "whisper",
   "execution_policy": {
     "mode": "concurrent"
   },

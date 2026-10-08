@@ -2,6 +2,7 @@
   "name": "jetson-sensevoice-c64",
   "description": "Copy of jetson-sensevoice with the admission ceiling raised from 8 to 64, for the orin-nano (J3011) / orin-nx (J4012) concurrency-ceiling sweep (bench/asr_bench/DISPATCH.md). Same execution_policy (serialized, single TensorRT execution context) — this only changes how many callers may queue instead of taking a 429.",
   "asr_backend": "jetson.sensevoice_trt",
+  "asr_model_id": "sensevoice",
   "execution_policy": {
     "mode": "serialized",
     "shared_resource": "gpu"

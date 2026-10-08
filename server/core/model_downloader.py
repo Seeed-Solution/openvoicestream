@@ -51,12 +51,13 @@ MODELS = {
 # suppress over-fetching when a profile explicitly selects a *different*
 # backend of the same kind — e.g. a Kokoro profile must not pull Matcha, a
 # Qwen3 profile must not pull Paraformer, just because they are bundled in
-# MODELS[language_mode]. Models not listed here (sensevoice, zipformer) are
-# never profile-gated and keep their legacy language_mode behavior.
+# MODELS[language_mode]. Models without a backend mapping (such as sensevoice)
+# keep their legacy language_mode behavior.
 _BUNDLE_MODEL_BACKEND = {
     "matcha-icefall-zh-en": ("tts", "jetson.matcha_trt"),
     "kokoro-multi-lang-v1_0": ("tts", "jetson.kokoro_trt"),
     "paraformer-streaming": ("asr", "jetson.paraformer_trt"),
+    "zipformer-en": ("asr", "cpu.sherpa_asr"),
 }
 
 # Per-model files the freshness check insists on seeing.
@@ -405,6 +406,18 @@ def ensure_models(
         if language_mode == "en" or "kokoro-multi-lang-v1_0" in required:
             _patch_kokoro_voices(model_dir)
         return
+
+    if os.environ.get("OVS_AUTO_DOWNLOAD_ARTIFACTS", "1").strip().lower() in (
+        "0", "false", "no", "off"
+    ):
+        details = "; ".join(
+            f"{dir_name}: {os.path.join(model_dir, dir_name)}"
+            for dir_name, _cdn_file, _desc in missing
+        )
+        raise RuntimeError(
+            "Legacy model artifacts are incomplete while "
+            "OVS_AUTO_DOWNLOAD_ARTIFACTS is disabled: " + details
+        )
 
     logger.info(
         "Downloading %d missing model(s) for mode '%s'...",
@@ -976,16 +989,94 @@ def _ensure_whisper_artifacts(spec: str) -> None:
     encoder, decoder_files = variants[variant]
 
     dest = os.environ.get("WHISPER_MODEL_DIR", "/opt/models/whisper")
+    decoder_kind = os.environ.get("WHISPER_DECODER_KIND", "onnx_cpu").strip().lower()
+    if decoder_kind not in ("onnx_cpu", "tensorrt"):
+        raise RuntimeError(
+            f"WHISPER_DECODER_KIND={decoder_kind!r} is not supported; "
+            "choose 'onnx_cpu' or 'tensorrt'"
+        )
+    decoder_family = "tiny" if "tiny" in variant else "base"
+    decoder_dir = os.environ.get(
+        "WHISPER_DECODER_DIR", os.path.join(dest, "decoder", decoder_family)
+    )
+    vocab_dir = os.environ.get("WHISPER_VOCAB_DIR", dest)
+    language = os.environ.get("WHISPER_LANGUAGE", "en").strip().lower()
+    vocab_name = {"en": "vocab_en.txt", "zh": "vocab_zh.txt"}.get(language)
+    if vocab_name is None:
+        raise RuntimeError(
+            f"WHISPER_LANGUAGE={language!r} has no cached Whisper vocabulary; "
+            "choose 'en' or 'zh'"
+        )
+    encoder_path = os.environ.get("WHISPER_ENCODER_PATH")
+    if not encoder_path:
+        encoder_path = os.path.join(dest, _WHISPER_TRT_PLAN if spec == "jetson.whisper_trt" else encoder)
+
+    # Production edge images set this flag when the rootfs is intentionally
+    # immutable (for example, a full NX volume).  Validate every resource the
+    # selected runtime will actually open before any mkdir/download/build.  In
+    # particular, a cached Jetson plan is sufficient: its source ONNX is not a
+    # runtime input and must not be regenerated in an air-gapped start.
+    if os.environ.get("OVS_AUTO_DOWNLOAD_ARTIFACTS", "1").strip().lower() in (
+        "0", "false", "no", "off"
+    ):
+        required: list[tuple[str, str]] = [(encoder_path, "Whisper encoder")]
+        if decoder_kind == "onnx_cpu":
+            required.extend(
+                (os.path.join(decoder_dir, os.path.basename(path)), "Whisper decoder")
+                for path in decoder_files
+            )
+        else:
+            prefill = os.environ.get("WHISPER_DECODER_PREFILL_PLAN")
+            step = os.environ.get("WHISPER_DECODER_STEP_PLAN")
+            if not prefill or not step:
+                raise RuntimeError(
+                    "WHISPER_DECODER_KIND=tensorrt requires "
+                    "WHISPER_DECODER_PREFILL_PLAN and "
+                    "WHISPER_DECODER_STEP_PLAN in offline mode"
+                )
+            required.extend(
+                ((prefill, "Whisper TensorRT decoder prefill plan"),
+                 (step, "Whisper TensorRT decoder step plan"))
+            )
+        required.extend(
+            ((os.path.join(vocab_dir, "mel_80_filters.txt"), "Whisper mel filters"),
+             (os.path.join(vocab_dir, vocab_name), "Whisper vocabulary"))
+        )
+        invalid = [
+            f"{label}: {path}"
+            for path, label in required
+            if not os.path.isfile(path) or os.path.getsize(path) <= 0
+        ]
+        if invalid:
+            raise RuntimeError(
+                "Whisper artifacts are incomplete while "
+                "OVS_AUTO_DOWNLOAD_ARTIFACTS is disabled: " + "; ".join(invalid)
+            )
+        logger.info("Whisper offline artifact cache is complete for %s/%s.", spec, variant)
+        return
+
     repo = os.environ.get("WHISPER_HF_REPO", "harvestsu/whisper-edge")
     endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
     base = f"{endpoint}/{repo}/resolve/main"
 
-    for name in (encoder, *decoder_files, *_WHISPER_SHARED):
-        path = os.path.join(dest, name)
+    # Keep the downloader and backend config aligned when operators relocate
+    # decoder or vocabulary directories with their corresponding env vars.
+    encoder_download_path = (
+        encoder_path if spec != "jetson.whisper_trt" else os.path.join(dest, encoder)
+    )
+    downloads = [(encoder, encoder_download_path)]
+    downloads.extend(
+        (name, os.path.join(decoder_dir, os.path.basename(name)))
+        for name in decoder_files
+    )
+    downloads.extend((name, os.path.join(vocab_dir, name)) for name in _WHISPER_SHARED)
+    for name, path in downloads:
         if os.path.exists(path) and os.path.getsize(path) > 0:
             logger.info("Whisper asset OK: %s", name)
             continue
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         url = f"{base}/{name}"
         logger.info("Downloading Whisper asset %s ...", url)
         tmp = path + ".part"
@@ -1234,6 +1325,50 @@ def _ensure_sensevoice_trt_artifacts() -> None:
     endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
     base = f"{endpoint}/{repo}/resolve/main"
 
+    engine = os.environ.get("SENSEVOICE_TRT_ENGINE") or os.path.join(dest, "sensevoice.plan")
+    onnx_path = os.path.join(dest, _SENSEVOICE_TRT_ONNX)
+    # Match build_sensevoice_trt_config()/SenseVoiceTRTConfig semantics: an
+    # empty override falls back to the model-directory default, while a
+    # non-empty override is the actual runtime input.
+    bpe_path = os.environ.get("SENSEVOICE_TRT_BPE") or os.path.join(
+        dest, "chn_jpn_yue_eng_ko_spectok.bpe.model"
+    )
+
+    # An immutable, air-gapped image must fail before it creates directories,
+    # attempts a network request, or starts a multi-minute TensorRT build.  The
+    # plan is a runtime input too: a missing or stale plan cannot be repaired
+    # offline because rebuilding would be a side effect and needs TensorRT.
+    if os.environ.get("OVS_AUTO_DOWNLOAD_ARTIFACTS", "1").strip().lower() in (
+        "0", "false", "no", "off"
+    ):
+        required = [
+            (onnx_path, "SenseVoice TensorRT encoder ONNX"),
+            (os.path.join(dest, "am.mvn"), "SenseVoice decode asset am.mvn"),
+            (os.path.join(dest, "embedding.npy"), "SenseVoice decode asset embedding.npy"),
+            (bpe_path, "SenseVoice BPE model"),
+            (engine, "SenseVoice TensorRT engine plan"),
+        ]
+        missing = [
+            f"{label}: {path}"
+            for path, label in required
+            if not os.path.isfile(path) or os.path.getsize(path) <= 0
+        ]
+        if missing:
+            raise RuntimeError(
+                "SenseVoice TRT artifacts are incomplete while "
+                "OVS_AUTO_DOWNLOAD_ARTIFACTS is disabled: " + "; ".join(missing)
+            )
+        spec = _sensevoice_build_spec(onnx_path)
+        stale = _sensevoice_engine_staleness(engine, spec)
+        if stale is not None:
+            raise RuntimeError(
+                "SenseVoice TRT engine is stale while "
+                "OVS_AUTO_DOWNLOAD_ARTIFACTS is disabled: "
+                f"{engine}: {stale}"
+            )
+        logger.info("SenseVoice TRT offline artifact cache is complete: %s", dest)
+        return
+
     os.makedirs(dest, exist_ok=True)
     for name in (_SENSEVOICE_TRT_ONNX, *_SENSEVOICE_RKNN_SHARED):
         path = os.path.join(dest, name)
@@ -1262,8 +1397,6 @@ def _ensure_sensevoice_trt_artifacts() -> None:
             logger.error("Failed to download SenseVoice TRT asset %s: %s", name, exc)
             raise
 
-    engine = os.environ.get("SENSEVOICE_TRT_ENGINE") or os.path.join(dest, "sensevoice.plan")
-    onnx_path = os.path.join(dest, _SENSEVOICE_TRT_ONNX)
     spec = _sensevoice_build_spec(onnx_path)
     stale = _sensevoice_engine_staleness(engine, spec)
     if stale is None:
