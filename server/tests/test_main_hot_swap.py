@@ -161,32 +161,95 @@ def _install_managers(asr=None, tts=None):
     return asr_be, tts_be
 
 
+def _tts_stream_registries():
+    from server import main as appmod
+
+    return {
+        "_tts_stream_cleanup_tasks": appmod._tts_stream_cleanup_tasks,
+        "_tts_stream_watcher_tasks": appmod._tts_stream_watcher_tasks,
+        "_tts_framed_stream_owners": appmod._tts_framed_stream_owners,
+    }
+
+
+def _describe_stream_registries() -> str:
+    return "; ".join(
+        f"{name}={sorted(map(repr, registry))}"
+        for name, registry in _tts_stream_registries().items()
+        if registry
+    )
+
+
+async def _drain_tts_stream_registries(timeout: float = 2.0) -> None:
+    """Await this loop's background stream cleanup while the loop still runs.
+
+    Callers first unblock every fake backend, so a healthy cleanup finishes
+    promptly.  Anything still registered after ``timeout`` is a real leak and
+    is reported by the ``_isolate_tts_stream_registries`` teardown.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        registries = _tts_stream_registries()
+        pending = {
+            task
+            for name in ("_tts_stream_cleanup_tasks", "_tts_stream_watcher_tasks")
+            for task in registries[name]
+            if not task.done() and task.get_loop() is loop
+        }
+        remaining = deadline - loop.time()
+        if not pending or remaining <= 0:
+            break
+        await asyncio.wait(pending, timeout=remaining)
+    # Let done-callbacks deregister finished tasks before the loop closes.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+
+def _run_stream_exercise(exercise, *unblock: threading.Event) -> None:
+    """``asyncio.run(exercise())`` that settles stream cleanup in-loop.
+
+    Whether ``exercise`` passes or fails, unblock the fake backends and await
+    the background cleanup tasks before ``asyncio.run`` closes the loop, so
+    no task bound to this loop outlives the test.
+    """
+
+    async def _main():
+        try:
+            await exercise()
+        finally:
+            for event in unblock:
+                event.set()
+            await _drain_tts_stream_registries()
+
+    asyncio.run(_main())
+
+
 @pytest.fixture(autouse=True)
 def _isolate_tts_stream_registries():
-    """Keep per-loop stream cleanup state from leaking across tests.
+    """Fail a test that leaves background stream state behind.
 
     ``server.main`` holds strong references to background stream cleanup
     tasks, disconnect watchers and framed-stream owners in module-level sets.
-    Each test runs its own event loop (``asyncio.run`` or a TestClient
-    portal).  If a test ends while one of those tasks is still registered
-    (for example after an assertion failure, when ``asyncio.run`` shutdown
-    cancels it before its done-callback can deregister it), the next test's
-    ``asyncio.gather(*_tts_stream_cleanup_tasks)`` receives a task bound to a
-    closed loop and raises ``ValueError: The future belongs to a different
-    loop``.  Start and finish every test with empty registries.
+    Each test runs its own event loop, so an entry that survives the test is
+    bound to a closed loop; a later ``gather(*_tts_stream_cleanup_tasks)``
+    would raise ``The future belongs to a different loop``.  Tests that drive
+    ``tts_stream`` directly settle cleanup inside their loop via
+    ``_run_stream_exercise``; anything left here is a leak.  The leaking test
+    fails with the residual entries, and the registries are cleared so the
+    leak does not cascade into unrelated tests.
     """
-    from server import main as appmod
-
-    registries = (
-        appmod._tts_stream_cleanup_tasks,
-        appmod._tts_stream_watcher_tasks,
-        appmod._tts_framed_stream_owners,
-    )
-    for registry in registries:
-        registry.clear()
+    residual = _describe_stream_registries()
+    assert not residual, f"TTS stream registries not empty before test: {residual}"
     yield
-    for registry in registries:
+    residual = _describe_stream_registries()
+    for registry in _tts_stream_registries().values():
         registry.clear()
+    if residual:
+        pytest.fail(
+            "test leaked background TTS stream state past its event loop: "
+            + residual,
+            pytrace=False,
+        )
 
 
 @pytest.fixture
@@ -503,7 +566,7 @@ def test_tts_stream_disconnect_waits_for_backend_slot_before_recovery(
         assert b"".join(chunks[1:]), "recovery stream returned empty PCM"
 
     try:
-        asyncio.run(_exercise())
+        _run_stream_exercise(_exercise)
     finally:
         from server.core import backend_manager as bm
         bm._reset_for_tests()
@@ -736,6 +799,22 @@ def test_v2v_deadline_while_acquiring_does_not_start_cancelled_sentence(client, 
     assert calls == []
 
 
+# Upper bounds for cross-thread handshakes in the V2V lifecycle test.  They
+# return as soon as the event fires; the bound only limits a hung run.
+_V2V_WAIT_S = 5.0
+
+
+def _ws_receive(ws, timeout: float = _V2V_WAIT_S):
+    """``ws.receive()`` with a deadline instead of blocking forever."""
+    import anyio
+
+    async def _receive():
+        with anyio.fail_after(timeout):
+            return await ws._send_rx.receive()
+
+    return ws.portal.call(_receive)
+
+
 @pytest.mark.parametrize("trigger", ["barge_in", "websocket_disconnect"])
 def test_v2v_barge_in_and_disconnect_retain_slow_cleanup_leases(client, trigger):
     """V2V abort/disconnect retain leases until a canceled backend unwinds."""
@@ -743,6 +822,7 @@ def test_v2v_barge_in_and_disconnect_retain_slow_cleanup_leases(client, trigger)
     cancel_seen = threading.Event()
     awaiting_cancel = threading.Event()
     cleaned = threading.Event()
+    release_cleanup = threading.Event()
     inflight_at_cleanup = []
 
     def _stream(self, text, **kwargs):
@@ -755,9 +835,11 @@ def test_v2v_barge_in_and_disconnect_retain_slow_cleanup_leases(client, trigger)
             # trigger sent before this point would close the generator at the
             # yield instead of reaching the backend's cooperative cancel.
             awaiting_cancel.set()
-            assert cancel_event.wait(1.0), "V2V trigger did not reach backend"
+            assert cancel_event.wait(_V2V_WAIT_S), "V2V trigger did not reach backend"
             cancel_seen.set()
-            time.sleep(0.3)
+            # Slow native unwind: held until the test has observed that the
+            # V2V session did not wait for it.
+            release_cleanup.wait(2 * _V2V_WAIT_S)
             raise RuntimeError("late failure after V2V cancellation")
         finally:
             from server.core.backend_manager import tts_manager
@@ -765,48 +847,53 @@ def test_v2v_barge_in_and_disconnect_retain_slow_cleanup_leases(client, trigger)
             cleaned.set()
 
     backend.generate_streaming = MethodType(_stream, backend)
-    with client.websocket_connect("/v2v/stream") as ws:
-        ws.send_json({
-            "type": "config", "asr_language": None, "tts_language": "en",
-            "vad": "none", "multi_utterance": True,
-        })
-        ws.send_json({"type": "text", "text": "trigger"})
-        ws.send_json({"type": "tts_flush"})
-        events = []
-        while True:
-            frame = ws.receive()
-            if frame.get("bytes") is not None:
-                continue
-            event = json.loads(frame["text"])
-            events.append(event)
-            if event.get("type") == "tts_started":
-                break
-        # ``tts_started`` is sent before the synth job is submitted.  Trigger
-        # only once the backend is inside its slow native call.
-        assert awaiting_cancel.wait(1.0)
-        if trigger == "barge_in":
-            ws.send_json({"type": "abort"})
-            assert cancel_seen.wait(1.0)
-            assert not cleaned.is_set(), "barge-in waited for slow native cleanup"
+    try:
+        with client.websocket_connect("/v2v/stream") as ws:
+            ws.send_json({
+                "type": "config", "asr_language": None, "tts_language": "en",
+                "vad": "none", "multi_utterance": True,
+            })
+            ws.send_json({"type": "text", "text": "trigger"})
+            ws.send_json({"type": "tts_flush"})
+            events = []
             while True:
-                frame = ws.receive()
+                frame = _ws_receive(ws)
                 if frame.get("bytes") is not None:
                     continue
                 event = json.loads(frame["text"])
                 events.append(event)
-                if event.get("type") == "tts_done":
+                if event.get("type") == "tts_started":
                     break
-            assert not any(event.get("type") == "tts_sentence_done" for event in events)
-        else:
-            ws.close()
+            # ``tts_started`` is sent before the synth job is submitted.  Trigger
+            # only once the backend is inside its slow native call.
+            assert awaiting_cancel.wait(_V2V_WAIT_S)
+            if trigger == "barge_in":
+                ws.send_json({"type": "abort"})
+                assert cancel_seen.wait(_V2V_WAIT_S)
+                assert not cleaned.is_set(), "barge-in waited for slow native cleanup"
+                release_cleanup.set()
+                while True:
+                    frame = _ws_receive(ws)
+                    if frame.get("bytes") is not None:
+                        continue
+                    event = json.loads(frame["text"])
+                    events.append(event)
+                    if event.get("type") == "tts_done":
+                        break
+                assert not any(event.get("type") == "tts_sentence_done" for event in events)
+            else:
+                ws.close()
 
-        if trigger == "websocket_disconnect":
-            assert cancel_seen.wait(1.0)
-            assert not cleaned.is_set(), "disconnect waited for slow native cleanup"
-        assert any(event.get("type") == "tts_started" for event in events)
-        assert not any(event.get("error", "").startswith("tts: late failure") for event in events)
+            if trigger == "websocket_disconnect":
+                assert cancel_seen.wait(_V2V_WAIT_S)
+                assert not cleaned.is_set(), "disconnect waited for slow native cleanup"
+                release_cleanup.set()
+            assert any(event.get("type") == "tts_started" for event in events)
+            assert not any(event.get("error", "").startswith("tts: late failure") for event in events)
+    finally:
+        release_cleanup.set()
 
-    assert cleaned.wait(1.0)
+    assert cleaned.wait(_V2V_WAIT_S)
     assert inflight_at_cleanup == [1]
 
 
@@ -836,35 +923,57 @@ def test_tts_cleanup_does_not_wait_for_unstarted_prefetch():
     asyncio.run(_exercise())
 
 
-def test_tts_cleanup_cancelled_by_loop_shutdown_still_releases():
-    """Loop-shutdown cancellation of a pending drain must not raise
-    ``InvalidStateError`` from ``future.exception()`` on a pending future."""
+async def _wait_for_task_named(qualname_suffix: str, timeout: float = 5.0):
+    """Handshake: return once a task running ``*qualname_suffix`` exists."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        for task in asyncio.all_tasks():
+            if task.get_coro().__qualname__.endswith(qualname_suffix):
+                return task
+        assert loop.time() < deadline, f"no task {qualname_suffix!r} started"
+        await asyncio.sleep(0)
+
+
+@pytest.mark.parametrize("stuck_jobs", [1, 2])
+def test_tts_cleanup_cancelled_by_loop_shutdown_still_releases(stuck_jobs):
+    """Loop shutdown must release leases even with N started, stuck jobs.
+
+    ``asyncio.run`` shutdown cancels the snapshot of tasks alive at that
+    moment: the cleanup owner and the drain child of the *first* job.  The
+    cancellation must neither raise ``InvalidStateError`` from
+    ``future.exception()`` on a pending future nor move on to drain the next
+    stuck job (whose child task would be outside the snapshot); it must go
+    straight to ``release_resources``.
+    """
     from server.main import _run_tts_stream_cleanup
 
     async def _exercise():
         loop = asyncio.get_running_loop()
-        pending = loop.create_future()
-        started = threading.Event()
-        started.set()
+        jobs = []
+        for _ in range(stuck_jobs):
+            started = threading.Event()
+            started.set()
+            jobs.append((loop.create_future(), started))
         released = asyncio.Event()
 
         async def _release():
             released.set()
 
-        cleanup = asyncio.create_task(
-            _run_tts_stream_cleanup([(pending, started)], _release)
-        )
-        await asyncio.sleep(0.1)
+        cleanup = asyncio.create_task(_run_tts_stream_cleanup(jobs, _release))
+        await _wait_for_task_named("_consume_job")
         assert not cleanup.done()
-        # What asyncio.run() shutdown does: cancel every remaining task,
-        # including the inner per-job drain task.
+        assert not released.is_set()
+        # What asyncio.run() shutdown does: cancel every task alive now.
         for task in asyncio.all_tasks() - {asyncio.current_task()}:
             task.cancel()
-        await asyncio.wait({cleanup}, timeout=1)
-        assert cleanup.done()
+        done, _ = await asyncio.wait({cleanup}, timeout=1)
+        assert cleanup in done, "cleanup stalled on a stuck job after shutdown"
         assert released.is_set()
         assert cleanup.cancelled() or cleanup.exception() is None
-        pending.cancel()
+        assert all(not future.done() for future, _ in jobs)
+        for future, _ in jobs:
+            future.cancel()
 
     asyncio.run(_exercise())
 
@@ -921,7 +1030,7 @@ def test_tts_stream_serial_multisentence_submits_next_and_reaches_eof(monkeypatc
         ]
 
     try:
-        asyncio.run(_exercise())
+        _run_stream_exercise(_exercise)
     finally:
         executor.shutdown(wait=True)
         from server.core import backend_manager as bm
@@ -961,7 +1070,7 @@ def test_tts_stream_saturation_is_429_before_rate_header(monkeypatch):
         assert b"tts_backend_busy" in response.body
 
     try:
-        asyncio.run(_exercise())
+        _run_stream_exercise(_exercise)
     finally:
         from server.core import backend_manager as bm
         bm._reset_for_tests()
@@ -1011,7 +1120,7 @@ def test_tts_stream_legacy_saturation_is_429(monkeypatch):
         assert b"tts_backend_busy" in response.body
         assert session_limiter.get_limiter().active == 0
 
-    asyncio.run(_exercise())
+    _run_stream_exercise(_exercise)
 
 
 def test_tts_stream_cleanup_timeout_quarantines_exclusive_backend(
@@ -1117,7 +1226,7 @@ def test_tts_stream_cleanup_timeout_quarantines_exclusive_backend(
         assert bm.tts_manager().status()["inflight_http"] == 0
 
     try:
-        asyncio.run(_exercise())
+        _run_stream_exercise(_exercise, release_backend)
     finally:
         release_backend.set()
         bm._reset_for_tests()
@@ -1226,7 +1335,7 @@ def test_tts_stream_n2_reconnect_during_cleanup_is_429_then_recovers(
         assert b"".join(chunks[1:])
 
     try:
-        asyncio.run(_exercise())
+        _run_stream_exercise(_exercise, release_first)
     finally:
         release_first.set()
         bm._reset_for_tests()
@@ -1315,7 +1424,7 @@ def test_tts_stream_legacy_disconnect_quarantines_until_backend_unwinds(
         assert session_limiter.get_limiter().active == 0
 
     try:
-        asyncio.run(_exercise())
+        _run_stream_exercise(_exercise, release_backend)
     finally:
         release_backend.set()
         bm._reset_for_tests()
@@ -1407,7 +1516,7 @@ def test_tts_stream_disconnect_drains_both_prefetched_generators(monkeypatch):
         assert bm.tts_manager().status()["inflight_http"] == 0
 
     try:
-        asyncio.run(_exercise())
+        _run_stream_exercise(_exercise, release_backend)
     finally:
         release_backend.set()
         executor.shutdown(wait=True)
@@ -1460,7 +1569,7 @@ def test_tts_stream_disconnect_before_executor_start_skips_backend(
         assert calls == 0
 
     try:
-        asyncio.run(_exercise())
+        _run_stream_exercise(_exercise, unblock_executor)
     finally:
         unblock_executor.set()
         blocker.result(timeout=1)
