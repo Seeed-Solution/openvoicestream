@@ -14,6 +14,7 @@ import asyncio
 import logging
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -345,6 +346,15 @@ async def close_ws_rejected(ws, endpoint: str, info: dict) -> None:
             pass
         return
     snap = info.get("snapshot") or {"active": 0, "limit": 0}
+    # V10 lifecycle instrumentation (observation only): correlate the WS
+    # rejection with the admitted-connection stream via the safe ephemeral
+    # id(ws). Wire JSON / schema / rejection code / limits / counts below
+    # are UNCHANGED.
+    logger.info(
+        "session_limiter: WS 4429 reject conn=%s monotonic=%.6f endpoint=%s "
+        "current=%d limit=%d",
+        id(ws), time.monotonic(), endpoint, snap["active"], snap["limit"],
+    )
     try:
         _metrics.inc_sessions_rejected("ws")
     except Exception:

@@ -5416,6 +5416,141 @@ async def diarize(
     return _diar.diarize_response(segments, return_embeddings=return_embeddings)
 
 
+# ---------------------------------------------------------------------------
+# V12: known-closing ASR admission grace (bounded, disconnect-observed only)
+# ---------------------------------------------------------------------------
+
+# Module-level registry of tokens whose native /asr/stream connection has
+# EXPLICITLY observed a server-side websocket.disconnect (via the optional
+# ``disconnect_hook`` param of ``_asr_stream_backend``), mapped to the
+# asyncio.Event that the outer handler sets ONLY after the EXACT existing
+# ``token.release()`` returns successfully (and ``token._released`` is True)
+# at the very end of the outer finally scope. No early release, no synthetic
+# release, no queue: admission still requires an actually-released token.
+_ASR_CLOSING_RELEASE_EVENTS: dict = {}
+
+# Static grace bound (seconds) for the ONE release-triggered admission
+# reattempt. Observed actual drain+release is ~3.7 ms; 100 ms is ample
+# headroom without becoming a queue. Not configurable by env/endpoint.
+_ASR_CLOSING_GRACE_SECONDS = 0.1
+
+# Event-loop-owned counter bounding simultaneous grace waiters at the
+# current limiter limit. Overflow gets the unchanged immediate 4429.
+_ASR_CLOSING_GRACE_WAITERS = 0
+
+
+def _asr_mark_closing_token(token) -> object:
+    """Mark a token as known-closing (native disconnect observed server-side).
+
+    Creates (or returns the existing) release Event for ``token``. Called
+    from the outer-handler closure wired into ``_asr_stream_backend`` at the
+    native ``websocket.disconnect`` observation point, BEFORE any drain.
+    Safe to call with ``None`` (never marks anything).
+    """
+    if token is None:
+        return None
+    ev = _ASR_CLOSING_RELEASE_EVENTS.get(token)
+    if ev is None:
+        ev = asyncio.Event()
+        _ASR_CLOSING_RELEASE_EVENTS[token] = ev
+    return ev
+
+
+def _asr_signal_closing_released(token) -> None:
+    """Signal the token's release Event AFTER its actual release succeeded.
+
+    Signals ONLY when ``token._released`` is True (i.e. the EXACT existing
+    ``release()`` actually returned and the limiter observed it); removes the
+    matching dictionary entry either way. An exception inside ``release()``
+    leaves the flag False, so no signal / no falsely-freed admission occurs.
+    """
+    ev = _ASR_CLOSING_RELEASE_EVENTS.pop(token, None)
+    if ev is not None and getattr(token, "_released", False):
+        ev.set()
+
+
+async def _asr_grace_reacquire(endpoint: str):
+    """ONE bounded, release-triggered admission reattempt (V12).
+
+    Called only when admission was rejected ``too_many`` AND at least one
+    token of the CURRENT limiter is known-closing. Waits (FIRST_COMPLETED)
+    on the tokens' actual release Events within a static 100 ms monotonic
+    grace, then attempts exactly one ``try_acquire_ws_token``. Never touches
+    the old owner's task, never cancels or changes any token release, never
+    waits on a healthy owner. Returns a token or ``None`` (unchanged 4429).
+    """
+    from server.core.session_limiter import try_acquire_ws_token, get_limiter
+    import time as _time
+
+    global _ASR_CLOSING_GRACE_WAITERS
+    limiter = get_limiter()
+    if limiter is None:
+        return None
+    # Only events whose token still belongs to the CURRENT limiter count;
+    # backend-reload stale limiter events must not affect the new limiter.
+    events = [
+        ev for tok, ev in list(_ASR_CLOSING_RELEASE_EVENTS.items())
+        if getattr(tok, "_limiter", None) is limiter
+    ]
+    if not events:
+        return None
+    if _ASR_CLOSING_GRACE_WAITERS >= limiter.limit:
+        return None
+    _ASR_CLOSING_GRACE_WAITERS += 1
+    _outcome = "timeout"
+    _token = None
+    try:
+        deadline = _time.monotonic() + _ASR_CLOSING_GRACE_SECONDS
+
+        async def _wait_event(ev) -> None:
+            await ev.wait()
+
+        tasks = [asyncio.ensure_future(_wait_event(ev)) for ev in events]
+        released = False
+        try:
+            remaining = deadline - _time.monotonic()
+            if remaining > 0:
+                done, pending = await asyncio.wait(
+                    tasks, timeout=remaining,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                released = any(t in done and not t.cancelled() for t in tasks)
+        except asyncio.CancelledError:
+            _outcome = "cancelled"
+            raise
+        finally:
+            # Bound + clean up the short wait tasks; the old owner's task and
+            # its actual token release are NEVER cancelled by this path. A
+            # caller cancellation arriving during this cleanup PROPAGATES:
+            # the gather await re-raises CancelledError through the outer
+            # finally (counter decremented) and no new token is ever acquired
+            # on a cancelled admission.
+            for _t in tasks:
+                if not _t.done():
+                    _t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        # EXACTLY release-triggered: reacquire ONLY when an actual release
+        # Event was observed. On timeout return None (unchanged 4429) even
+        # if a slot happened to free up unobserved — no speculative liveness.
+        if not released:
+            return None
+        _outcome = "released"
+        # Exactly ONE reattempt; if another fresh arrival won the slot, the
+        # original 4429 rejection stands, unchanged.
+        _token, _info = try_acquire_ws_token(endpoint)
+        _outcome = (
+            "released-admitted" if _token is not None else "released-contested"
+        )
+        return _token
+    finally:
+        logger.info(
+            "ASR closing-grace admission wait outcome=%s endpoint=%s "
+            "grace=%.3fs",
+            _outcome, endpoint, _ASR_CLOSING_GRACE_SECONDS,
+        )
+        _ASR_CLOSING_GRACE_WAITERS -= 1
+
+
 @app.websocket("/asr/stream")
 async def asr_stream(
     ws: WebSocket,
@@ -5474,7 +5609,14 @@ async def asr_stream(
     import numpy as np
     from server.core.asr_backend import ASRCapability
     from server.core.api_auth import check_ws
-    from server.core.session_limiter import try_acquire_ws
+    from server.core.session_limiter import (
+        try_acquire_ws_token,
+        close_ws_rejected,
+    )
+
+    # V10 lifecycle instrumentation: monotonic timestamps for the outer
+    # token acquire/release events. Function-local stdlib import only.
+    import time
 
     # Auth runs BEFORE accept (when possible). check_ws() accepts+closes
     # 4401 on failure so the WS hand-off is deterministic.
@@ -5488,11 +5630,35 @@ async def asr_stream(
 
     await ws.accept()
 
-    # Reject-not-queue admission gate.
-    _session_token = await try_acquire_ws(ws, "/asr/stream")
+    # Reject-not-queue admission gate. V12: when full AND a token of the
+    # current limiter is known-closing (server-side native disconnect
+    # observed), allow ONE bounded, release-triggered reattempt; a healthy
+    # occupied owner is still rejected immediately with the unchanged 4429.
+    _session_token, _admit_info = try_acquire_ws_token("/asr/stream")
+    if _session_token is None and (_admit_info or {}).get("reason") == "too_many":
+        _session_token = await _asr_grace_reacquire("/asr/stream")
     if _session_token is None:
+        await close_ws_rejected(ws, "/asr/stream", _admit_info)
         reset_request_context(_ws_ctx_tokens)
         return
+    # V10 lifecycle instrumentation (observation only): record the admitted
+    # connection. ``id(ws)`` is a safe ephemeral integer correlator; no
+    # credentials / raw audio / transcript are logged.
+    logger.info(
+        "ASR outer token acquired conn=%s monotonic=%.6f endpoint=%s "
+        "acquired_at_count=%s",
+        id(ws), time.monotonic(), "/asr/stream",
+        getattr(_session_token, "_acquired_at_count", None),
+    )
+
+    # V12: closure marking THIS outer token known-closing when the native
+    # scope explicitly observes a websocket.disconnect server-side. The
+    # Event belongs to the outer token regardless of receiver-task context;
+    # it is signalled only after the EXACT existing outer release succeeds
+    # (see the outer finally below). Existing callers/tests that invoke
+    # _asr_stream_backend without the hook are unaffected (default None).
+    def _asr_native_disconnect_hook() -> None:
+        _asr_mark_closing_token(_session_token)
 
     # Week 2: track active streaming WS for /metrics. Paired decrement
     # lives in the finally block at the bottom of this handler.
@@ -5597,12 +5763,14 @@ async def asr_stream(
                     ws, asr_be, language, sample_rate, vad_session,
                     punct_on=punct_on, spk_on=spk_on, diarize_on=diarize_on,
                     per_utterance_slot=True,
+                    disconnect_hook=_asr_native_disconnect_hook,
                 )
             else:
                 async with get_coordinator().acquire("asr"):
                     await _asr_stream_backend(
                         ws, asr_be, language, sample_rate, vad_session,
                         punct_on=punct_on, spk_on=spk_on, diarize_on=diarize_on,
+                        disconnect_hook=_asr_native_disconnect_hook,
                     )
         else:
             await ws.send_json({"error": "no streaming ASR available"})
@@ -5616,10 +5784,33 @@ async def asr_stream(
             except BaseException:
                 pass
         if _session_token is not None:
+            # V10 lifecycle instrumentation (observation only): BEFORE/AFTER
+            # the EXACT existing release call. AFTER is logged only when the
+            # actual release() returned; exception behavior is unchanged.
+            logger.info(
+                "ASR outer token release BEFORE conn=%s monotonic=%.6f",
+                id(ws), time.monotonic(),
+            )
             try:
                 _session_token.release()
             except BaseException:
-                pass
+                # V12: on release failure the token stays held by the limiter
+                # (existing unknown-native held-capacity behavior); discard
+                # this token's closing-registry entry WITHOUT setting its
+                # Event so no admission is falsely freed and no stale entry
+                # survives limiter reloads.
+                _ASR_CLOSING_RELEASE_EVENTS.pop(_session_token, None)
+            else:
+                logger.info(
+                    "ASR outer token release AFTER conn=%s monotonic=%.6f",
+                    id(ws), time.monotonic(),
+                )
+                # V12: signal the known-closing release Event ONLY after the
+                # EXACT existing release() returned successfully (the
+                # _released guard is re-checked inside the signal helper),
+                # AFTER the full native AND CF cleanup / coordinator scope
+                # above has exited. No early release, no synthetic release.
+                _asr_signal_closing_released(_session_token)
         if _ws_metric_taken:
             try:
                 from server.core import metrics as _m_ws
@@ -5709,30 +5900,71 @@ class _AsrSlotJobs:
         # backend is free. The thread-pool future can.
         self.futures: list = []
 
-    async def run(self, fn, *args):
-        cf = _get_asr_executor().submit(fn, *args)
+    async def run(self, fn, *args, executor=None):
+        # ``executor=None`` (default) keeps the historical ordinary-executor
+        # behavior. The native ASR websocket control path passes its dedicated
+        # per-connection control pool here so a cancel helper can reach a
+        # thread even when every ordinary ASR worker is blocked inside the
+        # backend. Either way the EXACT concurrent.futures.Future is retained
+        # before the await — never the asyncio wrapper.
+        pool = _get_asr_executor() if executor is None else executor
+        cf = pool.submit(fn, *args)
         self.futures.append(cf)
         return await asyncio.wrap_future(cf)
 
     async def drain(self) -> None:
-        pending = [f for f in self.futures if not f.done()]
-        self.futures.clear()
-        if not pending:
-            return
-        pending = [asyncio.wrap_future(cf) for cf in pending]
-        # ``shield`` keeps the wait itself from being cancelled again. Best
-        # effort: if the caller is cancelled a second time we re-raise rather
-        # than hang, which is the shutdown path where a second inference no
-        # longer matters.
-        try:
-            await asyncio.shield(
-                asyncio.gather(*pending, return_exceptions=True)
+        # Ownership contract: a live executor future stays in ``self.futures``
+        # until ``cf.done()`` is observed, and we never release the inference
+        # slot while any such future is still active. Earlier code pruned the
+        # list *before* awaiting and let a second cancellation propagate out of
+        # ``shield`` immediately, which handed the shared runtime to the next
+        # session on top of a live inference. Instead we await one retained
+        # aggregate and retry that SAME aggregate when the caller is cancelled:
+        # re-awaiting a gather future is safe because the gather itself was
+        # never cancelled, only the awaiting task.
+        deferred = False
+        while True:
+            # Snapshot the not-done futures, but prune ONLY cfs whose done() we
+            # have actually observed; anything still running (or appended by a
+            # concurrent ``run``) stays owned and is picked up next round.
+            self.futures = [cf for cf in self.futures if not cf.done()]
+            if not self.futures:
+                break
+            aggregate = asyncio.gather(
+                *[asyncio.wrap_future(cf) for cf in self.futures],
+                return_exceptions=True,
             )
-        except asyncio.CancelledError:
-            logger.warning(
-                "ASR slot: cancelled while waiting for an in-flight inference "
-                "to finish; releasing the slot with a worker still running"
-            )
+            while not aggregate.done():
+                try:
+                    # ``shield`` keeps the cancellation from propagating INTO
+                    # the gather (and thus into the wrapped cfs). The aggregate
+                    # object is retained, so a cancelled wait re-enters the
+                    # same gather below; the real executor futures are never
+                    # cancelled and aggregate.result() cannot raise early
+                    # while a worker is still live.
+                    await asyncio.shield(aggregate)
+                except asyncio.CancelledError:
+                    # Do NOT release: the aggregate keeps running while the
+                    # real executor futures are still active. Record the
+                    # deferred cancellation, retain the slot, and keep waiting
+                    # on the same aggregate until it completes.
+                    deferred = True
+                    logger.warning(
+                        "ASR slot: caller cancelled while an inference is "
+                        "still running; retaining the slot until the worker "
+                        "finishes (refs: %d)",
+                        len(self.futures),
+                    )
+            # Aggregate finished; consume results so native exceptions are
+            # observed (and cannot corrupt the gather) but never replace the
+            # caller's cancellation below.
+            aggregate.result()
+
+        if deferred:
+            # Every owned future is now done and ``self.futures`` holds no
+            # active cf, so it is finally safe to let the caller's original
+            # cancellation propagate (e.g. the outer task is unwinding).
+            raise asyncio.CancelledError()
 
 
 async def _send_asr_busy(ws, reason: str) -> None:
@@ -5800,6 +6032,7 @@ async def _asr_stream_backend(
     spk_on: bool = False,
     diarize_on: bool = False,
     per_utterance_slot: bool = False,
+    disconnect_hook=None,
 ):
     """Streaming ASR using ASR backend (accumulate-then-transcribe).
 
@@ -5814,6 +6047,10 @@ async def _asr_stream_backend(
     import asyncio
     import json as _json
     import numpy as np
+    # V10 lifecycle instrumentation: monotonic timestamps for the native
+    # path events. Function-local stdlib import so the AST-extracted source
+    # (existing native tests exec this coroutine) stays self-contained.
+    import time
 
     from server.core import diarization as _diar_mod_be
     from server.core.asr_infer_gate import InferenceQueueFull
@@ -5829,6 +6066,1050 @@ async def _asr_stream_backend(
         """One utterance's slot, with a fresh executor-job tracker."""
         jobs = _AsrSlotJobs()
         return _slot_cm(jobs), jobs
+
+    # ────────────────────────────────────────────────────────────────
+    # Native streaming path (trt_edgellm + streaming worker mode).
+    #
+    # Only this backend/alias combination has a real native cancel
+    # (arm_cancel/request_cancel, U2). All other backends continue on the
+    # existing synchronous loop below, byte-for-byte unchanged. Everything
+    # here is a local closure/control state inside THIS function — no
+    # external proxy/helper abstraction.
+    # ────────────────────────────────────────────────────────────────
+    async def _run_native_stream_pipeline() -> None:
+        """Responsive native-cancel ASR websocket pipeline (one connection).
+
+        Ownership contract:
+          * ONE retained ``_AsrSlotJobs`` tracks ALL actual create/accept/
+            finalize/partial/close/control CFs for the whole connection.
+          * The native execution slot is held from create_stream through the
+            final cleanup drain (whole connection). The dedicated ONE-thread
+            control pool is created ONLY after the slot is held, so a
+            create_stream failure cannot leak an unowned pool.
+          * ONE receiver task owns ``ws.receive`` exclusively; ordinary frames
+            are queued bounded (maxsize=8); controls are handled without
+            waiting behind a blocked processor.
+          * BOTH async tasks are retained. The pipeline ends on the FIRST
+            completion; the other is cancelled and awaited. No fire-and-forget.
+        """
+        try:
+            from voxedge.backends.jetson.trt_edge_llm_asr import (
+                WorkerExitError as _NativeWorkerExitError,
+            )
+        except Exception:
+            _NativeWorkerExitError = None
+
+        def _is_worker_exit(exc: BaseException) -> bool:
+            return (
+                _NativeWorkerExitError is not None
+                and isinstance(exc, _NativeWorkerExitError)
+            )
+
+        # Connection control state. ``epoch`` is the cancel/reset generation.
+        # Ordinary queue items carry the epoch AT RECEIPT, the processor
+        # captures a processing epoch per item, and EVERY ordinary output is
+        # dropped when its captured epoch is stale or a cancel is armed.
+        st: dict = {
+            "epoch": 0,
+            "cancel_armed": False,
+            "cancel_sid": None,
+            "run_epoch": None,      # epoch whose stream is currently installed
+            "control_task": None,
+            "control_outcome": None,  # confirmed | timeout | exit | error
+            "client_gone": False,
+            "done": False,
+            "close_code": None,
+            "close_reason": None,
+        }
+        # Owned by the connection scope so the SIBLING ``_control_cancel``
+        # closure can resolve it. It is created (assigned) only inside
+        # ``_processor`` AFTER the slot is held; remains None until then, so
+        # an armed control before slot acquisition fails closed rather than
+        # NameError.
+        control_pool = None
+        send_lock = asyncio.Lock()
+        frames: asyncio.Queue = asyncio.Queue(maxsize=8)
+        # Sentinels queued by the receiver. ``_RESET`` re-arms a generation;
+        # ``_EOU`` is the legacy text ``end_utterance`` / ``type=eou`` request
+        # the native receiver previously ignored entirely.
+        _RESET = object()
+        _EOU = object()
+
+        # ── Stream + jobs are owned by the processor task (see below). The
+        # create_stream call, the receiver, processing, control resolution,
+        # close and the final drain all happen INSIDE the execution slot. ──
+
+        # Per-utterance audio buffer for speaker embedding (same as legacy).
+        _seg: list = []
+        _t_samples = 0
+        _diarizer = _diar_mod_be.make_session_diarizer() if diarize_on else None
+
+        def _seg_window():
+            if not sample_rate:
+                return 0.0, 0.0
+            _len = sum(int(len(s)) for s in _seg)
+            end = _t_samples / float(sample_rate)
+            start = (_t_samples - _len) / float(sample_rate)
+            return start, end
+
+        async def _send_now(payload) -> bool:
+            async with send_lock:
+                try:
+                    await ws.send_json(payload)
+                    return True
+                except Exception:
+                    st["client_gone"] = True
+                    st["done"] = True
+                    return False
+
+        async def _send_guarded(payload, gen: int) -> bool:
+            """Ordinary outputs ONLY: dropped when stale or cancel-armed.
+
+            The guard is re-checked under the per-connection send lock AFTER
+            the await, so a cancel_ack can never race a queued old final.
+            """
+            if gen != st["epoch"] or st["cancel_armed"]:
+                return False
+            async with send_lock:
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return False
+                try:
+                    await ws.send_json(payload)
+                    return True
+                except Exception:
+                    st["client_gone"] = True
+                    st["done"] = True
+                    return False
+
+        async def _fail_closed(reason: str) -> None:
+            st["close_code"] = 1011
+            st["close_reason"] = _json.dumps({"error": reason})
+            if not st["client_gone"]:
+                await _send_now({"type": "error", "error": reason})
+            st["done"] = True
+
+        def _arm_cancel(stream, conn_jobs) -> None:
+            """Arm a native cancel on the EVENT LOOP, before any ACK.
+
+            Captures the EXACT stream + SID at arm time (the control helper
+            later operates that captured stream, never a later nonlocal one),
+            increments the connection epoch (suppressing ordinary outputs)
+            BEFORE the control job is scheduled, and starts exactly ONE active
+            control task per SID. Binary frames are discarded by the receiver
+            while armed, until an explicit reset.
+            """
+            if st["cancel_armed"] or st.get("control_task") is not None:
+                return  # one active control per SID; no duplicate writers
+            sid = stream.arm_cancel()  # non-blocking, IO-free
+            st["epoch"] += 1  # suppress ordinary outputs BEFORE scheduling
+            # Keep run_epoch in lockstep with epoch so the cancel_ack guard
+            # (run_epoch == epoch) is reachable for a valid cancel generation;
+            # ordinary-frame staleness stays guarded by captured item epochs
+            # and the cancel_armed flag.
+            st["run_epoch"] = st["epoch"]
+            st["cancel_armed"] = True
+            st["cancel_sid"] = sid
+            st["control_outcome"] = None
+            st["control_task"] = asyncio.ensure_future(
+                _control_cancel(sid, stream, conn_jobs)
+            )
+            logger.info(
+                "ASR native cancel armed (backend=%s, sid=%s, epoch=%s)",
+                asr_be.name, sid, st["epoch"],
+            )
+
+        async def _control_cancel(sid: str, cap_stream, conn_jobs) -> None:
+            """Blocking native cancel on the DEDICATED control pool.
+
+            ``cap_stream`` is the stream captured at arm time: the helper MUST
+            act on that exact object even if ``stream`` has since been rebound.
+            """
+            try:
+                receipt = await conn_jobs.run(
+                    cap_stream.request_cancel, 1.0, executor=control_pool
+                )
+            except (TimeoutError, asyncio.TimeoutError):
+                st["control_outcome"] = "timeout"
+                # Budget expired: no ACK, no restart, intent stays armed. The
+                # opaque helper may still outlive this budget — the retained
+                # CF/pool/slot stay owned until the actual work is done.
+                if not st["client_gone"]:
+                    await _send_now({"type": "error", "error": "cancel_timeout"})
+                return
+            except asyncio.CancelledError:
+                # The asyncio wrapper is cancelled at teardown ONLY; the
+                # retained thread CF is still owned by conn_jobs and drains.
+                raise
+            except Exception as exc:
+                if _is_worker_exit(exc):
+                    st["control_outcome"] = "exit"
+                    # Distinct error, NO ACK: a worker exit is not a native
+                    # cancelled receipt.
+                    if not st["client_gone"]:
+                        await _send_now({"type": "error", "error": "worker_exit"})
+                else:
+                    st["control_outcome"] = "error"
+                    if not st["client_gone"]:
+                        await _send_now({
+                            "type": "error",
+                            "error": f"{type(exc).__name__}: {exc}",
+                        })
+                return
+            # ONLY an actual matching dict event (cancelled / id == captured
+            # SID / ok false) while still the current cancel generation gets
+            # the serialized cancel_ack. ``control_outcome`` is set to
+            # confirmed ONLY after that validation — never before, so a
+            # non-matching receipt can never masquerade as a resolution.
+            if not (
+                isinstance(receipt, dict)
+                and receipt.get("event") == "cancelled"
+                and receipt.get("id") == sid
+                and receipt.get("ok") is False
+            ):
+                st["control_outcome"] = "error"
+                if not st["client_gone"]:
+                    await _send_now({
+                        "type": "error",
+                        "error": "cancel_receipt_invalid",
+                    })
+                return
+            st["control_outcome"] = "confirmed"
+            # A matching receipt still confirms the outcome even when the
+            # client is gone, but no cancel_ack may be sent after disconnect.
+            if (
+                not st["client_gone"]
+                and st["cancel_armed"]
+                and st["cancel_sid"] == sid
+                and st["run_epoch"] == st["epoch"]
+            ):
+                async with send_lock:
+                    await ws.send_json({
+                        "type": "cancel_ack",
+                        "id": sid,
+                        "epoch": st["epoch"],
+                    })
+                logger.info(
+                    "ASR native cancel confirmed (sid=%s, epoch=%s)",
+                    sid, st["epoch"],
+                )
+
+        async def _receiver(stream_holder, conn_jobs) -> None:
+            while not st["done"]:
+                msg = await ws.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    logger.debug(
+                        "ASR native stream: client disconnected (backend=%s)",
+                        asr_be.name,
+                    )
+                    # Arm the cancel and schedule the retained control job EVEN
+                    # when the ordinary side is blocked, then signal the
+                    # processor to end. No offline finalize is ever started.
+                    _cur = stream_holder.get("stream")
+                    # V10 lifecycle instrumentation (observation only): record
+                    # the disconnect BEFORE the closed guard that decides
+                    # whether a cancel is armed. Condition/control unchanged.
+                    logger.info(
+                        "ASR native disconnect observed conn=%s monotonic=%.6f "
+                        "sid=%s _closed=%s cancel_armed=%s",
+                        id(ws), time.monotonic(),
+                        getattr(_cur, "_session_id", "?"),
+                        getattr(_cur, "_closed", None),
+                        st["cancel_armed"],
+                    )
+                    # V12: mark the outer token known-closing BEFORE any
+                    # drain/cleanup; the hook is supplied by the outer ASR
+                    # handler closure and defaults to None (no-op) so
+                    # existing callers/tests are unaffected.
+                    if disconnect_hook is not None:
+                        try:
+                            disconnect_hook()
+                        except Exception:
+                            logger.debug(
+                                "ASR native disconnect hook raised",
+                                exc_info=True,
+                            )
+                    # If the backend already PROVED this SID closed (e.g. the
+                    # finalize terminal path closed it), arming a cancel would
+                    # only await a receipt for a dead stream; the retained-job
+                    # drain and teardown cleanup below still run. A live or
+                    # unconfirmed-closed stream is still armed.
+                    if _cur is not None and not getattr(_cur, "_closed", False):
+                        _arm_cancel(_cur, conn_jobs)
+                    st["client_gone"] = True
+                    st["done"] = True
+                    return
+                if "text" in msg and msg["text"]:
+                    try:
+                        cmd = _json.loads(msg["text"])
+                    except (ValueError, TypeError):
+                        continue
+                    if not isinstance(cmd, dict):
+                        continue
+                    _cc = cmd.get("command")
+                    _ct = (cmd.get("type") or "").lower()
+                    if _cc == "cancel" or _ct == "cancel":
+                        _cur = stream_holder.get("stream")
+                        if _cur is not None:
+                            _arm_cancel(_cur, conn_jobs)
+                        continue
+                    if _cc == "reset":
+                        try:
+                            frames.put_nowait((st["epoch"], _RESET))
+                        except asyncio.QueueFull:
+                            await _fail_closed("asr_queue_full")
+                        continue
+                    # Legacy end-of-utterance command. Previously the native
+                    # receiver ignored it and ``_handle_end_utterance`` was
+                    # unreachable; route it through the bounded queue instead.
+                    if _cc == "end_utterance" or _ct == "eou":
+                        try:
+                            frames.put_nowait((st["epoch"], _EOU))
+                        except asyncio.QueueFull:
+                            await _fail_closed("asr_queue_full")
+                        continue
+                    continue  # unknown control frame: ignored (unchanged)
+                data = msg.get("bytes")
+                if data is None:
+                    continue
+                if st["cancel_armed"]:
+                    # Binary is ignored/discarded while a cancel is armed,
+                    # until an explicit reset re-arms the pipeline.
+                    continue
+                # Legacy empty-binary EOS: an empty bytes frame carries the
+                # same end-of-utterance semantics as the text
+                # ``end_utterance`` / ``type=eou`` control command (the
+                # performance client sends ``b""`` as EOS). Route it through
+                # the SAME bounded queue as the text EOU so the processor
+                # finalizes with the retained stream; a bare ``b""`` used to
+                # be queued as ordinary bytes and ``_process_audio(b"")``
+                # never finalized with ``vad_session=None``. Nonempty bytes
+                # are queued unchanged.
+                if isinstance(data, bytes) and len(data) == 0:
+                    queue_payload = _EOU
+                else:
+                    queue_payload = data
+                try:
+                    frames.put_nowait((st["epoch"], queue_payload))
+                except asyncio.QueueFull:
+                    # Bounded queue overflow: structured error + 1011, fail
+                    # closed (never an unbounded backlog behind a blocked
+                    # processor).
+                    await _fail_closed("asr_queue_full")
+                    return
+
+        def _old_native_cancel_resolved(s) -> bool:
+            """Prove the old stream's cancel actually resolved (no fakery).
+
+            Accepted evidence: an ACTUAL matching native cancel confirmation
+            (intent SID == confirm SID, both matching the captured SID), a
+            proven worker exit, or no cancel intent at all. A mere
+            ``future.done()`` on the opaque helper is NOT resolution, and a
+            ``_closed`` that the backend refused to set is NOT closure.
+            """
+            if getattr(s, "_cancel_exit", False):
+                return True
+            intent = getattr(s, "_cancel_intent", None)
+            if intent is None:
+                return True
+            confirm = getattr(s, "_cancel_confirm", None)
+            return (
+                isinstance(confirm, dict)
+                and confirm.get("sid") == intent.get("sid")
+                and isinstance(confirm.get("receipt"), dict)
+                and confirm["receipt"].get("event") == "cancelled"
+                and confirm["receipt"].get("id") == intent.get("sid")
+                # An ok=True receipt is NOT a cancellation: requiring ok False
+                # here matches the exact _control_cancel ACK validation, so an
+                # invalid/matching-shape receipt can never count as resolved.
+                and confirm["receipt"].get("ok") is False
+            )
+
+        def _old_native_stream_released(s) -> bool:
+            """Proven native SID release for the CURRENT stream.
+
+            Either the backend marked itself closed on its normal terminal
+            path, or a matching confirmed cancel receipt proves the native
+            session was synchronously released.
+            """
+            if getattr(s, "_closed", False):
+                return True
+            return _old_native_cancel_resolved(s) and getattr(
+                s, "_cancel_intent", None
+            ) is not None
+
+        def _retained_entry_released(entry) -> bool:
+            """Proven release of ONE retained created stream entry.
+
+            Evidence: backend-marked closed, an ACTUAL matching cancel receipt
+            (ok False), a proven _cancel_exit, or the ACTUAL CAPTURED worker
+            (snapshotted at creation, never a later replacement) observed
+            exited via poll(). A missing worker reference is UNKNOWN — it is
+            NOT an exit and must not release.
+            """
+            s = entry.get("stream")
+            if getattr(s, "_closed", False):
+                return True
+            if getattr(s, "_cancel_exit", False):
+                return True
+            # ONLY an ACTUAL cancel intent may use matching cancel resolution
+            # as release proof: _old_native_cancel_resolved returns True when
+            # intent is None ("no cancel at all"), which must NOT release an
+            # unclosed stream whose worker is still alive. Missing worker
+            # stays UNKNOWN below.
+            if getattr(s, "_cancel_intent", None) is not None and _old_native_cancel_resolved(s):
+                return True
+            w = entry.get("worker")
+            if w is not None:
+                try:
+                    if w.poll() is not None:
+                        return True
+                except Exception:
+                    pass
+            return False  # UNKNOWN: quarantine, never a fake hard release
+
+        async def _retained_streams_cleanup(conn_jobs) -> None:
+            """Close + prove EVERY actually created stream, then quarantine.
+
+            ``retained_created_streams`` is appended from worker threads INSIDE
+            the creation callables; it is read only AFTER the actual job drain,
+            so every real create (even one whose outer await was cancelled)
+            is closed, drained and proven here. A stream whose cancel is armed
+            without a matching receipt holds this cleanup (and therefore the
+            execution slot / admission) until an actual matching receipt or a
+            proven exit of the SAME captured worker — it MAY HOLD INDEFINITELY
+            (capacity quarantine, documented NOT prod-ready): no helper retry,
+            no native restart, no forced kill, no fake free.
+            """
+            await conn_jobs.drain()
+            for entry in list(retained_created_streams):
+                s = entry.get("stream")
+                if s is None:
+                    continue
+                try:
+                    _close = getattr(s, "close", None)
+                    if callable(_close):
+                        await conn_jobs.run(_close)
+                except Exception:
+                    logger.exception(
+                        "ASR native retained stream close raised (backend=%s)",
+                        asr_be.name,
+                    )
+                await conn_jobs.drain()
+                # Poll with SHORT awaits inside this retained cleanup task;
+                # the caller re-awaits the SAME task shielded on every outer
+                # cancellation, so the quarantine can never be lost.
+                #
+                # V10 lifecycle instrumentation (observation only): the flag
+                # is set on the FIRST iteration of the UNRESOLVED wait loop.
+                # A stream that already proves released never executes the
+                # loop body, so the expected already-closed path logs nothing.
+                # The existing while predicate and 100ms await are unchanged;
+                # no extra _retained_entry_released / worker.poll() calls.
+                _v10_first_unresolved_wait = True
+                while not _retained_entry_released(entry):
+                    if _v10_first_unresolved_wait:
+                        _v10_first_unresolved_wait = False
+                        logger.info(
+                            "ASR native retained wait begin conn=%s "
+                            "monotonic=%.6f sid=%s _closed=%s "
+                            "cancel_armed=%s",
+                            id(ws), time.monotonic(),
+                            getattr(s, "_session_id", "?"),
+                            getattr(s, "_closed", None),
+                            st["cancel_armed"],
+                        )
+                    await asyncio.sleep(0.1)
+                if not _v10_first_unresolved_wait:
+                    # Eventual exit of the unresolved wait loop. ``outcome``
+                    # is derived from the EXISTING simple fields, no new
+                    # release predicate and no extra worker.poll() call. The
+                    # ELSE branch is deliberately UNCLASSIFIED: the existing
+                    # _retained_entry_released can also exit on a captured
+                    # worker.poll() exit, which this observer cannot attribute
+                    # to a matching receipt.
+                    _v10_outcome = (
+                        "closed" if getattr(s, "_closed", False)
+                        else "cancel_exit" if getattr(s, "_cancel_exit", False)
+                        else "released_reason_unclassified"
+                    )
+                    logger.info(
+                        "ASR native retained wait end conn=%s monotonic=%.6f "
+                        "sid=%s _closed=%s cancel_armed=%s outcome=%s",
+                        id(ws), time.monotonic(),
+                        getattr(s, "_session_id", "?"),
+                        getattr(s, "_closed", None),
+                        st["cancel_armed"], _v10_outcome,
+                    )
+
+        async def _resolve_and_drain_old(stream_holder, conn_jobs) -> bool:
+            """Wait for the retained control task + ALL actual CFs to finish.
+
+            Returns True when the old stream is provably resolved (normal
+            native close, matching cancel confirmation, or worker exit). When
+            it cannot be proven, the caller MUST quarantine: no new SID, no
+            fake hard release — see ``_handle_reset``.
+            """
+            ct = st.get("control_task")
+            if ct is not None:
+                try:
+                    await asyncio.shield(ct)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass
+                st["control_task"] = None
+            # Wait for ALL actual old ordinary + control jobs to finish.
+            await conn_jobs.drain()
+            old = stream_holder.get("stream")
+            if old is None:
+                return True
+            if st["cancel_armed"]:
+                # Armed: an ACTUAL matching cancel receipt (event cancelled /
+                # id == captured SID / ok False) or a proven worker exit is
+                # required BEFORE the close is even attempted. An unarmed open
+                # stream must NOT be refused here — the ordinary-reset path
+                # proceeds to close and re-proves actual release afterwards
+                # (see _handle_reset), which is what makes a plain reset work.
+                return _old_native_cancel_resolved(old)
+            return True
+
+        # EVERY actual create_stream result is recorded INSIDE the creation
+        # callable, BEFORE it returns, together with a snapshot of the backend
+        # _worker bound to that stream at creation time. The wrapped
+        # ``await conn_jobs.run(...)`` can be cancelled while the thread is
+        # still creating (or has already created): without this the returned
+        # native SID would be lost. Duplicates are harmless (close is guarded
+        # by the backend _closed flag). Read AFTER the actual job drain.
+        retained_created_streams: list = []
+
+        def _create_retained():
+            s = asr_be.create_stream(language)
+            retained_created_streams.append(
+                {"stream": s, "worker": getattr(asr_be, "_worker", None)}
+            )
+            return s
+
+        async def _handle_reset(
+            stream_holder, conn_jobs, item_epoch: int
+        ) -> None:
+            """Explicit rearm: resolve + drain old, then a new generation.
+
+            Reset arriving while a cancel is pending waits for the retained
+            control job AND all its actual thread work, and requires an actual
+            matching native confirmation (or proven worker exit) before a new
+            begin. An unresolved cancel QUARANTINES the connection: NO new SID,
+            no fake hard release — the slot stays held, fail closed.
+            """
+            nonlocal _t_samples
+            if st["client_gone"] or item_epoch != st["epoch"]:
+                return
+            old = stream_holder.get("stream")
+            resolved = await _resolve_and_drain_old(stream_holder, conn_jobs)
+            if not resolved:
+                logger.warning(
+                    "ASR native reset: cancel for sid=%s still unresolved "
+                    "after full drain; quarantining (no fake hard release, "
+                    "no new SID)",
+                    st["cancel_sid"],
+                )
+                return  # stay armed/fail-closed; next explicit reset retries
+            # The old stream MUST be closed with actual evidence before a new
+            # SID may begin. ``close`` may itself refuse to mark closed (an
+            # armed-but-unconfirmed cancel), so re-prove after the call.
+            try:
+                old_close = getattr(old, "close", None)
+                if callable(old_close):
+                    await conn_jobs.run(old_close)
+            except Exception:
+                logger.exception("ASR native reset: old stream close raised")
+            await conn_jobs.drain()
+            if not _old_native_stream_released(old):
+                logger.warning(
+                    "ASR native reset: old stream close not proven for sid=%s "
+                    "(_closed not set, no confirmed cancel); quarantining "
+                    "instead of creating a new SID",
+                    st["cancel_sid"],
+                )
+                return  # NO new SID on unknown cleanup
+            # Clear old queued frames / segment / VAD, new generation, new
+            # stream OFF the loop, then the existing reset frame.
+            while True:
+                try:
+                    frames.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            _seg.clear()
+            _t_samples = 0
+            if vad_session is not None:
+                try:
+                    vad_session.reset()
+                except Exception:
+                    logger.debug("VAD reset after native reset raised", exc_info=True)
+            st["epoch"] += 1
+            st["cancel_armed"] = False
+            st["cancel_sid"] = None
+            st["control_outcome"] = None
+            new_stream = await conn_jobs.run(_create_retained)
+            # Re-check: a cancel armed during the create await must not lose
+            # the freshly created SID. Retain it and let cancel handling own
+            # it; only install it as current when no cancel raced in.
+            if st["cancel_armed"]:
+                stream_holder["pending_stream"] = new_stream
+                return
+            stream_holder["stream"] = new_stream
+            st["run_epoch"] = st["epoch"]
+            logger.info(
+                "ASR native stream rearmed (backend=%s, sid=%s, epoch=%s)",
+                asr_be.name,
+                getattr(new_stream, "_session_id", "?"),
+                st["epoch"],
+            )
+            await _send_guarded(
+                {
+                    "type": "reset",
+                    "text": "",
+                    "is_final": True,
+                    "is_stable": True,
+                    "reset": True,
+                },
+                st["epoch"],
+            )
+
+        async def _process_audio(
+            data: bytes, gen: int, stream_holder, conn_jobs
+        ) -> None:
+            nonlocal _t_samples
+            stream = stream_holder["stream"]
+            # Same VAD/block splitting as the legacy path.
+            samples = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+            vad_events = []
+            if vad_session is not None:
+                from server.core.vad import VADSession
+                process_events = getattr(vad_session, "process_events", None)
+                if process_events is not None:
+                    vad_events = process_events(samples)
+                else:
+                    event = vad_session.process(samples)
+                    if event is not None:
+                        vad_events = [(event, len(samples))]
+            segments = _split_vad_block(samples, vad_events)
+            for segment_index, (segment, event) in enumerate(segments):
+                # Re-check BEFORE any job start / state prep.
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                if spk_on and len(segment):
+                    _seg.append(segment)
+                    _t_samples += int(len(segment))
+                if len(segment):
+                    await conn_jobs.run(
+                        stream.accept_waveform, sample_rate, segment
+                    )
+                # Epoch re-guard after every await/backend completion.
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                if vad_session is None or event != VADSession.SPEECH_END:
+                    continue
+                await _send_guarded({"type": "vad_endpoint"}, gen)
+                # Re-check BEFORE prepare/finalize after the send await.
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                await conn_jobs.run(stream.prepare_finalize)
+                raw_final = await conn_jobs.run(stream.finalize)
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                final_text, detected_language = _unpack_finalize_result(raw_final)
+                payload = {
+                    "type": "final",
+                    "text": final_text,
+                    "is_final": True,
+                    "is_stable": True,
+                    "endpoint": "vad",
+                }
+                if detected_language:
+                    payload["language"] = detected_language
+                _st, _en = _seg_window()
+                await _augment_final_payload(
+                    payload, final_text, _seg, punct_on, spk_on, sample_rate,
+                    diarizer=_diarizer, seg_start=_st, seg_end=_en,
+                )
+                # Augmentation is a real await: re-check before the send and
+                # before ANY close/newbegin. Never begin a new SID when a
+                # cancel was armed mid-augmentation.
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                _seg.clear()
+                await _send_guarded(payload, gen)
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                # Re-arm exactly like the legacy VAD endpoint path.
+                try:
+                    old_close = getattr(stream, "close", None)
+                    if callable(old_close):
+                        await conn_jobs.run(old_close)
+                except Exception:
+                    logger.exception("ASR native VAD endpoint: close raised")
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                new_stream = await conn_jobs.run(_create_retained)
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    stream_holder["pending_stream"] = new_stream
+                    return
+                stream = new_stream
+                stream_holder["stream"] = stream
+                st["run_epoch"] = st["epoch"]
+                if segment_index == len(segments) - 1:
+                    try:
+                        vad_session.reset()
+                    except Exception:
+                        logger.debug(
+                            "VAD reset after native endpoint raised", exc_info=True
+                        )
+            # Partial polling (the native get_partial is short-lock, no IO).
+            if gen != st["epoch"] or st["cancel_armed"]:
+                return
+            partial_text, is_endpoint = stream.get_partial()
+            if not partial_text:
+                return
+            if is_endpoint:
+                payload = {
+                    "type": "final",
+                    "text": partial_text,
+                    "is_final": True,
+                    "is_stable": True,
+                }
+                _st, _en = _seg_window()
+                await _augment_final_payload(
+                    payload, partial_text, _seg, punct_on, spk_on, sample_rate,
+                    diarizer=_diarizer, seg_start=_st, seg_end=_en,
+                )
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                _seg.clear()
+                await _send_guarded(payload, gen)
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                try:
+                    old_close = getattr(stream, "close", None)
+                    if callable(old_close):
+                        await conn_jobs.run(old_close)
+                except Exception:
+                    logger.exception("ASR native backend endpoint: close raised")
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                new_stream = await conn_jobs.run(_create_retained)
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    stream_holder["pending_stream"] = new_stream
+                    return
+                stream = new_stream
+                stream_holder["stream"] = stream
+                st["run_epoch"] = st["epoch"]
+                if vad_session is not None:
+                    try:
+                        vad_session.reset()
+                    except Exception:
+                        logger.debug(
+                            "VAD reset after native backend endpoint raised",
+                            exc_info=True,
+                        )
+            else:
+                await _send_guarded(
+                    {
+                        "type": "partial",
+                        "text": partial_text,
+                        "is_final": False,
+                        "is_stable": False,
+                    },
+                    gen,
+                )
+
+        async def _handle_end_utterance(
+            gen: int, stream_holder, conn_jobs
+        ) -> None:
+            stream = stream_holder["stream"]
+            if gen != st["epoch"] or st["cancel_armed"]:
+                return
+            force_endpoint = getattr(stream, "force_endpoint", None)
+            if force_endpoint is not None:
+                final_text = await conn_jobs.run(force_endpoint)
+                detected_language = None
+            else:
+                await conn_jobs.run(stream.prepare_finalize)
+                raw_final = await conn_jobs.run(stream.finalize)
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    return
+                final_text, detected_language = _unpack_finalize_result(raw_final)
+            payload = {
+                "type": "final",
+                "text": final_text,
+                "is_final": True,
+                "is_stable": True,
+            }
+            if detected_language:
+                payload["language"] = detected_language
+            _st, _en = _seg_window()
+            await _augment_final_payload(
+                payload, final_text, _seg, punct_on, spk_on, sample_rate,
+                diarizer=_diarizer, seg_start=_st, seg_end=_en,
+            )
+            if gen != st["epoch"] or st["cancel_armed"]:
+                return
+            _seg.clear()
+            await _send_guarded(payload, gen)
+
+        async def _processor() -> None:
+            """Owns the native execution slot for the WHOLE connection.
+
+            The slot is acquired FIRST; create_stream, the receiver/processor
+            loop, control resolution, close and the final drain all run inside
+            it. ``_AsrSlotJobs.drain`` (the accepted actual-CF drain) releases
+            the slot only after every retained worker has left the backend.
+            """
+            nonlocal _t_samples, control_pool
+            slot_cm = _asr_utterance_slot if per_utterance_slot else _asr_no_slot
+            conn_jobs = _AsrSlotJobs()
+            stream_holder: dict = {"stream": None, "pending_stream": None}
+            async with slot_cm(conn_jobs):
+                # Control pool created ONLY now that the slot is held, so a
+                # create_stream failure cannot leak an unowned pool.
+                control_pool = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="asr-native-cancel"
+                )
+                logger.debug(
+                    "ASR native slot held for connection (backend=%s, "
+                    "per_utterance_slot=%s)",
+                    asr_be.name, per_utterance_slot,
+                )
+                _receiver_task = None
+                _processor_task = None
+                try:
+                    # Native create_stream OFF the event loop, retained on
+                    # conn_jobs, and INSIDE the slot / try-finally.
+                    stream = await conn_jobs.run(_create_retained)
+                    stream_holder["stream"] = stream
+                    st["run_epoch"] = st["epoch"]
+                    logger.info(
+                        "ASR native stream opened (backend=%s, sid=%s)",
+                        asr_be.name,
+                        getattr(stream, "_session_id", "?"),
+                    )
+
+                    _receiver_task = asyncio.ensure_future(
+                        _receiver(stream_holder, conn_jobs)
+                    )
+                    _processor_task = asyncio.ensure_future(
+                        _process_loop(stream_holder, conn_jobs)
+                    )
+
+                    # Retain BOTH tasks and wait for the FIRST completion; the
+                    # other is cancelled and awaited. This cannot hang when one
+                    # side stops (receiver disconnect/overflow) while the other
+                    # is parked in frames.get().
+                    done, pending = await asyncio.wait(
+                        {_receiver_task, _processor_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for t in pending:
+                        t.cancel()
+                    await asyncio.gather(
+                        *pending, return_exceptions=True
+                    )
+                    # Surface the first real exception (if any).
+                    for t in done:
+                        if t.cancelled():
+                            continue
+                        exc = t.exception()
+                        if exc is not None:
+                            raise exc
+                finally:
+                    st["done"] = True
+                    # V10 lifecycle instrumentation (observation only): native
+                    # cleanup scope begin. No new await/control branch.
+                    logger.info(
+                        "ASR native cleanup begin conn=%s monotonic=%.6f "
+                        "cancel_armed=%s client_gone=%s",
+                        id(ws), time.monotonic(), st["cancel_armed"],
+                        st["client_gone"],
+                    )
+                    for _t in (_receiver_task, _processor_task):
+                        if _t is not None and not _t.done():
+                            _t.cancel()
+                    await asyncio.gather(
+                        *[t for t in (_receiver_task, _processor_task)
+                          if t is not None],
+                        return_exceptions=True,
+                    )
+                    # RETAIN and AWAIT the SAME retained control task until it
+                    # is actually done; the retained thread CF for the opaque
+                    # helper is owned by conn_jobs. Teardown must NOT cancel
+                    # the control wrapper: cancelling it before the helper's
+                    # submit/start could drop the confirmable receipt and hold
+                    # the slot on a refused close. Repeated EXTERNAL asyncio
+                    # cancellation is tolerated by re-awaiting the SAME
+                    # shielded task (no lost task, no wrapper cancellation).
+                    _ct = st.get("control_task")
+                    if _ct is not None:
+                        while not _ct.done():
+                            try:
+                                await asyncio.shield(_ct)
+                            except asyncio.CancelledError:
+                                # Outer teardown cancelled while the control
+                                # task is still live: keep owning it, never
+                                # cancel the wrapper, wait for the actual
+                                # helper result.
+                                continue
+                            except Exception:
+                                break
+                        if _ct.done():
+                            try:
+                                _ct.exception()
+                            except (asyncio.CancelledError, Exception):
+                                pass
+                        st["control_task"] = None
+                    # Drain ALL retained ordinary + control CFs, shielded: an
+                    # outer cancellation must not release the slot while
+                    # threads are live.
+                    try:
+                        await asyncio.shield(conn_jobs.drain())
+                    except asyncio.CancelledError:
+                        await asyncio.shield(conn_jobs.drain())
+                    logger.info(
+                        "ASR native connection drained (backend=%s, "
+                        "retained_cfs=%d)",
+                        asr_be.name, len(conn_jobs.futures),
+                    )
+                    # Retained control pool: every CF is done, so shutdown
+                    # waits only for bookkeeping — no abandoned thread. The
+                    # pool stays owned until ALL actual control jobs are done
+                    # (drain above); shutdown is only ever AFTER the drain.
+                    control_pool.shutdown(wait=True)
+                    # Close + prove ALL actually created streams (not just the
+                    # current/pending holder objects) inside ONE retained
+                    # cleanup task. The scope is held until the cleanup is
+                    # proven done: an armed-but-unconfirmed cancel QUARANTINES
+                    # here (may hold indefinitely — no fake hard release).
+                    # Repeated async cancellation is tolerated by re-awaiting
+                    # the SAME shielded task — no lost shield task, no fake
+                    # free, no restart/kill.
+                    _cleanup_task = asyncio.ensure_future(
+                        _retained_streams_cleanup(conn_jobs)
+                    )
+                    try:
+                        await asyncio.shield(_cleanup_task)
+                    except asyncio.CancelledError:
+                        while not _cleanup_task.done():
+                            try:
+                                await asyncio.shield(_cleanup_task)
+                            except asyncio.CancelledError:
+                                continue
+                    try:
+                        await asyncio.shield(conn_jobs.drain())
+                    except asyncio.CancelledError:
+                        await asyncio.shield(conn_jobs.drain())
+                    # V10 lifecycle instrumentation (observation only): native
+                    # cleanup scope end, after the EXACT existing final drain.
+                    logger.info(
+                        "ASR native cleanup end conn=%s monotonic=%.6f",
+                        id(ws), time.monotonic(),
+                    )
+
+        async def _process_loop(stream_holder, conn_jobs) -> None:
+            while not st["done"]:
+                item_epoch, msg = await frames.get()
+                if st["done"]:
+                    break
+                if msg is _RESET:
+                    await _handle_reset(stream_holder, conn_jobs, item_epoch)
+                    continue
+                if msg is _EOU:
+                    if (
+                        item_epoch != st["epoch"]
+                        or st["cancel_armed"]
+                        or stream_holder.get("stream") is None
+                    ):
+                        continue
+                    gen = st["epoch"]
+                    await _handle_end_utterance(gen, stream_holder, conn_jobs)
+                    if gen != st["epoch"] or st["cancel_armed"]:
+                        continue
+                    if st["client_gone"]:
+                        break
+                    continue
+                # Epoch check BEFORE any job starts; the processing epoch
+                # is captured here and guards every output below.
+                if (
+                    item_epoch != st["epoch"]
+                    or st["cancel_armed"]
+                    or stream_holder.get("stream") is None
+                ):
+                    continue
+                gen = st["epoch"]
+                if isinstance(msg, bytes):
+                    await _process_audio(msg, gen, stream_holder, conn_jobs)
+                else:
+                    await _handle_end_utterance(gen, stream_holder, conn_jobs)
+                if gen != st["epoch"] or st["cancel_armed"]:
+                    continue
+                if st["client_gone"]:
+                    break
+
+        try:
+            await _processor()
+        except asyncio.CancelledError:
+            # Server shutdown / ASGI teardown: the async side unwinds, but the
+            # retained thread jobs still drain before the slot is released.
+            pass
+        except Exception as e:
+            _saturated, _max_slots = _is_pool_saturated(e)
+            if _saturated:
+                logger.warning(
+                    "ASR native stream slot-pool saturated (backend=%s, "
+                    "max_slots=%s); rejecting with 4429",
+                    asr_be.name, _max_slots,
+                )
+                try:
+                    from server.core import metrics as _m_sat
+                    _m_sat.inc_sessions_rejected("ws")
+                except Exception:
+                    pass
+                st["close_code"] = 4429
+                st["close_reason"] = _json.dumps(
+                    {"error": "pool_saturated", "max_slots": _max_slots}
+                )
+            else:
+                logger.error(
+                    "ASR native stream error (backend=%s): %s",
+                    asr_be.name, e, exc_info=True,
+                )
+                if not st["client_gone"]:
+                    try:
+                        await _send_now({
+                            "type": "error",
+                            "error": f"{type(e).__name__}: {e}",
+                            "backend": asr_be.name,
+                            "is_final": True,
+                            "is_stable": True,
+                        })
+                    except Exception:
+                        pass
+        if not st["client_gone"]:
+            try:
+                if st["close_code"] is not None:
+                    await ws.close(
+                        code=st["close_code"], reason=st["close_reason"]
+                    )
+                else:
+                    await ws.close()
+            except Exception:
+                pass
+
+    _be_streaming_probe = getattr(asr_be, "_use_streaming_worker", None)
+    if (
+        getattr(asr_be, "name", "") == "trt_edgellm"
+        and callable(_be_streaming_probe)
+        and _be_streaming_probe()
+    ):
+        await _run_native_stream_pipeline()
+        return
 
     stream = asr_be.create_stream(language=language)
     logger.info("ASR stream opened (backend=%s)", asr_be.name)
