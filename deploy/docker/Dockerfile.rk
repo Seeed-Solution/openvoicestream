@@ -142,8 +142,9 @@ COPY voices/                       /opt/speech/voices/
 COPY third_party/rkvoice-stream/   /opt/speech/third_party/rkvoice-stream/
 COPY deploy/rk-runtime/            /opt/rk-runtime/
 
-# Install rkvoice-stream as editable for the existing legacy targets.
-RUN pip install --no-cache-dir -e /opt/speech/third_party/rkvoice-stream
+# Install rkvoice-stream as editable for the existing legacy targets. The
+# optional extra keeps Matcha Chinese fallback resampling available at 22.05 kHz.
+RUN pip install --no-cache-dir -e '/opt/speech/third_party/rkvoice-stream[piper-bilingual]'
 
 # ── voxedge (edge-native voice library) ───────────────────────────────
 # Post-migration app/ imports voxedge.*; install the pure-Python py3-none-any

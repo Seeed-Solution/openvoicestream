@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 from server.core.rk_profile_contract import runtime_status
+
+
+_PIPER_PROFILE = Path(__file__).parents[2] / "configs" / "profiles" / "rk3576-piper.json"
 
 
 def _profile(device: str = "rk3576") -> dict:
@@ -84,6 +92,71 @@ def test_non_release_profile_is_not_subject_to_contract():
     status = runtime_status({"name": "rk3576-sensevoice", "env": {}}, {})
     assert status["required"] is False
     assert status["verified"] is True
+
+
+def test_rk3576_piper_profile_keeps_artifact_seq_len_and_matcha_fallback():
+    profile = json.loads(_PIPER_PROFILE.read_text(encoding="utf-8"))
+    status = runtime_status(profile, profile["env"])
+    assert status["required"] is True
+    assert status["verified"] is True
+    assert status["settings"]["PIPER_SEQ_LEN"] == "256"
+    assert status["settings"]["PIPER_CHINESE_FALLBACK"] == "matcha_rknn"
+    assert status["settings"]["PIPER_ENABLE_FRONTEND_NPU"] == "1"
+
+    drifted = runtime_status(profile, dict(profile["env"], PIPER_SEQ_LEN="128"))
+    assert drifted["verified"] is False
+    assert drifted["mismatches"]["PIPER_SEQ_LEN"]["expected"] == "256"
+
+    missing = dict(profile, env=dict(profile["env"]))
+    missing["env"].pop("PIPER_CHINESE_FALLBACK")
+    status = runtime_status(missing, missing["env"])
+    assert status["verified"] is False
+    assert "PIPER_CHINESE_FALLBACK" in status["missing_profile"]
+
+
+@pytest.mark.parametrize("toggle", ["0", "1"])
+def test_rk3576_piper_frontend_toggle_accepts_matching_cpu_or_npu_mode(toggle):
+    profile = json.loads(_PIPER_PROFILE.read_text(encoding="utf-8"))
+    profile["env"]["PIPER_ENABLE_FRONTEND_NPU"] = toggle
+    status = runtime_status(profile, dict(profile["env"]))
+    assert status["verified"] is True
+    assert status["settings"]["PIPER_ENABLE_FRONTEND_NPU"] == toggle
+
+
+def test_rk3576_piper_frontend_toggle_rejects_drift_missing_and_invalid_values():
+    profile = json.loads(_PIPER_PROFILE.read_text(encoding="utf-8"))
+
+    drifted = runtime_status(profile, dict(profile["env"], PIPER_ENABLE_FRONTEND_NPU="0"))
+    assert drifted["verified"] is False
+    assert drifted["mismatches"]["PIPER_ENABLE_FRONTEND_NPU"]["expected"] == "1"
+
+    missing_profile = dict(profile, env=dict(profile["env"]))
+    missing_profile["env"].pop("PIPER_ENABLE_FRONTEND_NPU")
+    status = runtime_status(missing_profile, dict(profile["env"]))
+    assert status["verified"] is False
+    assert "PIPER_ENABLE_FRONTEND_NPU" in status["missing_profile"]
+
+    invalid_profile = dict(profile, env=dict(profile["env"], PIPER_ENABLE_FRONTEND_NPU="2"))
+    status = runtime_status(invalid_profile, dict(invalid_profile["env"]))
+    assert status["verified"] is False
+    assert status["mismatches"]["PIPER_ENABLE_FRONTEND_NPU"]["expected"] == "0 or 1"
+
+    invalid_runtime = runtime_status(profile, dict(profile["env"], PIPER_ENABLE_FRONTEND_NPU="yes"))
+    assert invalid_runtime["verified"] is False
+    assert invalid_runtime["mismatches"]["PIPER_ENABLE_FRONTEND_NPU"]["expected"] == "1"
+
+    whitespace_profile = dict(
+        profile, env=dict(profile["env"], PIPER_ENABLE_FRONTEND_NPU=" 1")
+    )
+    status = runtime_status(whitespace_profile, dict(whitespace_profile["env"]))
+    assert status["verified"] is False
+    assert status["mismatches"]["PIPER_ENABLE_FRONTEND_NPU"]["expected"] == "0 or 1"
+
+    whitespace_runtime = runtime_status(
+        profile, dict(profile["env"], PIPER_ENABLE_FRONTEND_NPU="1 ")
+    )
+    assert whitespace_runtime["verified"] is False
+    assert whitespace_runtime["mismatches"]["PIPER_ENABLE_FRONTEND_NPU"]["expected"] == "1"
 
 
 def test_final_punctuation_stop_is_off_on_both_platforms():

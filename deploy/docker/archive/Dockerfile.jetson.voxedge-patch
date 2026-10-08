@@ -1,29 +1,70 @@
-# Thin "diff" Dockerfile — reinstalls ONLY the voxedge wheel on top of a
-# previous baseline image. Use when the change set is voxedge-Python-only
-# (no new pip / apt deps, no new TRT engines). Builds in seconds because all
-# big layers (CUDA, TRT, engines, app tree) are inherited.
+# Thin "diff" Dockerfile — reinstalls the audited voxedge wheel and the
+# audited CPU-only Silero VAD dependency on top of a previous baseline image.
+# The base image supplies CUDA, TRT, engines and the rest of the app tree.
 #
 # Build (BASE = the currently-running seeed-voice image — inspect it first):
-#   docker build -f deploy/docker/Dockerfile.jetson.voxedge-patch \
+#   docker build -f deploy/docker/archive/Dockerfile.jetson.voxedge-patch \
 #       --build-arg BASE=<current-image:tag> \
+#       --build-arg VOXEDGE_WHEEL=voxedge-0.0.1a0-py3-none-any.whl \
 #       -t <current-image>:<new-tag> .
 #
 # The build context must contain deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl.
 #
-# If voxedge gained a new pip dependency, do NOT use this — fall back to the
-# full Dockerfile.jetson rebuild path.
+# This recipe is limited to the two audited Python/runtime additions below;
+# any other dependency or native-runtime change still requires the full
+# Dockerfile.jetson rebuild path.
 
 ARG BASE
+ARG VOXEDGE_WHEEL=voxedge-0.0.1a0-py3-none-any.whl
 FROM ${BASE}
 
-# Force-reinstall just the voxedge package; --no-deps because every dependency
-# already exists in the base layer (this is a pure-Python source refresh).
+# Re-declare build args after FROM so they remain available to later
+# instructions and the base image is visible in the final metadata.
+ARG BASE
+ARG VOXEDGE_WHEEL=voxedge-0.0.1a0-py3-none-any.whl
+
+# Stage the server-side VAD implementation and its 2.3 MB model only as a
+# build-time smoke fixture. The running server imports /work/seeed/server from
+# the existing deployment bind; this thin image must not pretend to replace
+# that source tree with an /opt/speech copy.
+COPY server/core/vad.py /tmp/silero-vad-smoke/server/core/vad.py
+COPY server/core/assets/silero_vad.onnx /tmp/silero-vad-smoke/server/core/assets/silero_vad.onnx
+
+# Force-reinstall just the audited, dependency-free voxedge wheel in this
+# derived image layer; --no-deps because every dependency already exists in
+# the base layer. This targets the image's /usr/bin/python3, not the host
+# Python installation.
 # Keep the PEP 427 wheel filename intact — pip rejects a renamed wheel
 # ("not a valid wheel filename"), so COPY into a dir, don't rename.
-COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/voxedge-patch/
-RUN pip3 install --no-cache-dir --no-deps --force-reinstall \
-        /tmp/voxedge-patch/voxedge-0.0.1a0-py3-none-any.whl \
-    && rm -rf /tmp/voxedge-patch
+COPY deploy/wheels/${VOXEDGE_WHEEL} /tmp/voxedge-patch/
+# ORT's runtime dependencies absent from the audited base. Keep
+# numpy/packaging/protobuf/sympy from the base without reinstalling them.
+RUN uv pip install --python /usr/bin/python3 --no-deps --reinstall \
+        --break-system-packages \
+        /tmp/voxedge-patch/${VOXEDGE_WHEEL} \
+    && printf '%s\n' \
+        'onnxruntime==1.23.2 --hash=sha256:76ff670550dc23e58ea9bc53b5149b99a44e63b34b524f7b8547469aaa0dcb8c' \
+        'coloredlogs==15.0.1 --hash=sha256:612ee75c546f53e92e70049c9dbfcc18c935a2b9a53b66085ce9ef6a6e5c0934' \
+        'humanfriendly==10.0 --hash=sha256:1697e1a8a8f550fd43c2865cd84542fc175a61dcb779b6fee18cf6b6ccba1477' \
+        'flatbuffers==25.9.23 --hash=sha256:255538574d6cb6d0a79a17ec8bc0d30985913b87513a01cce8bcdb6b4c44d0e2' \
+        > /tmp/onnxruntime-requirements.txt \
+    && uv pip install --python /usr/bin/python3 --no-deps \
+        --require-hashes \
+        --break-system-packages \
+        --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+        -r /tmp/onnxruntime-requirements.txt \
+    && rm -rf /tmp/voxedge-patch /tmp/onnxruntime-requirements.txt
 
-LABEL build.diff-type="voxedge-wheel-only"
+# Fail the image build if the exact wheel, imported ORT runtime, or bundled
+# Silero model is missing. This is a build-time smoke only; no model download
+# or inference is performed.
+RUN set -eux; \
+    printf '%s  %s\n' \
+      1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3 \
+      /tmp/silero-vad-smoke/server/core/assets/silero_vad.onnx | sha256sum -c -; \
+    /usr/bin/python3 -c \
+      "import importlib.util, pathlib, onnxruntime as ort; p=pathlib.Path('/tmp/silero-vad-smoke/server/core/vad.py'); spec=importlib.util.spec_from_file_location('vad_smoke', p); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); assert pathlib.Path(m.__file__).resolve() == p.resolve(); s=m._get_silero_session(); assert 'CPUExecutionProvider' in s.get_providers(); print(ort.__version__)"; \
+    rm -rf /tmp/silero-vad-smoke
+
+LABEL build.diff-type="voxedge-wheel-plus-silero-vad"
 LABEL build.diff-base="${BASE}"

@@ -508,6 +508,7 @@ def _ensure_profile_model_artifacts(profile: dict) -> set[str]:
                 "manifest": str(raw.get("manifest") or raw.get("manifest_path") or ""),
                 "cache_root": str(raw.get("cache_root") or raw.get("model_cache_root") or ""),
                 "files": [str(path) for path in (raw.get("files") or raw.get("required_files") or ())],
+                "strict": bool(raw.get("strict", False)),
             }
             if not request["model_id"] or not request["repo"]:
                 raise RuntimeError("profile.model_artifacts entries require model_id and repo")
@@ -527,6 +528,7 @@ def _ensure_profile_model_artifacts(profile: dict) -> set[str]:
                 "canonical_model_id": source.canonical_id, "root": source.root,
                 "manifest": source.manifest, "cache_root": source.cache_root,
                 "files": list(source.files),
+                "strict": source.strict,
             })
     if not requests:
         return set()

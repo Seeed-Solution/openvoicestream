@@ -1,0 +1,88 @@
+2026-09-25T05:09:47.714219610Z 2026-09-25 05:09:47,713 [INFO] uvicorn.error: Started server process [1]
+2026-09-25T05:09:47.714257850Z 2026-09-25 05:09:47,713 [INFO] uvicorn.error: Waiting for application startup.
+2026-09-25T05:09:47.715618354Z 2026-09-25 05:09:47,715 [WARNING] server.core.profile_loader: Profile 'spark-edgellm-v090-customvoice' has no asr_model_id; versioned model discovery is unavailable. Add asr_model_id to your profile JSON.
+2026-09-25T05:09:47.715637074Z 2026-09-25 05:09:47,715 [INFO] server.core.profile_loader: Applied profile spark-edgellm-v090-customvoice from /work/build/spark-customvoice-v2-canary.json (37 env keys; 0 stale cleared)
+2026-09-25T05:09:47.834083044Z 2026-09-25 05:09:47,833 [INFO] server.core.session_limiter: SessionLimiter initialized: effective_limit=1 (env OVS_MAX_CONCURRENT_SESSIONS=None, profile.max_concurrent_sessions=None)
+2026-09-25T05:09:47.834097764Z 2026-09-25 05:09:47,833 [INFO] server.core.coordinator: coordinator: downgrading concurrent -> serialized (asr.supports_parallel=True/max=2, tts.supports_parallel=False/max=1)
+2026-09-25T05:09:47.834337334Z 2026-09-25 05:09:47,834 [INFO] server.main: ============================================================
+2026-09-25T05:09:47.834347686Z 2026-09-25 05:09:47,834 [INFO] server.main: LANGUAGE_MODE: multilanguage
+2026-09-25T05:09:47.834349094Z 2026-09-25 05:09:47,834 [INFO] server.main: VAD default: backend=silero silence_ms=400
+2026-09-25T05:09:47.834350150Z 2026-09-25 05:09:47,834 [INFO] server.main:   → Using Qwen3 TTS + ASR (52 languages, voice cloning)
+2026-09-25T05:09:47.834351702Z 2026-09-25 05:09:47,834 [INFO] server.main: ============================================================
+2026-09-25T05:09:47.836450161Z 2026-09-25 05:09:47,835 [WARNING] server.core.model_downloader: Qwen3 artifact deploy script missing at /opt/qwen3-edgellm-jetson/scripts/deploy_qwen3_artifacts.py — falling back to in-app HF downloader (slim image path).
+2026-09-25T05:09:47.836466993Z 2026-09-25 05:09:47,835 [WARNING] server.core.model_downloader: Qwen3 manifest not found (tried ['/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json', '/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json', '/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json']) — cannot HF auto-download.
+2026-09-25T05:09:47.836468657Z 2026-09-25 05:09:47,835 [WARNING] server.core.model_downloader: Qwen3 artifact deploy script missing at /opt/qwen3-edgellm-jetson/scripts/deploy_qwen3_artifacts.py — falling back to in-app HF downloader (slim image path).
+2026-09-25T05:09:47.836470001Z 2026-09-25 05:09:47,835 [WARNING] server.core.model_downloader: Qwen3 manifest not found (tried ['/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json', '/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json', '/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json']) — cannot HF auto-download.
+2026-09-25T05:09:47.872414041Z 2026-09-25 05:09:47,872 [INFO] server.core.engine_resolver: host signature: sm121-trt10.14-sbsa-cuda13.0
+2026-09-25T05:09:47.985068923Z 2026-09-25 05:09:47,984 [INFO] server.core.engine_resolver: cache hit: llm.engine (host=sm121-trt10.14-sbsa-cuda13.0)
+2026-09-25T05:09:48.173411938Z 2026-09-25 05:09:48,172 [INFO] server.core.engine_resolver: cache hit: llm.engine (host=sm121-trt10.14-sbsa-cuda13.0)
+2026-09-25T05:09:48.378098163Z 2026-09-25 05:09:48,377 [INFO] server.core.engine_resolver: cache hit: code2wav.engine (host=sm121-trt10.14-sbsa-cuda13.0)
+2026-09-25T05:09:48.499094404Z 2026-09-25 05:09:48,498 [INFO] server.main: engine_resolver: resolved 3 engine(s)
+2026-09-25T05:09:48.499122628Z 2026-09-25 05:09:48,498 [INFO] server.main:   EDGE_LLM_TTS_TALKER_ENGINE_FILE → /work/build/export/tts-cv-engines/talker_int4/llm.engine
+2026-09-25T05:09:48.499125828Z 2026-09-25 05:09:48,498 [INFO] server.main:   EDGE_LLM_TTS_CP_ENGINE_FILE → /work/build/export/tts-cv-engines/code_predictor/llm.engine
+2026-09-25T05:09:48.499127956Z 2026-09-25 05:09:48,498 [INFO] server.main:   EDGE_LLM_TTS_CODE2WAV_ENGINE_FILE → /work/build/export/tts-cv-engines/code2wav/code2wav/code2wav.engine
+2026-09-25T05:09:48.499129972Z 2026-09-25 05:09:48,498 [INFO] server.core.asr_backend: Creating ASR backend jetson.trt_edge_llm (voxedge.backends.jetson.trt_edge_llm_asr.TRTEdgeLLMASRBackend)
+2026-09-25T05:09:48.499140500Z 2026-09-25 05:09:48,498 [INFO] server.main: Pre-loading ASR (trt_edgellm)...
+2026-09-25T05:09:48.499142468Z 2026-09-25 05:09:48,499 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: ASR WAV-ingest mode (EDGELLM_REQUEST_AUDIO_WAV=1): skipping host-side mel-asset requirement.
+2026-09-25T05:09:48.499145348Z 2026-09-25 05:09:48,499 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: ASR backend preload OK (config=TRTEdgeLLMASRConfig(asr_binary='/root/project/tensorrt-edge-llm/build_sm87/examples/llm/llm_inference', worker_binary='/work/build/upstream/build/voice-workers/workers/qwen3_asr_worker-scaffold-v2-20260925', plugin_path='/work/build/upstream/build/libNvInfer_edgellm_plugin.so', engine_dir='/work/build/export/asr-engines/thinker_int4_b2', audio_encoder_dir='/work/build/export/asr-engines/audio_encoder', use_worker=True, mel_tensor_name='mel', max_mel_frames=6000, max_slots=2, stream_mode='worker', stream_chunk_sec=0.5, stream_unfixed_chunks=2, stream_unfixed_tokens=5, segment_cap_sec=5.5, mel_settings_path='', mel_filters_path='', request_audio_wav=True, temperature=1.0, top_p=1.0, top_k=1, max_generate_length=200, min_audio_frames=100, collapse_repetition=True, offline_segment_enabled=True, offline_segment_threshold_s=6.0, offline_segment_min_s=0.4, offline_rescue_max_words=1, worker_warmup=True, prewarm_max=6, worker_cuda_graph='0', extra_worker_env={}, artifact_ref=None))
+2026-09-25T05:09:51.445021503Z 2026-09-25 05:09:51,444 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 32044 bytes -> /tmp/trt_edgellm_asr_0y0y4wyy/audio.wav
+2026-09-25T05:09:51.493110554Z 2026-09-25 05:09:51,492 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 64044 bytes -> /tmp/trt_edgellm_asr_gid2ir7q/audio.wav
+2026-09-25T05:09:51.510658236Z 2026-09-25 05:09:51,510 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 96044 bytes -> /tmp/trt_edgellm_asr_7nj_5no2/audio.wav
+2026-09-25T05:09:51.529236339Z 2026-09-25 05:09:51,529 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 128044 bytes -> /tmp/trt_edgellm_asr_zxv1d7iz/audio.wav
+2026-09-25T05:09:51.551117324Z 2026-09-25 05:09:51,550 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 160044 bytes -> /tmp/trt_edgellm_asr_9jsoks7f/audio.wav
+2026-09-25T05:09:51.576514121Z 2026-09-25 05:09:51,576 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 192044 bytes -> /tmp/trt_edgellm_asr_ro49wkbh/audio.wav
+2026-09-25T05:09:51.604344836Z 2026-09-25 05:09:51,603 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: TRT-EdgeLLM ASR worker pre-warmed shapes 1..6 in 0.2s
+2026-09-25T05:09:51.604365908Z 2026-09-25 05:09:51,603 [INFO] server.main: ASR backend: trt_edgellm (capabilities: ['offline', 'multi_language', 'streaming'])
+2026-09-25T05:09:51.604368468Z 2026-09-25 05:09:51,604 [INFO] server.main: ASR executor: max_workers=2 (source=asr_cap.max_concurrent)
+2026-09-25T05:09:51.605299721Z 2026-09-25 05:09:51,604 [INFO] server.main: ASR warmup skipped: TRTEdgeLLMASRBackend has no transcribe_audio (preload already warmed).
+2026-09-25T05:09:51.606362527Z 2026-09-25 05:09:51,606 [INFO] server.main: TTS preload skipped (LAZY_TTS set); will load on first request.
+2026-09-25T05:09:51.606379823Z 2026-09-25 05:09:51,606 [INFO] server.main: TTS streaming warmup skipped (LAZY_TTS).
+2026-09-25T05:09:51.608860909Z 2026-09-25 05:09:51,608 [INFO] server.core.backend_manager: BackendManager[asr] ready (trt_edgellm)
+2026-09-25T05:09:51.608880061Z 2026-09-25 05:09:51,608 [INFO] server.main: Speech service ready.
+2026-09-25T05:09:51.608882717Z 2026-09-25 05:09:51,608 [INFO] uvicorn.error: Application startup complete.
+2026-09-25T05:09:51.614483468Z 2026-09-25 05:09:51,614 [INFO] uvicorn.error: Uvicorn running on http://0.0.0.0:18621 (Press CTRL+C to quit)
+2026-09-25T05:10:30.833418461Z 2026-09-25 05:10:30,833 [INFO] uvicorn.access: 127.0.0.1:32966 - "GET /readyz HTTP/1.1" 200
+2026-09-25T05:10:49.453204498Z 2026-09-25 05:10:49,452 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 50364 bytes -> /tmp/trt_edgellm_asr_020uwxyt/audio.wav
+2026-09-25T05:10:49.559542456Z 2026-09-25 05:10:49,559 [INFO] uvicorn.access: 172.17.0.1:36498 - "POST /asr?language=Chinese HTTP/1.1" 200
+2026-09-25T05:10:54.401529729Z 2026-09-25 05:10:54,401 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 50364 bytes -> /tmp/trt_edgellm_asr_1nkrit_0/audio.wav
+2026-09-25T05:10:54.434596726Z 2026-09-25 05:10:54,434 [INFO] uvicorn.access: 172.17.0.1:36502 - "POST /asr HTTP/1.1" 200
+2026-09-25T05:10:58.911624839Z 2026-09-25 05:10:58,911 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 19232 bytes -> /tmp/trt_edgellm_asr_rdpc6es3/audio.wav
+2026-09-25T05:10:58.938292105Z 2026-09-25 05:10:58,937 [INFO] uvicorn.access: 172.17.0.1:35546 - "POST /asr?language=English HTTP/1.1" 200
+2026-09-25T05:11:11.565649904Z 2026-09-25 05:11:11,565 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 19232 bytes -> /tmp/trt_edgellm_asr_y26x4itu/audio.wav
+2026-09-25T05:11:11.591166203Z 2026-09-25 05:11:11,590 [INFO] uvicorn.access: 172.17.0.1:34442 - "POST /asr HTTP/1.1" 200
+2026-09-25T05:11:17.989278107Z 2026-09-25 05:11:17,988 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 18232 bytes -> /tmp/trt_edgellm_asr_t2xvkoyf/audio.wav
+2026-09-25T05:11:18.012182024Z 2026-09-25 05:11:18,011 [INFO] uvicorn.access: 172.17.0.1:34444 - "POST /asr?language=Chinese HTTP/1.1" 200
+2026-09-25T05:11:22.311294820Z 2026-09-25 05:11:22,310 [INFO] voxedge.backends.jetson.trt_edge_llm_asr: WAV-ingest audio written: 18618 bytes -> /tmp/trt_edgellm_asr_gayg3ab1/audio.wav
+2026-09-25T05:11:22.338100038Z 2026-09-25 05:11:22,337 [INFO] uvicorn.access: 172.17.0.1:34404 - "POST /asr?language=Chinese HTTP/1.1" 200
+2026-09-25T05:12:01.875888604Z 2026-09-25 05:12:01,875 [INFO] uvicorn.error: 127.0.0.1:37428 - "WebSocket /v2v/stream" [accepted] request_id=1b70536110ad4b52a35da8e2217115f3
+2026-09-25T05:12:01.875924540Z 2026-09-25 05:12:01,875 [INFO] uvicorn.error: connection open request_id=1b70536110ad4b52a35da8e2217115f3
+2026-09-25T05:12:01.876636256Z 2026-09-25 05:12:01,876 [INFO] server.main: v2v stream opened (asr=Chinese tts=off vad=none spk_id=None spk_kwargs=None) request_id=1b70536110ad4b52a35da8e2217115f3
+2026-09-25T05:12:02.016603987Z 2026-09-25 05:12:02,016 [INFO] server.main: v2v stream closed
+2026-09-25T05:12:02.017323591Z 2026-09-25 05:12:02,017 [INFO] uvicorn.error: 127.0.0.1:37432 - "WebSocket /v2v/stream" [accepted] request_id=93e8a37ba1404e5faa74602b5357a8ba
+2026-09-25T05:12:02.017352759Z 2026-09-25 05:12:02,017 [INFO] uvicorn.error: connection open request_id=93e8a37ba1404e5faa74602b5357a8ba
+2026-09-25T05:12:02.017892298Z 2026-09-25 05:12:02,017 [INFO] server.main: v2v stream opened (asr=auto tts=off vad=none spk_id=None spk_kwargs=None) request_id=93e8a37ba1404e5faa74602b5357a8ba
+2026-09-25T05:12:02.160577355Z 2026-09-25 05:12:02,159 [INFO] server.main: v2v stream closed
+2026-09-25T05:12:02.160610684Z 2026-09-25 05:12:02,160 [INFO] uvicorn.error: 127.0.0.1:37444 - "WebSocket /v2v/stream" [accepted] request_id=614f2d782a824e138996c5e26af5daab
+2026-09-25T05:12:02.160614364Z 2026-09-25 05:12:02,160 [INFO] uvicorn.error: connection open request_id=614f2d782a824e138996c5e26af5daab
+2026-09-25T05:12:02.161938899Z 2026-09-25 05:12:02,161 [INFO] server.main: v2v stream opened (asr=English tts=off vad=none spk_id=None spk_kwargs=None) request_id=614f2d782a824e138996c5e26af5daab
+2026-09-25T05:12:02.243719580Z 2026-09-25 05:12:02,242 [INFO] server.main: v2v stream closed
+2026-09-25T05:12:17.528288424Z 2026-09-25 05:12:17,528 [INFO] uvicorn.access: 127.0.0.1:40992 - "GET /readyz HTTP/1.1" 200
+2026-09-25T05:13:25.173884931Z 2026-09-25 05:13:25,173 [INFO] uvicorn.access: 127.0.0.1:58232 - "GET /readyz HTTP/1.1" 200
+2026-09-25T05:13:55.999334117Z 2026-09-25 05:13:55,999 [INFO] uvicorn.error: 127.0.0.1:35680 - "WebSocket /v2v/stream" [accepted] request_id=21481451a12c4f4c847a9abb83616bec
+2026-09-25T05:13:55.999355973Z 2026-09-25 05:13:55,999 [INFO] uvicorn.error: connection open request_id=21481451a12c4f4c847a9abb83616bec
+2026-09-25T05:13:56.000780509Z 2026-09-25 05:13:56,000 [INFO] uvicorn.error: 127.0.0.1:35688 - "WebSocket /v2v/stream" [accepted] request_id=1198c45d2078429eb88b9bcb17d5a4a7
+2026-09-25T05:13:56.000809965Z 2026-09-25 05:13:56,000 [INFO] uvicorn.error: connection open request_id=1198c45d2078429eb88b9bcb17d5a4a7
+2026-09-25T05:13:56.000920237Z 2026-09-25 05:13:56,000 [WARNING] server.core.session_limiter: session_limiter: WS 4429 endpoint=/v2v/stream active=1 limit=1 request_id=1198c45d2078429eb88b9bcb17d5a4a7
+2026-09-25T05:13:56.001068446Z 2026-09-25 05:13:56,000 [INFO] server.main: v2v stream opened (asr=English tts=off vad=none spk_id=None spk_kwargs=None) request_id=21481451a12c4f4c847a9abb83616bec
+2026-09-25T05:13:56.002676407Z 2026-09-25 05:13:56,002 [INFO] server.main: v2v stream closed
+2026-09-25T05:13:56.053301266Z 2026-09-25 05:13:56,052 [INFO] uvicorn.error: 127.0.0.1:35704 - "WebSocket /v2v/stream" [accepted] request_id=ad07244a9de94701a596d45856f95b2f
+2026-09-25T05:13:56.053324370Z 2026-09-25 05:13:56,052 [INFO] uvicorn.error: connection open request_id=ad07244a9de94701a596d45856f95b2f
+2026-09-25T05:13:56.055593918Z 2026-09-25 05:13:56,054 [INFO] server.main: v2v stream opened (asr=English tts=off vad=none spk_id=None spk_kwargs=None) request_id=ad07244a9de94701a596d45856f95b2f
+2026-09-25T05:13:56.340061837Z 2026-09-25 05:13:56,339 [INFO] server.main: v2v stream closed
+2026-09-25T05:13:56.342022472Z 2026-09-25 05:13:56,341 [INFO] uvicorn.error: 127.0.0.1:35718 - "WebSocket /asr/stream?language=English&vad=none" [accepted] request_id=7f4c3306f99a459eabc51f33830b72ad
+2026-09-25T05:13:56.342040936Z 2026-09-25 05:13:56,341 [INFO] uvicorn.error: connection open request_id=7f4c3306f99a459eabc51f33830b72ad
+2026-09-25T05:13:56.342419626Z 2026-09-25 05:13:56,342 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=7f4c3306f99a459eabc51f33830b72ad
+2026-09-25T05:13:56.844483671Z 2026-09-25 05:13:56,844 [INFO] uvicorn.error: 127.0.0.1:35732 - "WebSocket /asr/stream?language=English&vad=none" [accepted] request_id=9048140bdc2145dfb6435fe72c7bb36f
+2026-09-25T05:13:56.844504951Z 2026-09-25 05:13:56,844 [INFO] uvicorn.error: connection open request_id=9048140bdc2145dfb6435fe72c7bb36f
+2026-09-25T05:13:56.846622178Z 2026-09-25 05:13:56,845 [INFO] server.main: ASR stream opened (backend=trt_edgellm) request_id=9048140bdc2145dfb6435fe72c7bb36f
+2026-09-25T05:14:15.339888822Z 2026-09-25 05:14:15,339 [INFO] uvicorn.access: 127.0.0.1:38878 - "GET /readyz HTTP/1.1" 200

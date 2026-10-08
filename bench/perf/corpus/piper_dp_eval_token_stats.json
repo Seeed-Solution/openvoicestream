@@ -1,0 +1,1052 @@
+{
+  "source": "/tmp/piper_dp_eval_prompts.json",
+  "runtime_source": "/home/cat/conversational_voice_ai/cloud_rk3576/releases/piper-dp128-20260922/context/piper.py",
+  "runtime_source_sha256": "735c4d30b79bb0f5f53b40ab7068ae5678dae705d64a2417516a5dc709a9b082",
+  "model_config": "/home/cat/piper-512/en_US/model.onnx.json",
+  "model_config_sha256": "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0",
+  "loaded_config_only": true,
+  "inference": false,
+  "splitter": "production _frontend_segments",
+  "rows": [
+    {
+      "id": "en_short_01",
+      "lang": "en",
+      "target_band": "short",
+      "whole_tokens": 79,
+      "128": {
+        "segments": [
+          {
+            "text": "Hello, how can I help you today?",
+            "tokens": 79
+          }
+        ],
+        "max_tokens": 79,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "Hello, how can I help you today?",
+            "tokens": 79
+          }
+        ],
+        "max_tokens": 79,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_short_02",
+      "lang": "en",
+      "target_band": "short",
+      "whole_tokens": 65,
+      "128": {
+        "segments": [
+          {
+            "text": "Your order has been confirmed.",
+            "tokens": 65
+          }
+        ],
+        "max_tokens": 65,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "Your order has been confirmed.",
+            "tokens": 65
+          }
+        ],
+        "max_tokens": 65,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_short_03",
+      "lang": "en",
+      "target_band": "short",
+      "whole_tokens": 119,
+      "128": {
+        "segments": [
+          {
+            "text": "Please turn off the hallway light, then close the door.",
+            "tokens": 119
+          }
+        ],
+        "max_tokens": 119,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "Please turn off the hallway light, then close the door.",
+            "tokens": 119
+          }
+        ],
+        "max_tokens": 119,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_short_04",
+      "lang": "en",
+      "target_band": "short",
+      "whole_tokens": 105,
+      "128": {
+        "segments": [
+          {
+            "text": "I can wait, but please keep the window open.",
+            "tokens": 105
+          }
+        ],
+        "max_tokens": 105,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "I can wait, but please keep the window open.",
+            "tokens": 105
+          }
+        ],
+        "max_tokens": 105,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_boundary_01",
+      "lang": "en",
+      "target_band": "129_256",
+      "whole_tokens": 157,
+      "128": {
+        "segments": [
+          {
+            "text": "Please check the delivery address and confirm that every ",
+            "tokens": 115
+          },
+          {
+            "text": "package has arrived.",
+            "tokens": 45
+          }
+        ],
+        "max_tokens": 115,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "Please check the delivery address and confirm that every package has arrived.",
+            "tokens": 157
+          }
+        ],
+        "max_tokens": 157,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_boundary_02",
+      "lang": "en",
+      "target_band": "129_256",
+      "whole_tokens": 165,
+      "128": {
+        "segments": [
+          {
+            "text": "Before leaving, lock the back door, turn off the lights, ",
+            "tokens": 121
+          },
+          {
+            "text": "and keep the receipt.",
+            "tokens": 47
+          }
+        ],
+        "max_tokens": 121,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "Before leaving, lock the back door, turn off the lights, and keep the receipt.",
+            "tokens": 165
+          }
+        ],
+        "max_tokens": 165,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_boundary_03",
+      "lang": "en",
+      "target_band": "129_256",
+      "whole_tokens": 185,
+      "128": {
+        "segments": [
+          {
+            "text": "The support team will review your request this afternoon and ",
+            "tokens": 127
+          },
+          {
+            "text": "email the final decision.",
+            "tokens": 61
+          }
+        ],
+        "max_tokens": 127,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "The support team will review your request this afternoon and email the final decision.",
+            "tokens": 185
+          }
+        ],
+        "max_tokens": 185,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_boundary_04",
+      "lang": "en",
+      "target_band": "near_128",
+      "whole_tokens": 125,
+      "128": {
+        "segments": [
+          {
+            "text": "Please confirm the meeting time and bring the signed form.",
+            "tokens": 125
+          }
+        ],
+        "max_tokens": 125,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "Please confirm the meeting time and bring the signed form.",
+            "tokens": 125
+          }
+        ],
+        "max_tokens": 125,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_domain_01",
+      "lang": "en",
+      "target_band": "short",
+      "whole_tokens": 507,
+      "128": {
+        "segments": [
+          {
+            "text": "The invoice total is $12,",
+            "tokens": 77
+          },
+          {
+            "text": "345.67, including ",
+            "tokens": 121
+          },
+          {
+            "text": "a $1,",
+            "tokens": 33
+          },
+          {
+            "text": "299.99 equipment ",
+            "tokens": 115
+          },
+          {
+            "text": "charge and a $48.50 ",
+            "tokens": 113
+          },
+          {
+            "text": "service fee.",
+            "tokens": 31
+          }
+        ],
+        "max_tokens": 121,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": false
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "The invoice total is $12,345.67, including a $1,",
+            "tokens": 241
+          },
+          {
+            "text": "299.99 equipment charge and a $48.50 service fee.",
+            "tokens": 253
+          }
+        ],
+        "max_tokens": 253,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": false
+      }
+    },
+    {
+      "id": "en_domain_02",
+      "lang": "en",
+      "target_band": "short",
+      "whole_tokens": 403,
+      "128": {
+        "segments": [
+          {
+            "text": "The maintenance window is scheduled ",
+            "tokens": 77
+          },
+          {
+            "text": "for 2026-0",
+            "tokens": 95
+          },
+          {
+            "text": "9-22 from 09:30 to ",
+            "tokens": 95
+          },
+          {
+            "text": "11:45 UTC, with a fallback on ",
+            "tokens": 113
+          },
+          {
+            "text": "October 3.",
+            "tokens": 37
+          }
+        ],
+        "max_tokens": 113,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": false
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "The maintenance window is scheduled for 2026-09-22 from 09:30 ",
+            "tokens": 253
+          },
+          {
+            "text": "to 11:45 UTC, with a fallback on October 3.",
+            "tokens": 153
+          }
+        ],
+        "max_tokens": 253,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_domain_03",
+      "lang": "en",
+      "target_band": "short",
+      "whole_tokens": 541,
+      "128": {
+        "segments": [
+          {
+            "text": "Please send the API report ",
+            "tokens": 75
+          },
+          {
+            "text": "to ops@example.com, mention ",
+            "tokens": 89
+          },
+          {
+            "text": "HTTP/2 and RKNN, and ",
+            "tokens": 111
+          },
+          {
+            "text": "link ",
+            "tokens": 15
+          },
+          {
+            "text": "https://example.",
+            "tokens": 101
+          },
+          {
+            "text": "com/status?id=3",
+            "tokens": 79
+          },
+          {
+            "text": "576.",
+            "tokens": 63
+          }
+        ],
+        "max_tokens": 111,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": false
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "Please send the API report to ops@example.com, mention ",
+            "tokens": 161
+          },
+          {
+            "text": "HTTP/2 and RKNN, and link ",
+            "tokens": 121
+          },
+          {
+            "text": "https://example.com/status?id=357",
+            "tokens": 231
+          },
+          {
+            "text": "6.",
+            "tokens": 17
+          }
+        ],
+        "max_tokens": 231,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": false
+      }
+    },
+    {
+      "id": "en_domain_04",
+      "lang": "en",
+      "target_band": "short",
+      "whole_tokens": 223,
+      "128": {
+        "segments": [
+          {
+            "text": "The operator wrote, \"keep the original receipt,\" and the ",
+            "tokens": 121
+          },
+          {
+            "text": "reviewer replied, \"approved after the second check.\"",
+            "tokens": 107
+          }
+        ],
+        "max_tokens": 121,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "The operator wrote, \"keep the original receipt,\" and the reviewer replied, \"approved after the second check.\"",
+            "tokens": 223
+          }
+        ],
+        "max_tokens": 223,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_long_01",
+      "lang": "en",
+      "target_band": "129_256",
+      "whole_tokens": 941,
+      "128": {
+        "segments": [
+          {
+            "text": "Based on your preferences, I found three highly rated ",
+            "tokens": 121
+          },
+          {
+            "text": "restaurants nearby.",
+            "tokens": 45
+          },
+          {
+            "text": "The first is an Italian place downtown with a quiet ",
+            "tokens": 115
+          },
+          {
+            "text": "dining room;",
+            "tokens": 33
+          },
+          {
+            "text": "the second is a Japanese restaurant beside the river, ",
+            "tokens": 117
+          },
+          {
+            "text": "where the menu changes each week;",
+            "tokens": 83
+          },
+          {
+            "text": "and the third is a steakhouse in the shopping center.",
+            "tokens": 103
+          },
+          {
+            "text": "Before I reserve a table, please compare the distance, ",
+            "tokens": 119
+          },
+          {
+            "text": "opening time, price range, and vegetarian options, ",
+            "tokens": 123
+          },
+          {
+            "text": "then tell me which choice should remain at the end.",
+            "tokens": 109
+          }
+        ],
+        "max_tokens": 123,
+        "rejoin_exact": false,
+        "whitespace_normalized_rejoin_equal": true,
+        "first_difference": {
+          "index": 73,
+          "joined": " restaurants nearby.The first is an Italian place downtown w",
+          "original": " restaurants nearby. The first is an Italian place downtown "
+        }
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "Based on your preferences, I found three highly rated restaurants nearby.",
+            "tokens": 163
+          },
+          {
+            "text": "The first is an Italian place downtown with a quiet dining room;",
+            "tokens": 145
+          },
+          {
+            "text": "the second is a Japanese restaurant beside the river, where the menu changes each week;",
+            "tokens": 197
+          },
+          {
+            "text": "and the third is a steakhouse in the shopping center.",
+            "tokens": 103
+          },
+          {
+            "text": "Before I reserve a table, please compare the distance, opening time, price range, and vegetarian options, then ",
+            "tokens": 249
+          },
+          {
+            "text": "tell me which choice should remain at the end.",
+            "tokens": 99
+          }
+        ],
+        "max_tokens": 249,
+        "rejoin_exact": false,
+        "whitespace_normalized_rejoin_equal": true,
+        "first_difference": {
+          "index": 73,
+          "joined": " restaurants nearby.The first is an Italian place downtown w",
+          "original": " restaurants nearby. The first is an Italian place downtown "
+        }
+      }
+    },
+    {
+      "id": "en_long_02",
+      "lang": "en",
+      "target_band": "129_256",
+      "whole_tokens": 881,
+      "128": {
+        "segments": [
+          {
+            "text": "Tomorrow's weather forecast shows mostly cloudy conditions,",
+            "tokens": 127
+          },
+          {
+            "text": " a high of twenty four degrees Celsius, and a low of ",
+            "tokens": 117
+          },
+          {
+            "text": "seventeen.",
+            "tokens": 29
+          },
+          {
+            "text": "There is a thirty percent chance of light rain after lunch, ",
+            "tokens": 123
+          },
+          {
+            "text": "while the evening should be clear enough for a walk.",
+            "tokens": 103
+          },
+          {
+            "text": "Pack a small umbrella, charge your phone, and remember ",
+            "tokens": 117
+          },
+          {
+            "text": "that the last bus leaves at 22:15 from the ",
+            "tokens": 115
+          },
+          {
+            "text": "north entrance;",
+            "tokens": 37
+          },
+          {
+            "text": "the final instruction is to check the platform before ",
+            "tokens": 117
+          },
+          {
+            "text": "boarding.",
+            "tokens": 23
+          }
+        ],
+        "max_tokens": 127,
+        "rejoin_exact": false,
+        "whitespace_normalized_rejoin_equal": true,
+        "first_difference": {
+          "index": 122,
+          "joined": " a low of seventeen.There is a thirty percent chance of ligh",
+          "original": " a low of seventeen. There is a thirty percent chance of lig"
+        }
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "Tomorrow's weather forecast shows mostly cloudy conditions, a high of twenty four degrees Celsius, and a low of ",
+            "tokens": 241
+          },
+          {
+            "text": "seventeen.",
+            "tokens": 29
+          },
+          {
+            "text": "There is a thirty percent chance of light rain after lunch, while the evening should be clear enough for a walk.",
+            "tokens": 223
+          },
+          {
+            "text": "Pack a small umbrella, charge your phone, and remember that the last bus leaves at 22:15 from the north ",
+            "tokens": 243
+          },
+          {
+            "text": "entrance;",
+            "tokens": 23
+          },
+          {
+            "text": "the final instruction is to check the platform before boarding.",
+            "tokens": 137
+          }
+        ],
+        "max_tokens": 243,
+        "rejoin_exact": false,
+        "whitespace_normalized_rejoin_equal": true,
+        "first_difference": {
+          "index": 122,
+          "joined": " a low of seventeen.There is a thirty percent chance of ligh",
+          "original": " a low of seventeen. There is a thirty percent chance of lig"
+        }
+      }
+    },
+    {
+      "id": "en_long_03",
+      "lang": "en",
+      "target_band": "over_256",
+      "whole_tokens": 1771,
+      "128": {
+        "segments": [
+          {
+            "text": "The incident review should begin with the customer impact and ",
+            "tokens": 125
+          },
+          {
+            "text": "then describe the timeline in order.",
+            "tokens": 81
+          },
+          {
+            "text": "At 08:10 the first alert arrived, at 08:17 the ",
+            "tokens": 127
+          },
+          {
+            "text": "on call engineer confirmed elevated latency, and ",
+            "tokens": 121
+          },
+          {
+            "text": "at 08:26 the team disabled the new cache ",
+            "tokens": 115
+          },
+          {
+            "text": "policy.",
+            "tokens": 23
+          },
+          {
+            "text": "The database remained healthy, but requests that crossed the ",
+            "tokens": 125
+          },
+          {
+            "text": "gateway were retried too often, so the queue grew until ",
+            "tokens": 127
+          },
+          {
+            "text": "the rollback completed.",
+            "tokens": 53
+          },
+          {
+            "text": "After the rollback, the team replayed a small sample, ",
+            "tokens": 115
+          },
+          {
+            "text": "compared the response headers, checked the error budget, and ",
+            "tokens": 121
+          },
+          {
+            "text": "verified that new requests completed normally.",
+            "tokens": 109
+          },
+          {
+            "text": "The owner must attach the dashboard link, the change record, ",
+            "tokens": 127
+          },
+          {
+            "text": "the exact command used for rollback, the names of the ",
+            "tokens": 115
+          },
+          {
+            "text": "reviewers, and the next maintenance date.",
+            "tokens": 91
+          },
+          {
+            "text": "At the very end, preserve this sentence exactly: the ",
+            "tokens": 113
+          },
+          {
+            "text": "incident is closed only after the customer confirms ",
+            "tokens": 115
+          },
+          {
+            "text": "recovery.",
+            "tokens": 25
+          }
+        ],
+        "max_tokens": 127,
+        "rejoin_exact": false,
+        "whitespace_normalized_rejoin_equal": true,
+        "first_difference": {
+          "index": 98,
+          "joined": "e timeline in order.At 08:10 the first alert arrived, at 08:",
+          "original": "e timeline in order. At 08:10 the first alert arrived, at 08"
+        }
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "The incident review should begin with the customer impact and then describe the timeline in order.",
+            "tokens": 203
+          },
+          {
+            "text": "At 08:10 the first alert arrived, at 08:17 the on call engineer confirmed elevated latency, and at ",
+            "tokens": 251
+          },
+          {
+            "text": "08:26 the team disabled the new cache policy.",
+            "tokens": 129
+          },
+          {
+            "text": "The database remained healthy, but requests that crossed the gateway were retried too often, so the queue grew until the ",
+            "tokens": 255
+          },
+          {
+            "text": "rollback completed.",
+            "tokens": 47
+          },
+          {
+            "text": "After the rollback, the team replayed a small sample, compared the response headers, checked the error budget, and verified ",
+            "tokens": 253
+          },
+          {
+            "text": "that new requests completed normally.",
+            "tokens": 87
+          },
+          {
+            "text": "The owner must attach the dashboard link, the change record, the exact command used for rollback, the names of the ",
+            "tokens": 239
+          },
+          {
+            "text": "reviewers, and the next maintenance date.",
+            "tokens": 91
+          },
+          {
+            "text": "At the very end, preserve this sentence exactly: the incident is closed only after the customer confirms recovery.",
+            "tokens": 245
+          }
+        ],
+        "max_tokens": 255,
+        "rejoin_exact": false,
+        "whitespace_normalized_rejoin_equal": true,
+        "first_difference": {
+          "index": 98,
+          "joined": "e timeline in order.At 08:10 the first alert arrived, at 08:",
+          "original": "e timeline in order. At 08:10 the first alert arrived, at 08"
+        }
+      }
+    },
+    {
+      "id": "en_long_04",
+      "lang": "en",
+      "target_band": "over_256",
+      "whole_tokens": 1739,
+      "128": {
+        "segments": [
+          {
+            "text": "For the quarterly budget review, compare the approved plan ",
+            "tokens": 121
+          },
+          {
+            "text": "with the actual invoices, identify every variance above ",
+            "tokens": 125
+          },
+          {
+            "text": "five percent, and explain whether the difference came from ",
+            "tokens": 119
+          },
+          {
+            "text": "timing, exchange rates, staffing, or a changed ",
+            "tokens": 111
+          },
+          {
+            "text": "supplier contract.",
+            "tokens": 45
+          },
+          {
+            "text": "Include the January, February, and March totals, ",
+            "tokens": 125
+          },
+          {
+            "text": "retain the department names, preserve the two decimal ",
+            "tokens": 119
+          },
+          {
+            "text": "places in every amount, and separate one time purchases ",
+            "tokens": 125
+          },
+          {
+            "text": "from recurring costs.",
+            "tokens": 49
+          },
+          {
+            "text": "The finance lead also wants the assumptions listed ",
+            "tokens": 113
+          },
+          {
+            "text": "before the recommendation, the unresolved questions ",
+            "tokens": 113
+          },
+          {
+            "text": "listed after it, and the approval owner named in the last ",
+            "tokens": 123
+          },
+          {
+            "text": "clause.",
+            "tokens": 19
+          },
+          {
+            "text": "Do not summarize away the currency, date, unit, or ",
+            "tokens": 125
+          },
+          {
+            "text": "threshold details because the operations team will use ",
+            "tokens": 123
+          },
+          {
+            "text": "this note to prepare the next purchase order and to decide ",
+            "tokens": 127
+          },
+          {
+            "text": "whether the contingency reserve remains available.",
+            "tokens": 107
+          }
+        ],
+        "max_tokens": 127,
+        "rejoin_exact": false,
+        "whitespace_normalized_rejoin_equal": true,
+        "first_difference": {
+          "index": 239,
+          "joined": "d supplier contract.Include the January, February, and March",
+          "original": "d supplier contract. Include the January, February, and Marc"
+        }
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "For the quarterly budget review, compare the approved plan with the actual invoices, identify every variance above five ",
+            "tokens": 255
+          },
+          {
+            "text": "percent, and explain whether the difference came from timing, exchange rates, staffing, or a changed supplier ",
+            "tokens": 233
+          },
+          {
+            "text": "contract.",
+            "tokens": 27
+          },
+          {
+            "text": "Include the January, February, and March totals, retain the department names, preserve the two decimal ",
+            "tokens": 241
+          },
+          {
+            "text": "places in every amount, and separate one time purchases from recurring costs.",
+            "tokens": 171
+          },
+          {
+            "text": "The finance lead also wants the assumptions listed before the recommendation, the unresolved questions listed after ",
+            "tokens": 251
+          },
+          {
+            "text": "it, and the approval owner named in the last clause.",
+            "tokens": 111
+          },
+          {
+            "text": "Do not summarize away the currency, date, unit, or threshold details because the operations team will use this ",
+            "tokens": 253
+          },
+          {
+            "text": "note to prepare the next purchase order and to decide whether the contingency reserve remains available.",
+            "tokens": 223
+          }
+        ],
+        "max_tokens": 255,
+        "rejoin_exact": false,
+        "whitespace_normalized_rejoin_equal": true,
+        "first_difference": {
+          "index": 239,
+          "joined": "d supplier contract.Include the January, February, and March",
+          "original": "d supplier contract. Include the January, February, and Marc"
+        }
+      }
+    },
+    {
+      "id": "en_unpunct_01",
+      "lang": "en",
+      "target_band": "129_256",
+      "whole_tokens": 327,
+      "128": {
+        "segments": [
+          {
+            "text": "when the train reaches the final station keep the blue ",
+            "tokens": 121
+          },
+          {
+            "text": "folder beside the ticket machine and tell the next ",
+            "tokens": 109
+          },
+          {
+            "text": "operator that the evening inspection is complete",
+            "tokens": 103
+          }
+        ],
+        "max_tokens": 121,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "when the train reaches the final station keep the blue folder beside the ticket machine and tell the next operator ",
+            "tokens": 251
+          },
+          {
+            "text": "that the evening inspection is complete",
+            "tokens": 79
+          }
+        ],
+        "max_tokens": 251,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "en_unpunct_02",
+      "lang": "en",
+      "target_band": "short",
+      "whole_tokens": 195,
+      "128": {
+        "segments": [
+          {
+            "text": "supercalifragilisticexpialidociousantidisestablishme",
+            "tokens": 125
+          },
+          {
+            "text": "ntarianismendmarkerconfirmed",
+            "tokens": 77
+          }
+        ],
+        "max_tokens": 125,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": false
+      },
+      "256": {
+        "segments": [
+          {
+            "text": "supercalifragilisticexpialidociousantidisestablishmentarianismendmarkerconfirmed",
+            "tokens": 195
+          }
+        ],
+        "max_tokens": 195,
+        "rejoin_exact": true,
+        "whitespace_normalized_rejoin_equal": true
+      }
+    },
+    {
+      "id": "zh_short_01",
+      "lang": "zh",
+      "target_band": "short",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "zh_short_02",
+      "lang": "zh",
+      "target_band": "short",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "zh_boundary_01",
+      "lang": "zh",
+      "target_band": "near_128",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "zh_long_01",
+      "lang": "zh",
+      "target_band": "129_256",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "zh_long_02",
+      "lang": "zh",
+      "target_band": "129_256",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "zh_domain_01",
+      "lang": "zh",
+      "target_band": "short",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "mixed_01",
+      "lang": "mixed",
+      "target_band": "short",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "mixed_02",
+      "lang": "mixed",
+      "target_band": "short",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "mixed_03",
+      "lang": "mixed",
+      "target_band": "129_256",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "mixed_04",
+      "lang": "mixed",
+      "target_band": "129_256",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "mixed_05",
+      "lang": "mixed",
+      "target_band": "short",
+      "route": "matcha_fallback"
+    },
+    {
+      "id": "mixed_06",
+      "lang": "mixed",
+      "target_band": "over_256",
+      "route": "matcha_fallback"
+    }
+  ]
+}

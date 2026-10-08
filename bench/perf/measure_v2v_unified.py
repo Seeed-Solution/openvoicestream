@@ -31,13 +31,17 @@ Output: JSON to stdout (one record per run) + summary table to stderr.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import os
+import queue
 import statistics
 import struct
 import sys
 import time
+import threading
 from dataclasses import dataclass, field, asdict
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import soundfile as sf
@@ -95,6 +99,13 @@ class RunResult:
     # first TTS-ready clause) and tts_started → first PCM isolates synthesis.
     final_to_tts_started_ms: float | None = None
     tts_started_to_audio_ms: float | None = None
+    assistant_text: str = ""
+    client_llm_ttft_ms: float | None = None
+    tts_pcm_bytes: int = 0
+    tts_sample_rate: int | None = None
+    tts_last_pcm_bytes: int = 0
+    tts_last_pcm_ms: float | None = None
+    tts_complete: bool = False
     error: str | None = None
 
 
@@ -108,6 +119,7 @@ def run_once(
     audio_dur_s: float,
     *,
     language: str = "Chinese",
+    vad: str = "silero",
     tts_enabled: bool = False,
     tts_language: str = "auto",
     multi_count: int = 1,
@@ -117,16 +129,24 @@ def run_once(
     timeout: float = 30.0,
     prepare_lead_ms: int = 0,
     server_loop: bool = False,
+    client_llm: bool = False,
+    ws_factory: Callable[..., Any] | None = None,
+    llm_backend_factory: Callable[[], Any] | None = None,
 ) -> RunResult:
     """One V2V session. If multi_count > 1, plays the wav N times with
     silence_ms gaps between, expecting N mid-session finals + 1 closing
     final."""
-    multi_utterance = multi_count > 1
+    if client_llm and (server_loop or multi_count != 1):
+        raise ValueError("--client-llm requires one single-turn audio input and no server loop")
+    # Client-owned LLM still needs the persistent multi-utterance wire
+    # protocol for a single audio turn: single mode closes the websocket as
+    # soon as it emits asr_final, before the client can send text/tts_flush.
+    multi_utterance = multi_count > 1 or client_llm
     cfg: dict[str, Any] = {
         "type": "config",
         "asr_language": language,
         "sample_rate": 16000,
-        "vad": "silero",
+        "vad": vad,
         "vad_silence_ms": 500,
         "multi_utterance": multi_utterance,
     }
@@ -136,7 +156,14 @@ def run_once(
     result = RunResult(audio_dur_s=audio_dur_s * multi_count)
 
     ws_url = f"ws://{host}/v2v/stream"
-    ws = websocket.create_connection(ws_url, timeout=timeout)
+    ws = (ws_factory or websocket.create_connection)(ws_url, timeout=timeout)
+    client_llm_thread: threading.Thread | None = None
+    client_llm_ctl: dict[str, Any] = {
+        "loop": None,
+        "task": None,
+        "backend": None,
+        "cancel_requested": False,
+    }
     try:
         ws.send(json.dumps(cfg))
 
@@ -179,9 +206,109 @@ def run_once(
         t_final_for_tts: float | None = None
         t_tts_started: float | None = None
         tts_audio_first: float | None = None
-        tts_done = not tts_enabled
+        tts_done = not tts_enabled and not client_llm
         t_last_audio: float | None = None   # last TTS binary frame seen
         stop_reading = False
+        client_llm_called = False
+        client_llm_done = False
+        client_turn_final = False
+        client_llm_started = 0.0
+        client_llm_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+
+        def start_client_llm(user_text: str) -> None:
+            nonlocal client_llm_called, client_llm_started, client_llm_thread
+            client_llm_called = True
+            client_llm_started = time.monotonic()
+
+            def worker() -> None:
+                loop = asyncio.new_event_loop()
+                client_llm_ctl["loop"] = loop
+
+                async def run() -> None:
+                    backend = None
+                    if llm_backend_factory is not None:
+                        backend = llm_backend_factory()
+                    else:
+                        try:
+                            from ovs_agent.llm.openai_compat import OpenAICompatBackend
+                        except ModuleNotFoundError as exc:
+                            if exc.name != "ovs_agent":
+                                raise
+                            from agent.ovs_agent.llm.openai_compat import OpenAICompatBackend
+                        backend = OpenAICompatBackend(
+                            base_url=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8000/v1"),
+                            api_key=os.environ.get("LLM_API_KEY", "EMPTY"),
+                            model=os.environ.get("LLM_MODEL", "qwen3.5-flash"),
+                        )
+                    client_llm_ctl["backend"] = backend
+                    try:
+                        messages = [
+                            {"role": "system", "content": os.environ.get(
+                                "SYSTEM_PROMPT", "Reply briefly in the user's language."
+                            )},
+                            {"role": "user", "content": user_text},
+                        ]
+                        chunks: list[str] = []
+                        async for token in backend.stream(messages):
+                            if token:
+                                chunks.append(token)
+                                client_llm_queue.put(("token", (token, time.monotonic())))
+                        text = "".join(chunks)
+                        if not text:
+                            raise RuntimeError("empty assistant text")
+                        client_llm_queue.put(("done", text))
+                    finally:
+                        close = getattr(backend, "aclose", None)
+                        if close is None:
+                            client = getattr(backend, "client", None)
+                            close = getattr(client, "close", None)
+                        if close is not None:
+                            try:
+                                await close()
+                            except Exception:
+                                pass
+
+                async def bounded_run() -> None:
+                    await asyncio.wait_for(run(), timeout=timeout)
+
+                try:
+                    task = loop.create_task(bounded_run())
+                    client_llm_ctl["task"] = task
+                    loop.run_until_complete(task)
+                except asyncio.CancelledError:
+                    if not client_llm_ctl["cancel_requested"]:
+                        client_llm_queue.put(("error", "CancelledError"))
+                except Exception as exc:
+                    # Never copy provider exception text into results: it can
+                    # contain URLs, request headers, or other credentials.
+                    client_llm_queue.put(("error", type(exc).__name__))
+                finally:
+                    loop.close()
+
+            client_llm_thread = threading.Thread(target=worker, daemon=True)
+            client_llm_thread.start()
+
+        def drain_client_llm() -> None:
+            nonlocal client_llm_done, stop_reading
+            while True:
+                try:
+                    kind, payload = client_llm_queue.get_nowait()
+                except queue.Empty:
+                    return
+                if kind == "token":
+                    token, token_at = payload
+                    if result.client_llm_ttft_ms is None:
+                        result.client_llm_ttft_ms = (token_at - client_llm_started) * 1000
+                    ws.send(json.dumps({"type": "text", "text": token}))
+                elif kind == "done":
+                    result.assistant_text = payload
+                    ws.send(json.dumps({"type": "tts_flush"}))
+                    client_llm_done = True
+                else:
+                    result.error = f"client LLM failed: {payload}"
+                    client_llm_done = True
+                    stop_reading = True
+                    return
 
         def slot() -> Utterance:
             """Current utterance slot, clamped.
@@ -197,9 +324,24 @@ def run_once(
             """Dispatch one frame. Sets ``stop_reading`` on a fatal frame."""
             nonlocal got_session_complete, utt_idx_recv, t_final_for_tts
             nonlocal t_tts_started, tts_audio_first, tts_done, stop_reading
-            nonlocal t_last_audio
+            nonlocal t_last_audio, client_turn_final
             if isinstance(msg, bytes):
                 t_last_audio = time.monotonic()
+                if client_llm:
+                    if result.tts_sample_rate is None:
+                        if len(msg) < 4:
+                            result.error = "tts audio frame missing sample-rate header"
+                            stop_reading = True
+                            return
+                        result.tts_sample_rate = struct.unpack("<I", msg[:4])[0]
+                        payload = msg[4:]
+                    else:
+                        payload = msg
+                    if payload:
+                        result.tts_pcm_bytes += len(payload)
+                        result.tts_last_pcm_bytes = len(payload)
+                        if t_session_stop is not None:
+                            result.tts_last_pcm_ms = (time.monotonic() - t_session_stop) * 1000
                 if tts_enabled and tts_audio_first is None and len(msg) > 4:
                     # First TTS binary frame: 4-byte sample rate header.
                     tts_audio_first = time.monotonic()
@@ -254,12 +396,20 @@ def run_once(
                     # the server runs the LLM itself and starts TTS on its own
                     # — injecting text here would bypass the LLM entirely.
                     t_final_for_tts = now
-                    if tts_enabled and u.final_text and not server_loop:
+                    if client_llm and u.final_text:
+                        start_client_llm(u.final_text)
+                    elif tts_enabled and u.final_text and not server_loop:
                         ws.send(json.dumps({"type": "text", "text": u.final_text}))
                         ws.send(json.dumps({"type": "tts_flush"}))
                 if multi_utterance:
                     if complete:
                         got_session_complete = True
+                    elif client_llm:
+                        # This is the one turn's final, not a session close.
+                        # The websocket remains open until the per-turn
+                        # tts_done arrives; closing it here reproduces the
+                        # single-utterance server behavior and loses audio.
+                        client_turn_final = True
                     elif utt_idx_recv < len(utt_pending) - 1:
                         utt_idx_recv += 1
                     else:
@@ -274,6 +424,8 @@ def run_once(
                 t_tts_started = now
             elif t == "tts_done":
                 tts_done = True
+                if client_llm:
+                    result.tts_complete = True
             elif t == "error":
                 result.error = data.get("error", "(no detail)")
                 stop_reading = True
@@ -291,6 +443,7 @@ def run_once(
             tts_done, which then looked like "the server never sends audio on
             later turns" and cost two wrong diagnoses.
             """
+            drain_client_llm()
             ws.settimeout(0.001)
             while True:
                 try:
@@ -300,6 +453,7 @@ def run_once(
                 if msg is None or msg == "":
                     return
                 handle(msg)
+                drain_client_llm()
 
         def pump_until(done, budget_s: float, mark_error: bool = True) -> None:
             """Read + dispatch frames until ``done()`` or the budget expires.
@@ -309,8 +463,9 @@ def run_once(
             """
             nonlocal stop_reading
             deadline = time.monotonic() + budget_s
-            ws.settimeout(0.5)
+            ws.settimeout(0.005 if client_llm else 0.5)
             while not done() and not stop_reading:
+                drain_client_llm()
                 if time.monotonic() > deadline:
                     if mark_error:
                         result.error = result.error or "timeout"
@@ -319,11 +474,16 @@ def run_once(
                     msg = ws.recv()
                 except websocket.WebSocketTimeoutException:
                     continue
+                except Exception as exc:
+                    result.error = f"transport failed: {type(exc).__name__}"
+                    stop_reading = True
+                    return
                 if msg is None or msg == "":
                     result.error = result.error or "server closed"
                     stop_reading = True
                     return
                 handle(msg)
+                drain_client_llm()
 
         # Turn-gated pacing is required when the SERVER owns the LLM loop: it
         # answers and speaks after every mid-session asr_final, and streaming the
@@ -359,7 +519,9 @@ def run_once(
                 drain_nonblocking()
                 time.sleep(min(chunk_dur_s, 0.02))
 
-        # End the session.
+        # In persistent multi-utterance mode this finalizes the current turn
+        # but does not close the session; only single mode marks the session
+        # closing in the server dispatcher.
         ws.send(json.dumps({"type": "asr_eos"}))
         if tts_enabled:
             # Wait for asr_final, then echo it to TTS to measure round-trip.
@@ -371,12 +533,35 @@ def run_once(
             # Each gated turn consumed its own tts_done, so re-arm for the
             # closing response rather than treating it as already finished.
             tts_done = not tts_enabled
-        pump_until(lambda: got_session_complete and tts_done, timeout)
+        if client_llm:
+            pump_until(lambda: client_turn_final and tts_done and client_llm_done,
+                       timeout)
+        else:
+            pump_until(lambda: got_session_complete and tts_done, timeout)
 
         # Truncate to actually-received utterances (the trailing
         # session_complete=true final lands on the last pending slot).
         result.utterances = utt_pending[:max(1, utt_idx_recv + 1)]
+        if client_llm and not result.error:
+            if not client_llm_called:
+                result.error = "client LLM was not called"
+            elif not result.assistant_text:
+                result.error = "client LLM produced no assistant text"
+            elif not result.tts_complete:
+                result.error = "missing tts_done"
+            elif result.tts_pcm_bytes <= 0:
+                result.error = "missing TTS PCM"
+    except Exception as exc:
+        # Keep direct callers and JSON output free of provider/transport text.
+        result.error = f"transport failed: {type(exc).__name__}"
     finally:
+        client_llm_ctl["cancel_requested"] = True
+        loop = client_llm_ctl.get("loop")
+        task = client_llm_ctl.get("task")
+        if loop is not None and task is not None and not task.done():
+            loop.call_soon_threadsafe(task.cancel)
+        if client_llm_thread is not None:
+            client_llm_thread.join(timeout=0.5)
         try: ws.close()
         except Exception: pass
 
@@ -441,6 +626,8 @@ def main():
     ap.add_argument("--host", required=True, help="host:port (no scheme)")
     ap.add_argument("--wav", required=True, help="WAV file (mono, any sample rate)")
     ap.add_argument("--language", default="Chinese")
+    ap.add_argument("--vad", choices=["silero", "none"], default="silero",
+                    help="server-side VAD backend (default: silero; none uses client EOS)")
     ap.add_argument("--runs", type=int, default=5)
     ap.add_argument("--warmup", type=int, default=1, help="discard first N runs")
     ap.add_argument("--tts", action="store_true", help="enable TTS round-trip")
@@ -457,8 +644,15 @@ def main():
                     help="server runs the LLM itself (OVS_V2V_SERVER_LOOP=1): do NOT "
                          "echo asr_final back as text; measure the server's own reply. "
                          "Implies --tts for measurement purposes.")
+    ap.add_argument("--client-llm", action="store_true",
+                    help="run one client-owned LLM turn after ASR final; "
+                         "requires single-turn client-loop mode")
     args = ap.parse_args()
+    if args.client_llm and (args.server_loop or args.multi != 1):
+        ap.error("--client-llm is mutually exclusive with --server-loop and requires --multi 1")
     if args.server_loop:
+        args.tts = True
+    if args.client_llm:
         args.tts = True
     wav_pcm, dur = load_wav_16k_i16(args.wav)
     print(f"wav: {args.wav}  dur={dur:.2f}s  size={len(wav_pcm)} bytes  "
@@ -472,6 +666,7 @@ def main():
             r = run_once(
                 args.host, wav_pcm, dur,
                 language=args.language,
+                vad=args.vad,
                 tts_enabled=args.tts,
                 tts_language=args.tts_language,
                 multi_count=args.multi,
@@ -479,9 +674,11 @@ def main():
                 realtime=not args.no_realtime,
                 prepare_lead_ms=args.prepare_lead_ms,
                 server_loop=args.server_loop,
+                client_llm=args.client_llm,
             )
         except Exception as e:
-            r = RunResult(audio_dur_s=dur, error=f"{type(e).__name__}: {e}")
+            message = type(e).__name__ if args.client_llm else f"{type(e).__name__}: {e}"
+            r = RunResult(audio_dur_s=dur, error=message)
         print(f"[{tag} {i+1}/{total}] err={r.error or '-'} "
               f"utts={len(r.utterances)} "
               f"first_final={r.utterances[0].stop_to_final_ms if r.utterances else None}",
@@ -496,6 +693,8 @@ def main():
         sys.stdout.flush()
 
     print_summary(records, args.tts)
+    if args.client_llm and any(r.error for r in records):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

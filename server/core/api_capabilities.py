@@ -503,6 +503,12 @@ def _voice_contract(
         modes = ["reference_audio"] if "voice_clone" in caps else []
     elif "qwen3-tts-0.6b-base" == mid:
         modes = ["embedding"] if "voice_clone" in caps else []
+        if (
+            "voice_clone" in caps
+            and backend is not None
+            and bool(getattr(backend, "supports_reference_audio_cloning", False))
+        ):
+            modes.append("reference_audio")
     else:
         modes = ["embedding"] if "voice_clone" in caps else []
     enrollment = bool(getattr(backend, "supports_voice_enrollment", False)) if backend else False

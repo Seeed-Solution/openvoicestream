@@ -20,9 +20,11 @@ Field-by-field mapping is documented inline against the legacy source:
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import math
 import os
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,197 @@ def _profile_get(profile: Optional[dict], *keys, default=None):
         if key in profile and profile[key] is not None:
             return profile[key]
     return default
+
+
+def _verify_base_reference_artifacts(profile: Optional[dict], config, env: dict) -> bool:
+    """Read-only proof for the Base reference route.
+
+    The profile's strict model-artifact entry is the authority.  This helper
+    deliberately reads the already materialized cache and never calls the
+    downloader, so an incomplete or unsigned package keeps the capability
+    disabled.
+    """
+    if not isinstance(profile, dict) or not hasattr(config, "reference_artifact_verified"):
+        return False
+    entries = profile.get("model_artifacts")
+    if not isinstance(entries, (list, tuple)):
+        return False
+    entry = None
+    for raw in entries:
+        if not isinstance(raw, dict):
+            continue
+        model_id = str(raw.get("model_id") or raw.get("model") or "").lower()
+        canonical = str(raw.get("canonical_model_id") or raw.get("canonical_id") or "").lower()
+        if "qwen3-tts" in model_id or "qwen3-tts" in canonical or "tts-base" in model_id:
+            entry = raw
+            break
+    if entry is None or not bool(entry.get("strict")):
+        return False
+    try:
+        from server.core import qwen3_artifact_downloader as qad
+
+        model_id = str(entry.get("model_id") or entry.get("model") or "").strip()
+        repo = str(entry.get("repo") or entry.get("hf_repo") or "").strip("/")
+        canonical = str(entry.get("canonical_model_id") or entry.get("canonical_id") or "").strip() or None
+        revision = qad._strict_revision(entry.get("revision"))
+        if not model_id or not repo:
+            return False
+        cache_root = str(entry.get("cache_root") or entry.get("model_cache_root") or env.get("QWEN3_MODEL_CACHE_ROOT") or env.get("HF_MODEL_CACHE_ROOT") or "/opt/models")
+        cache = Path(cache_root) / qad._strict_cache_repo(repo) / qad._strict_cache_model(canonical or model_id) / revision
+        manifest_path = Path(str(entry.get("manifest") or entry.get("manifest_path") or cache / "manifest.json"))
+        if not manifest_path.is_absolute():
+            manifest_path = cache / manifest_path
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict):
+            return False
+        source = manifest.get("_source")
+        expected_canonical = qad.canonical_model_id(canonical or model_id)
+        if not isinstance(source, dict):
+            return False
+        if str(source.get("repo", "")).strip("/") != repo or str(source.get("revision", "")) != revision:
+            return False
+        if not isinstance(source.get("model_id"), str) or source["model_id"] != model_id:
+            return False
+        if not isinstance(source.get("canonical_model_id"), str) or source["canonical_model_id"] != expected_canonical:
+            return False
+        provenance = manifest.get("provenance")
+        if not isinstance(provenance, dict) or provenance.get("source_sdk_version_evidence") != "0.11":
+            return False
+        build_defs = provenance.get("worker_build_definitions")
+        if not isinstance(build_defs, dict) or build_defs.get("EDGELLM_QWEN3_TTS_V011") != 1:
+            return False
+        files = qad._strict_manifest_files(manifest, model_id, canonical)
+        required = [str(x) for x in (entry.get("files") or entry.get("required_files") or ())]
+        qad._verify_model_files(cache, model_id, required, manifest, canonical, strict=True)
+        root = Path(str(entry.get("root") or entry.get("model_root") or cache)).resolve()
+        if root != cache.resolve():
+            qad._verify_model_files(root, model_id, required, manifest, canonical, strict=True)
+        reference_tmp = Path(str(getattr(config, "reference_tmp_dir", "") or ""))
+        if not reference_tmp.is_dir() or not os.access(reference_tmp, os.R_OK | os.W_OK | os.X_OK):
+            return False
+        fields = ("worker_binary", "clone_encoder_dir", "checkpoint_dir", "talker_dir", "code_predictor_dir", "tokenizer_dir", "code2wav_dir", "plugin_path")
+        paths = [Path(str(getattr(config, field) or "")) for field in fields if hasattr(config, field) and str(getattr(config, field) or "").strip()]
+        worker = Path(str(getattr(config, "worker_binary", "")))
+        if not worker.is_file() or not os.access(worker, os.R_OK):
+            return False
+        for path in paths:
+            try:
+                rel = path.resolve().relative_to(root).as_posix()
+            except (OSError, ValueError):
+                return False
+            if path.is_dir():
+                if not any(item == rel or item.startswith(rel + "/") for item in files):
+                    return False
+            elif rel not in files:
+                return False
+        worker_rel = worker.resolve().relative_to(root).as_posix()
+        worker_sha = files.get(worker_rel, (None, None))[0]
+        if not worker_sha or str(build_defs.get("native_worker_source_sha256", "")).lower() != worker_sha:
+            return False
+
+        # These file names are the actual paths checked by the v0.11 worker
+        # readiness code; directory-prefix presence alone is insufficient.
+        exact_paths = [
+            worker,
+            Path(str(getattr(config, "plugin_path", ""))),
+            Path(str(getattr(config, "talker_dir", ""))) / "config.json",
+            Path(str(getattr(config, "talker_dir", ""))) / "llm.engine",
+            Path(str(getattr(config, "tokenizer_dir", ""))) / "tokenizer.json",
+            Path(str(getattr(config, "code_predictor_dir", ""))) / "llm.engine",
+            Path(str(getattr(config, "code_predictor_dir", ""))) / "config.json",
+            Path(str(getattr(config, "code_predictor_dir", ""))) / "codec_embeddings.safetensors",
+            Path(str(getattr(config, "code_predictor_dir", ""))) / "lm_heads.safetensors",
+            Path(str(getattr(config, "code2wav_dir", ""))) / "config.json",
+            Path(str(getattr(config, "clone_encoder_dir", ""))) / "speaker_encoder.engine",
+            Path(str(getattr(config, "clone_encoder_dir", ""))) / "speech_tokenizer_encoder.engine",
+        ]
+        code2wav_dir = Path(str(getattr(config, "code2wav_dir", "")))
+        code2wav_primary = code2wav_dir / "code2wav.engine"
+        for path in exact_paths:
+            try:
+                rel = path.resolve().relative_to(root).as_posix()
+            except (OSError, ValueError):
+                return False
+            if not path.is_file() or rel not in files:
+                return False
+        try:
+            code2wav_rel = code2wav_primary.resolve().relative_to(root).as_posix()
+        except (OSError, ValueError):
+            return False
+        if not code2wav_primary.is_file() or code2wav_rel not in files:
+            return False
+
+        for field in ("talker_engine", "text_projection", "prompt_kv_cache"):
+            value = str(getattr(config, field, "") or "").strip()
+            if not value or not (os.path.isabs(value) or "/" in value or value.endswith((".engine", ".safetensors", ".json"))):
+                continue
+            path = Path(value)
+            try:
+                rel = path.resolve().relative_to(root).as_posix()
+            except (OSError, ValueError):
+                return False
+            if not path.is_file() or rel not in files:
+                return False
+
+        checkpoint_dir = Path(str(getattr(config, "checkpoint_dir", "")))
+        if not checkpoint_dir.is_dir():
+            return False
+        checkpoint_root = checkpoint_dir.resolve()
+        root_resolved = root.resolve()
+        try:
+            checkpoint_root.relative_to(root_resolved)
+        except (OSError, ValueError):
+            return False
+
+        def _locked_checkpoint_file(path: Path) -> bool:
+            try:
+                resolved = path.resolve(strict=True)
+                resolved.relative_to(checkpoint_root)
+                rel = resolved.relative_to(root_resolved).as_posix()
+            except (OSError, ValueError):
+                return False
+            lock = files.get(rel)
+            return (
+                path.is_file()
+                and os.access(path, os.R_OK)
+                and isinstance(lock, tuple)
+                and len(lock) == 2
+                and isinstance(lock[1], int)
+                and path.stat().st_size == lock[1]
+            )
+
+        indices = sorted(
+            path for path in checkpoint_dir.iterdir()
+            if path.is_file() and path.name.endswith(".safetensors.index.json")
+        )
+        if indices:
+            preferred = checkpoint_dir / "model.safetensors.index.json"
+            index_path = preferred if preferred in indices else indices[0]
+            if not _locked_checkpoint_file(index_path):
+                return False
+            try:
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                return False
+            weight_map = index.get("weight_map") if isinstance(index, dict) else None
+            if not isinstance(weight_map, dict) or not weight_map:
+                return False
+            for shard in weight_map.values():
+                if not isinstance(shard, str) or not shard or Path(shard).is_absolute() or ".." in Path(shard).parts:
+                    return False
+                if not _locked_checkpoint_file(checkpoint_dir / shard):
+                    return False
+        else:
+            shards = sorted(
+                path for path in checkpoint_dir.iterdir()
+                if path.is_file() and path.suffix == ".safetensors"
+            )
+            if not shards or not all(_locked_checkpoint_file(path) for path in shards):
+                return False
+        return True
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError, RuntimeError):
+        logger.warning("Base reference artifact proof unavailable", exc_info=True)
+        return False
 
 
 def _resolve_asr_slots(
@@ -614,7 +807,46 @@ def build_trt_edge_llm_tts_config(
             env = dict(env)
             env["OVS_TTS_WORKER_CONCURRENCY"] = str(profile_conc)
 
-    return build_config_from_env(env=env)
+    # Base clone assets follow the profile's existing env block.  Keep process
+    # env precedence and only inject configured values; the wrapper validates
+    # that the loaded factory returned and mapped both optional fields.
+    profile_env = _profile_get(profile, "env")
+    if isinstance(profile_env, dict):
+        clone_env = {
+            "EDGE_LLM_TTS_CLONE_ENCODER_DIR": "EDGE_LLM_TTS_CLONE_ENCODER_DIR",
+            "EDGE_LLM_TTS_CHECKPOINT_DIR": "EDGE_LLM_TTS_CHECKPOINT_DIR",
+            "EDGE_LLM_TTS_REFERENCE_TMP_DIR": "EDGE_LLM_TTS_REFERENCE_TMP_DIR",
+        }
+        for profile_key, env_key in clone_env.items():
+            if env_key not in env and profile_key in profile_env:
+                if not isinstance(env, dict):
+                    env = dict(env)
+                env[env_key] = str(profile_env[profile_key])
+
+    configured_clone_dir = str(env.get("EDGE_LLM_TTS_CLONE_ENCODER_DIR") or "").strip()
+    configured_checkpoint_dir = str(env.get("EDGE_LLM_TTS_CHECKPOINT_DIR") or "").strip()
+    configured_reference_tmp_dir = str(env.get("EDGE_LLM_TTS_REFERENCE_TMP_DIR") or "").strip()
+    config = build_config_from_env(env=env)
+    configured_paths = {
+        "clone_encoder_dir": configured_clone_dir,
+        "checkpoint_dir": configured_checkpoint_dir,
+        "reference_tmp_dir": configured_reference_tmp_dir,
+    }
+    if any(configured_paths.values()):
+        for field, expected in configured_paths.items():
+            if not hasattr(config, field):
+                raise RuntimeError(
+                    "configured Base clone paths require a voxedge build with "
+                    "clone_encoder_dir/checkpoint_dir support"
+                )
+            actual = str(getattr(config, field) or "").strip()
+            if actual != expected:
+                raise RuntimeError(
+                    f"voxedge factory did not map configured Base clone path {field}"
+                )
+    if _verify_base_reference_artifacts(profile, config, env):
+        config.reference_artifact_verified = True
+    return config
 
 
 def build_moss_tts_nano_config(

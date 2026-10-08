@@ -71,6 +71,7 @@ class Artifacts:
     root: str = ""
     manifest: str = ""
     cache_root: str = ""
+    strict: bool = False
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,7 @@ class ModelArtifactSource:
     manifest: str = ""
     cache_root: str = ""
     files: tuple[str, ...] = ()
+    strict: bool = False
 
     @property
     def canonical_id(self) -> str:
@@ -281,6 +283,7 @@ def _parse_artifacts(raw: object) -> Artifacts:
         root=str(raw.get("root", raw.get("model_root", "")) or ""),
         manifest=str(raw.get("manifest", raw.get("manifest_path", "")) or ""),
         cache_root=str(raw.get("cache_root", raw.get("model_cache_root", "")) or ""),
+        strict=bool(raw.get("strict", False)),
     )
 
 
@@ -427,8 +430,8 @@ def resolve_model_sources(
     selected_leaf_ids: Iterable[str], registry: Registry
 ) -> list[ModelArtifactSource]:
     """Resolve model-level source records independently of profiles."""
-    grouped: dict[tuple[str, str, str, str, str, str, str], list[str]] = {}
-    seen: dict[tuple[str, str, str, str, str, str, str], set[str]] = {}
+    grouped: dict[tuple[str, str, str, str, str, str, str, bool], list[str]] = {}
+    seen: dict[tuple[str, str, str, str, str, str, str, bool], set[str]] = {}
     for leaf in registry.expand(selected_leaf_ids):
         model_id = str(leaf.model or "").strip()
         if not model_id:
@@ -438,7 +441,7 @@ def resolve_model_sources(
             continue
         key = (
             model_id, a.repo.strip(), a.revision.strip() or "main",
-            a.canonical_model_id.strip(), a.root.strip(), a.manifest.strip(), a.cache_root.strip(),
+            a.canonical_model_id.strip(), a.root.strip(), a.manifest.strip(), a.cache_root.strip(), a.strict,
         )
         grouped.setdefault(key, [])
         seen.setdefault(key, set())
@@ -450,7 +453,7 @@ def resolve_model_sources(
         ModelArtifactSource(
             model_id=key[0], repo=key[1], revision=key[2],
             canonical_model_id=key[3], root=key[4], manifest=key[5],
-            cache_root=key[6], files=tuple(files),
+            cache_root=key[6], strict=key[7], files=tuple(files),
         )
         for key, files in grouped.items()
     ]

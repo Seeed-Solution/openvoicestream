@@ -4,15 +4,14 @@
 # One container runs both services (edge-llm :8100 + voice :8621); the voice
 # server reaches the LLM at localhost:8100 (single-node).
 #
-# Image `openvoicestream:spark-v1` = the validated builder committed (pytorch
-# 25.12 base carries TRT 10.14 + CUDA13 + torch). The mounts overlay the live
+# Image `openvoicestream:spark-asrfix-20260926-v1` = the reviewed old ASR overlay. The mounts overlay the live
 # artifacts so engines/launchers/profile can be updated without a rebuild.
 #
 #   docker compose -f docker-compose.spark.yml up -d
 #   curl localhost:8621/health ; curl localhost:8100/v1/models
 services:
   spark-voice-stack:
-    image: openvoicestream:spark-v1
+    image: openvoicestream:spark-asrfix-20260926-v2
     container_name: spark-voice-stack
     gpus: all                       # GB10 via nvidia-container-toolkit CDI
     ipc: host
