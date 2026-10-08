@@ -8,6 +8,7 @@ failure, or ASR-only/TTS-only operation.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Literal, Mapping
 
@@ -18,6 +19,8 @@ from server.core.tts_speakers import (
     canonical_model_id,
     default_speaker_id,
 )
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "1.0"
 API_VERSIONS = ["legacy", "v1"]
@@ -151,6 +154,47 @@ class TTSCapabilities(_StrictModel):
     failure_class: str | None
 
 
+class IFBHealthSnapshot(_StrictModel):
+    """Source-backed ASR IFB health counters.
+
+    ``None`` means unknown/unproven: a counter that is absent, non-integer, or
+    negative is never fabricated as ``0``.  Field names and integer types are
+    taken from the canonical actual snapshot
+    (``phases.E_lifecycle.health_final`` in the v011 b2 results).
+    """
+
+    admitted_mid_flight: int | None = None
+    resident: int | None = None
+    queued: int | None = None
+    failed: int | None = None
+    cancelled: int | None = None
+    completed: int | None = None
+    stalls_founder_only: int | None = None
+    stalls_guided: int | None = None
+    stalls_incompatible: int | None = None
+    stalls_no_capacity: int | None = None
+
+
+class ASRRuntimeIFB(_StrictModel):
+    """Actual native-worker IFB ready provenance for a configured ASR.
+
+    Additive, ASR-only, and strictly typed.  Emitted only when the backend
+    exposes a usable ``runtime_diagnostics`` snapshot; absent (not null) for
+    every other backend.  Deliberately excludes worker PID, raw traces, and
+    external session/work identifiers.
+    """
+
+    source: Literal["native_worker_ready"]
+    validation_required: bool
+    reported_ifb: bool | None = None
+    reported_max_slots: int | None = None
+    reported_gpu_slots: int | None = None
+    reported_engine_max_batch_size: int | None = None
+    contract_verified: bool
+    latest: IFBHealthSnapshot | None = None
+    observed_health: bool
+
+
 class ASRCapabilities(_StrictModel):
     model_id: str | None
     ready: bool
@@ -161,6 +205,9 @@ class ASRCapabilities(_StrictModel):
     streaming: StreamingCapabilities
     concurrency: ConcurrencyCapabilities
     failure_class: str | None
+    # Additive optional provenance: absent (not null) unless the backend
+    # supplies runtime IFB diagnostics.
+    runtime_ifb: ASRRuntimeIFB | None = None
 
 
 class RuntimeProfileCapabilities(_StrictModel):
@@ -201,6 +248,7 @@ class CapabilitiesResponse(_StrictModel):
 # Public aliases used by schema fixtures/integrators.
 TTSComponent = TTSCapabilities
 ASRComponent = ASRCapabilities
+IFBRuntimeComponent = ASRRuntimeIFB
 
 
 def _safe_ready(backend: object | None, explicit: bool | None) -> bool:
@@ -608,6 +656,115 @@ def _tts_component(
     return component
 
 
+_IFB_HEALTH_FIELDS = (
+    "admitted_mid_flight",
+    "resident",
+    "queued",
+    "failed",
+    "cancelled",
+    "completed",
+    "stalls_founder_only",
+    "stalls_guided",
+    "stalls_incompatible",
+    "stalls_no_capacity",
+)
+
+
+def _strict_int(value: Any) -> int | None:
+    """Return ``value`` only when it is an int (bool rejected) >= 0.
+
+    Anything else (bool, float, string, negative, None) is unproven and maps
+    to ``None`` — never fabricated as zero.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 0 else None
+
+
+def _ifb_health_snapshot(health: Mapping[str, Any]) -> dict[str, Any]:
+    return {name: _strict_int(health.get(name)) for name in _IFB_HEALTH_FIELDS}
+
+
+def _runtime_ifb_contract(
+    backend: object | None,
+    *,
+    configured_slots: int | None,
+) -> dict[str, Any] | None:
+    """Build the additive ``asr.runtime_ifb`` provenance, or ``None``.
+
+    Returns ``None`` unless the backend exposes a callable
+    ``runtime_diagnostics`` that yields a mapping with IFB opt-in context
+    (``require_ifb``).  Wrong types or exceptions are swallowed into a safe
+    concise warning; the rest of the capability document is preserved and no
+    exception text or backend internals (PID, traces, ids) ever escape.
+    """
+    method = getattr(backend, "runtime_diagnostics", None)
+    if not callable(method):
+        return None
+    try:
+        diagnostics = method()
+    except Exception:
+        logger.warning("ASR runtime_diagnostics() raised; IFB provenance omitted")
+        return None
+    if not isinstance(diagnostics, Mapping) or "require_ifb" not in diagnostics:
+        return None
+
+    validation_required = diagnostics.get("require_ifb")
+    if not isinstance(validation_required, bool):
+        logger.warning("ASR runtime_diagnostics require_ifb malformed; IFB provenance unproven")
+        validation_required = False
+
+    validated = diagnostics.get("validated_ready")
+    if not isinstance(validated, Mapping):
+        validated = {}
+
+    reported_ifb = validated.get("ifb")
+    reported_ifb = reported_ifb if isinstance(reported_ifb, bool) else None
+    reported_max_slots = _strict_int(validated.get("max_slots"))
+    reported_gpu_slots = _strict_int(validated.get("gpu_slots"))
+    reported_batch = _strict_int(validated.get("engine_max_batch_size"))
+
+    # Liveness must be explicitly PROVEN by the backend.  ``worker_alive`` is
+    # not yet returned by the live backend (root must add proven Popen.poll()
+    # metadata); until then missing/anything-but-True leaves verification
+    # false and readiness UNPROVEN.  Cached ``ready`` alone is never enough.
+    worker_alive = diagnostics.get("worker_alive")
+
+    contract_verified = bool(
+        validation_required is True
+        and diagnostics.get("ready") is True
+        and worker_alive is True
+        and reported_ifb is True
+        and reported_max_slots is not None
+        and reported_gpu_slots is not None
+        and reported_max_slots == reported_gpu_slots
+        and configured_slots is not None
+        and reported_max_slots == configured_slots
+        and reported_batch is not None
+        and reported_batch >= reported_max_slots
+    )
+
+    raw_health = diagnostics.get("latest_asr_ifb_health")
+    if isinstance(raw_health, Mapping):
+        latest = _ifb_health_snapshot(raw_health)
+        observed_health = True
+    else:
+        latest = None
+        observed_health = False
+
+    return {
+        "source": "native_worker_ready",
+        "validation_required": validation_required,
+        "reported_ifb": reported_ifb,
+        "reported_max_slots": reported_max_slots,
+        "reported_gpu_slots": reported_gpu_slots,
+        "reported_engine_max_batch_size": reported_batch,
+        "contract_verified": contract_verified,
+        "latest": latest,
+        "observed_health": observed_health,
+    }
+
+
 def _asr_component(
     backend: object | None,
     *,
@@ -618,6 +775,7 @@ def _asr_component(
 ) -> dict[str, Any]:
     model_id = _safe_model_id(backend, profile, "asr")
     caps = _safe_caps(backend)
+    configured_slots = _backend_ceiling(backend, profile)
     component: dict[str, Any] = {
         "model_id": model_id,
         "ready": ready,
@@ -627,11 +785,14 @@ def _asr_component(
         "languages": _languages_contract(model_id, caps),
         "streaming": {"supported": "streaming" in caps},
         "concurrency": {
-            "backend_max_concurrent": _backend_ceiling(backend, profile),
+            "backend_max_concurrent": configured_slots,
             **_limiter_snapshot(limiter),
         },
         "failure_class": None,
     }
+    runtime_ifb = _runtime_ifb_contract(backend, configured_slots=configured_slots)
+    if runtime_ifb is not None:
+        component["runtime_ifb"] = runtime_ifb
     if not ready:
         component["failure_class"] = (
             _manager_failure_class(manager_state)
@@ -730,7 +891,15 @@ def build_capabilities(
     # Validate shape now, but return a plain JSON-compatible dict so callers
     # can preserve FastAPI's existing response serialization behaviour.
     document["api_versions"] = list(API_VERSIONS if api_versions is None else api_versions)
-    return CapabilitiesResponse.model_validate(document).model_dump(mode="json")
+    result = CapabilitiesResponse.model_validate(document).model_dump(mode="json")
+    # The additive ASR provenance field must be ABSENT (not null) whenever the
+    # backend does not supply runtime IFB diagnostics.  Stripping the default
+    # null here keeps every other existing optional field's serialization
+    # behaviour (e.g. ``runtime_profile``) untouched.
+    asr = result.get("asr")
+    if isinstance(asr, dict) and asr.get("runtime_ifb") is None:
+        asr.pop("runtime_ifb", None)
+    return result
 
 
 # A short descriptive alias for tests and integrations that call the builder
