@@ -2,6 +2,7 @@
   "name": "rk3576-sensevoice",
   "description": "Rockchip RK3576: SenseVoice offline ASR on the NPU (RKNN fp16, zh/en/ja/ko/yue). ASR-only transcription profile (no TTS) — SenseVoice encoder+CTC serves the offline /asr path, validated on real RK3576 NPU.",
   "asr_backend": "rk.asr",
+  "asr_model_id": "sensevoice",
   "execution_policy": {
     "mode": "concurrent",
     "shared_resource": "npu"

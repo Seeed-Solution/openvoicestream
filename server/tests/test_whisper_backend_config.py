@@ -1,6 +1,8 @@
 """env → WhisperASRConfig, and the capability probe that reads it."""
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from server.core import voxedge_backend_config as vbc
@@ -41,6 +43,48 @@ def test_directories_default_under_model_dir():
     cfg = vbc.build_whisper_asr_config("rknn", env={**_ENV, "WHISPER_VARIANT": "base10"})
     assert cfg.vocab_dir == "/opt/m/whisper"
     assert cfg.decoder_dir == "/opt/m/whisper/decoder/base"
+
+
+def _whisper_config_has_decoder_kind() -> bool:
+    from voxedge.backends.whisper import WhisperASRConfig
+
+    return any(f.name == "decoder_kind" for f in dataclasses.fields(WhisperASRConfig))
+
+
+_HAS_DECODER_KIND = _whisper_config_has_decoder_kind()
+
+
+def test_trt_decoder_request_fails_loudly_on_a_voxedge_without_the_field():
+    if _HAS_DECODER_KIND:
+        pytest.skip("installed voxedge declares decoder_kind")
+    cfg = vbc.build_whisper_asr_config("tensorrt", env={**_ENV, "WHISPER_VARIANT": "base"})
+    assert not hasattr(cfg, "decoder_kind")
+    with pytest.raises(ValueError, match="WHISPER_DECODER_KIND"):
+        vbc.build_whisper_asr_config(
+            "tensorrt",
+            env={**_ENV, "WHISPER_VARIANT": "base", "WHISPER_DECODER_KIND": "tensorrt"},
+        )
+
+
+@pytest.mark.skipif(not _HAS_DECODER_KIND, reason="installed voxedge has no decoder_kind")
+def test_decoder_kind_defaults_to_legacy_cpu_and_trt_paths_are_explicit():
+    cfg = vbc.build_whisper_asr_config(
+        "tensorrt", env={**_ENV, "WHISPER_VARIANT": "base"}
+    )
+    assert cfg.decoder_kind == "onnx_cpu"
+    cfg = vbc.build_whisper_asr_config(
+        "tensorrt",
+        env={
+            **_ENV,
+            "WHISPER_VARIANT": "base",
+            "WHISPER_DECODER_KIND": "tensorrt",
+            "WHISPER_DECODER_PREFILL_PLAN": "/plans/prefill.plan",
+            "WHISPER_DECODER_STEP_PLAN": "/plans/step.plan",
+        },
+    )
+    assert cfg.decoder_kind == "tensorrt"
+    assert cfg.decoder_prefill_path == "/plans/prefill.plan"
+    assert cfg.decoder_step_path == "/plans/step.plan"
 
 
 def test_env_overrides_win():

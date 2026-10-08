@@ -2,6 +2,7 @@
   "name": "rpi5-sensevoice",
   "description": "Raspberry Pi 5 (CPU-only): SenseVoice offline ASR (zh/en/ja/ko/yue) via sherpa-onnx OfflineRecognizer.from_sense_voice. ASR-only transcription profile (no TTS). No streaming Paraformer loads here — model_downloader does not fetch it for this backend — so SenseVoice serves both POST /asr and, through voxedge's OfflineAccumulateStream adapter, the /asr/stream and /v2v/stream WebSockets: audio accumulates and the whole utterance is transcribed at finalize, with endpointing from the server-side VAD and no partial text before then. sherpa recognizers are re-entrant across streams, so admitted requests really do run in parallel here; the bound is the board's 4 cores. STREAMING_ASR_NUM_THREADS does not apply to this path — the SenseVoice loader does not pass a thread count to from_sense_voice(), so ONNX Runtime picks its own. asr_max_slots=8 admits twice the core count so a burst waits instead of taking a 429. Measured on a Raspberry Pi 5 over /asr/stream, 20-segment AISHELL-1 subset: 0 errors at c=1/2/4/8, RTF p50 0.106 flat through c=4, throughput 0.152 -> 1.000 seg/s (x6.57 at c=8).",
   "asr_backend": "cpu.sherpa_asr",
+  "asr_model_id": "sensevoice",
   "execution_policy": {
     "mode": "concurrent"
   },
