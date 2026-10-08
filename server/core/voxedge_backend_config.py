@@ -89,9 +89,11 @@ def _verify_base_reference_artifacts(profile: Optional[dict], config, env: dict)
             return False
         cache_root = str(entry.get("cache_root") or entry.get("model_cache_root") or env.get("QWEN3_MODEL_CACHE_ROOT") or env.get("HF_MODEL_CACHE_ROOT") or "/opt/models")
         cache = Path(cache_root) / qad._strict_cache_repo(repo) / qad._strict_cache_model(canonical or model_id) / revision
-        manifest_path = Path(str(entry.get("manifest") or entry.get("manifest_path") or cache / "manifest.json"))
-        if not manifest_path.is_absolute():
-            manifest_path = cache / manifest_path
+        # The entry's ``manifest`` is the remote lookup path inside the HF
+        # repo (e.g. ``models/<id>/manifest.json``), used only by the
+        # downloader. The downloader always persists the verified manifest at
+        # ``<cache>/manifest.json``; that local copy is what proves the cache.
+        manifest_path = cache / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if not isinstance(manifest, dict):
             return False

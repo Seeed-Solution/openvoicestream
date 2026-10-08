@@ -199,6 +199,17 @@ class TestTTSBuilderParity:
         cfg = build_trt_edge_llm_tts_config(profile=profile, env=env)
         assert cfg.reference_artifact_verified is True
 
+        # A provisioned entry carries the remote, repo-relative manifest path
+        # the downloader fetched from. The downloader persists the manifest at
+        # <cache>/manifest.json, so the proof must still read the local copy.
+        prefixed_profile = {"model_artifacts": [{
+            **profile["model_artifacts"][0],
+            "manifest": f"models/{model}/manifest.json",
+        }]}
+        assert not (cache / "models").exists()
+        prefixed_cfg = build_trt_edge_llm_tts_config(profile=prefixed_profile, env=env)
+        assert prefixed_cfg.reference_artifact_verified is True
+
         from voxedge.backends.jetson.trt_edge_llm_tts import TRTEdgeLLMTTSBackend
         backend = TRTEdgeLLMTTSBackend(cfg)
         assert backend.supports_reference_audio_cloning is True
