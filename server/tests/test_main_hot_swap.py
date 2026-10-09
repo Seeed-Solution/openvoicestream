@@ -168,6 +168,7 @@ def _tts_stream_registries():
         "_tts_stream_cleanup_tasks": appmod._tts_stream_cleanup_tasks,
         "_tts_stream_watcher_tasks": appmod._tts_stream_watcher_tasks,
         "_tts_framed_stream_owners": appmod._tts_framed_stream_owners,
+        "_tts_stream_orphaned_cleanups": appmod._tts_stream_orphaned_cleanups,
     }
 
 
@@ -196,10 +197,20 @@ async def _drain_tts_stream_registries(timeout: float = 2.0) -> None:
             for task in registries[name]
             if not task.done() and task.get_loop() is loop
         }
+        orphaned = [
+            record
+            for record in list(registries["_tts_stream_orphaned_cleanups"])
+            if record.loop is loop
+        ]
         remaining = deadline - loop.time()
-        if not pending or remaining <= 0:
+        if (not pending and not orphaned) or remaining <= 0:
             break
-        await asyncio.wait(pending, timeout=remaining)
+        if pending:
+            await asyncio.wait(pending, timeout=min(remaining, 0.05))
+        else:
+            # Orphaned cleanups release from a watcher thread via
+            # call_soon_threadsafe; give the loop a turn to run it.
+            await asyncio.sleep(0.01)
     # Let done-callbacks deregister finished tasks before the loop closes.
     await asyncio.sleep(0)
     await asyncio.sleep(0)
@@ -935,49 +946,6 @@ async def _wait_for_task_named(qualname_suffix: str, timeout: float = 5.0):
         await asyncio.sleep(0)
 
 
-@pytest.mark.parametrize("stuck_jobs", [1, 2])
-def test_tts_cleanup_cancelled_by_loop_shutdown_still_releases(stuck_jobs):
-    """Loop shutdown must release leases even with N started, stuck jobs.
-
-    ``asyncio.run`` shutdown cancels the snapshot of tasks alive at that
-    moment: the cleanup owner and the drain child of the *first* job.  The
-    cancellation must neither raise ``InvalidStateError`` from
-    ``future.exception()`` on a pending future nor move on to drain the next
-    stuck job (whose child task would be outside the snapshot); it must go
-    straight to ``release_resources``.
-    """
-    from server.main import _run_tts_stream_cleanup
-
-    async def _exercise():
-        loop = asyncio.get_running_loop()
-        jobs = []
-        for _ in range(stuck_jobs):
-            started = threading.Event()
-            started.set()
-            jobs.append((loop.create_future(), started))
-        released = asyncio.Event()
-
-        async def _release():
-            released.set()
-
-        cleanup = asyncio.create_task(_run_tts_stream_cleanup(jobs, _release))
-        await _wait_for_task_named("_consume_job")
-        assert not cleanup.done()
-        assert not released.is_set()
-        # What asyncio.run() shutdown does: cancel every task alive now.
-        for task in asyncio.all_tasks() - {asyncio.current_task()}:
-            task.cancel()
-        done, _ = await asyncio.wait({cleanup}, timeout=1)
-        assert cleanup in done, "cleanup stalled on a stuck job after shutdown"
-        assert released.is_set()
-        assert cleanup.cancelled() or cleanup.exception() is None
-        assert all(not future.done() for future, _ in jobs)
-        for future, _ in jobs:
-            future.cancel()
-
-    asyncio.run(_exercise())
-
-
 def _wire_direct_tts_test_backend(monkeypatch, backend, *, session_limit=2):
     """Install a backend for direct async ``tts_stream`` calls."""
     from server.core import session_limiter, tts_service
@@ -1513,6 +1481,121 @@ def test_tts_stream_disconnect_drains_both_prefetched_generators(monkeypatch):
         )
         assert started == 2
         assert cleaned == 2
+        assert bm.tts_manager().status()["inflight_http"] == 0
+
+    try:
+        _run_stream_exercise(_exercise, release_backend)
+    finally:
+        release_backend.set()
+        executor.shutdown(wait=True)
+        bm._reset_for_tests()
+
+
+def test_tts_stream_loop_shutdown_keeps_quarantine_until_stuck_workers_exit(
+    monkeypatch,
+):
+    """Loop shutdown with two stuck workers must neither stall nor unquarantine.
+
+    ``asyncio.run`` shutdown cancels every task alive at that moment,
+    including the drain child of the first job.  Cleanup must stop draining
+    (a drain task for the second job would be outside the cancellation
+    snapshot) but must not release leases while the executor workers still
+    run: the unfinished jobs are handed to a tracked orphaned-cleanup record
+    that keeps the session, BackendManager inflight count and coordinator
+    held until both workers exit and close their generators.
+    """
+    from server import main as appmod
+    from server.core import backend_manager as bm, coordinator as coord_mod
+    from server.core import session_limiter
+    from starlette.requests import Request
+
+    release_backend = threading.Event()
+    both_stuck = threading.Event()
+    state_lock = threading.Lock()
+    stuck = 0
+    closed = 0
+
+    class _TwoStuckWorkersBackend(_FakeTTSBackend):
+        def generate_streaming(self, text, **kwargs):
+            nonlocal stuck, closed
+            try:
+                yield b"\x01\x00" * 8
+                with state_lock:
+                    stuck += 1
+                    if stuck == 2:
+                        both_stuck.set()
+                release_backend.wait(timeout=10)
+                yield b"\x02\x00" * 8
+            finally:
+                with state_lock:
+                    closed += 1
+
+    backend = _TwoStuckWorkersBackend()
+    _wire_direct_tts_test_backend(monkeypatch, backend, session_limit=2)
+    coordinator = coord_mod.init_coordinator({"mode": "serialized"})
+    monkeypatch.setenv("OVS_TTS_STREAM_CLEANUP_WAIT_S", "0.02")
+    executor = ThreadPoolExecutor(max_workers=2)
+    monkeypatch.setattr(appmod, "_get_tts_stream_executor", lambda: executor)
+
+    async def _exercise():
+        receive_queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def _receive():
+            return await receive_queue.get()
+
+        response = await appmod.tts_stream(
+            appmod.TTSRequest(
+                text="First sentence. Second sentence.", language="en"
+            ),
+            Request(
+                {"type": "http", "method": "POST", "path": "/tts/stream",
+                 "headers": []},
+                _receive,
+            ),
+            None,
+        )
+        body = response.body_iterator
+        assert await body.__anext__()
+        assert await body.__anext__()
+        assert await asyncio.to_thread(both_stuck.wait, 5)
+        await receive_queue.put({"type": "http.disconnect"})
+        await body.aclose()
+        assert appmod._tts_stream_cleanup_tasks
+        await _wait_for_task_named("_consume_job")
+
+        # What asyncio.run() shutdown does: cancel every task alive now.
+        cleanup_tasks = set(appmod._tts_stream_cleanup_tasks)
+        for task in asyncio.all_tasks() - {asyncio.current_task()}:
+            task.cancel()
+        done, _ = await asyncio.wait(cleanup_tasks, timeout=1)
+        assert done == cleanup_tasks, "cleanup stalled after loop shutdown"
+        await asyncio.sleep(0)
+
+        # Workers still running: leases retained, nothing untracked.
+        assert len(appmod._tts_stream_orphaned_cleanups) == 1
+        (record,) = appmod._tts_stream_orphaned_cleanups
+        assert len(record.jobs) == 2
+        assert not record.workers_finished.is_set()
+        assert closed == 0
+        assert session_limiter.get_limiter().active == 1
+        assert bm.tts_manager().status()["inflight_http"] == 1
+        entered_asr = asyncio.Event()
+
+        async def _acquire_asr():
+            async with coordinator.acquire("asr"):
+                entered_asr.set()
+
+        asr_task = asyncio.create_task(_acquire_asr())
+        await asyncio.sleep(0.05)
+        assert not entered_asr.is_set(), "coordinator released under live workers"
+
+        # Workers exit: generators close, then the record releases the leases.
+        release_backend.set()
+        assert await asyncio.to_thread(record.released.wait, 5)
+        await asyncio.wait_for(asr_task, timeout=1)
+        assert closed == 2
+        assert not appmod._tts_stream_orphaned_cleanups
+        assert session_limiter.get_limiter().active == 0
         assert bm.tts_manager().status()["inflight_http"] == 0
 
     try:
