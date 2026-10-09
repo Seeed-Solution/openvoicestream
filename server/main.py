@@ -7,6 +7,8 @@ import base64
 import inspect
 import logging
 import os
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
@@ -3210,8 +3212,16 @@ async def _v1_clone_stream_impl(
                     logger.debug("clone stream disconnect watcher failed", exc_info=True)
 
             started = _threading.Event()
+            finished = _threading.Event()
 
             def run_backend():
+                try:
+                    _run_backend_body()
+                finally:
+                    # Thread-side terminal signal; see _run_tts_stream_cleanup.
+                    finished.set()
+
+            def _run_backend_body():
                 started.set()
                 generator = None
                 try:
@@ -3258,7 +3268,7 @@ async def _v1_clone_stream_impl(
             try:
                 watcher_task = _asyncio.create_task(disconnect_watcher())
                 future = loop.run_in_executor(_get_tts_stream_executor(), run_backend)
-                executor_jobs.append((future, started))
+                executor_jobs.append((future, started, finished))
                 while True:
                     chunk = await queue.get()
                     if chunk is None:
@@ -3781,12 +3791,109 @@ async def _stop_tts_disconnect_watcher(watcher_task) -> None:
             _track_tts_stream_watcher(watcher_task)
 
 
+_tts_stream_orphaned_cleanups: set = set()
+_tts_stream_orphaned_lock = threading.Lock()
+
+
+def _tts_job_finished(future, finished) -> bool:
+    """True once a stream executor job can no longer touch the backend."""
+    if finished is not None:
+        return finished.is_set()
+    return future.done()
+
+
+class _OrphanedTTSStreamCleanup:
+    """Own stream leases whose cleanup was cancelled by loop shutdown.
+
+    The executor workers are still running, so the leases (session,
+    BackendManager inflight, coordinator) stay held and the backend remains
+    quarantined.  A daemon thread waits for the workers' thread-side
+    ``finished`` signal -- each worker closes its own generator in its
+    ``finally`` before setting it -- then runs ``release_resources`` on the
+    owning loop if that loop is still alive.  The record stays in
+    ``_tts_stream_orphaned_cleanups`` until the release has completed, so a
+    worker that never finishes remains visible instead of untracked.
+    """
+
+    _POLL_S = 0.05
+
+    def __init__(self, jobs, release_resources, loop):
+        self.jobs = list(jobs)
+        self._release_resources = release_resources
+        self.loop = loop
+        self.workers_finished = threading.Event()
+        self.released = threading.Event()
+        self.loop_closed = False
+        self._thread = threading.Thread(
+            target=self._watch,
+            name="ovs-tts-orphaned-cleanup",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        with _tts_stream_orphaned_lock:
+            _tts_stream_orphaned_cleanups.add(self)
+        self._thread.start()
+
+    def _discard(self) -> None:
+        with _tts_stream_orphaned_lock:
+            _tts_stream_orphaned_cleanups.discard(self)
+
+    def _watch(self) -> None:
+        for future, finished in self.jobs:
+            if finished is not None:
+                finished.wait()
+            else:
+                while not future.done():
+                    time.sleep(self._POLL_S)
+        self.workers_finished.set()
+        try:
+            self.loop.call_soon_threadsafe(self._start_release)
+        except RuntimeError:
+            # The owning loop is closed: its asyncio lease primitives can
+            # never be released or re-acquired.  Keep the record so the
+            # quarantined state stays observable.
+            self.loop_closed = True
+            logger.warning(
+                "TTS stream workers finished after their event loop closed; "
+                "stream leases were not released"
+            )
+
+    def _start_release(self) -> None:
+        import asyncio
+
+        async def _release():
+            try:
+                await self._release_resources()
+            finally:
+                self.released.set()
+                self._discard()
+
+        _track_tts_stream_cleanup(asyncio.ensure_future(_release()))
+
+
+def _hand_off_unfinished_tts_jobs(jobs, release_resources) -> None:
+    import asyncio
+
+    _OrphanedTTSStreamCleanup(
+        jobs, release_resources, asyncio.get_running_loop()
+    ).start()
+
+
 async def _run_tts_stream_cleanup(executor_jobs, release_resources) -> None:
     """Drain started executor jobs before releasing all stream leases."""
     import asyncio
 
-    async def _await_uncancellable(awaitable):
-        """Finish cleanup work even if the owner task is cancelled again."""
+    async def _await_uncancellable(awaitable, *, propagate_child_cancel=False):
+        """Finish cleanup work even if the owner task is cancelled again.
+
+        Cancelling the owner (this coroutine's task) is absorbed: the shielded
+        child keeps running and the owner keeps waiting for it.  Cancelling
+        the *child* itself is different -- only event-loop shutdown reaches
+        the unshielded child task.  With ``propagate_child_cancel`` that
+        cancellation is re-raised so the caller stops draining further jobs
+        and goes straight to lease release; otherwise it is absorbed.
+        """
         task = asyncio.ensure_future(awaitable)
         while not task.done():
             try:
@@ -3796,12 +3903,11 @@ async def _run_tts_stream_cleanup(executor_jobs, release_resources) -> None:
                 # cleanup task must retain leases until the backend future and
                 # release callback have actually completed.
                 continue
-        try:
-            return task.result()
-        except asyncio.CancelledError:
-            # Cancellation is expected only for an executor future or child
-            # cleanup task explicitly canceled during stream teardown.
+        if task.cancelled():
+            if propagate_child_cancel:
+                raise asyncio.CancelledError()
             return None
+        return task.result()
 
     async def _consume_job(future, finished=None):
         """Consume one possibly-canceled future without cancellation fanout."""
@@ -3824,12 +3930,16 @@ async def _run_tts_stream_cleanup(executor_jobs, release_resources) -> None:
         except asyncio.CancelledError:
             # A canceled executor future is already drained.  Do not let that
             # expected cancellation fan out to the other cleanup jobs.
-            try:
-                future.exception()
-            except asyncio.CancelledError:
-                pass
+            if future.cancelled():
+                return
+            # Otherwise the CancelledError was delivered to this cleanup task
+            # itself while ``future`` is still pending (event-loop shutdown
+            # cancels every task).  ``future.exception()`` would raise
+            # InvalidStateError here; propagate the cancellation instead.
+            raise
 
     async def _drain_and_release():
+        handed_off = False
         try:
             if executor_jobs:
                 # A manager-branch stream can prefetch its next sentence into
@@ -3864,13 +3974,35 @@ async def _run_tts_stream_cleanup(executor_jobs, release_resources) -> None:
                         jobs_to_drain.append((future, None))
                     else:
                         jobs_to_drain.append((job, None))
-                if jobs_to_drain:
-                    for future, finished in jobs_to_drain:
+                for index, (future, finished) in enumerate(jobs_to_drain):
+                    try:
                         await _await_uncancellable(
-                            _consume_job(future, finished)
+                            _consume_job(future, finished),
+                            propagate_child_cancel=True,
                         )
+                    except asyncio.CancelledError:
+                        # Only event-loop shutdown cancels the drain child.
+                        # Further drains would run in tasks created after
+                        # shutdown's cancellation snapshot and could stall it
+                        # forever, but releasing now would let a new session
+                        # use a backend whose worker is still running.  Keep
+                        # the leases (backend stays quarantined) and hand the
+                        # unfinished workers to a thread-side tracker that
+                        # releases once they have really exited.
+                        unfinished = [
+                            (job_future, job_finished)
+                            for job_future, job_finished in jobs_to_drain[index:]
+                            if not _tts_job_finished(job_future, job_finished)
+                        ]
+                        if unfinished:
+                            _hand_off_unfinished_tts_jobs(
+                                unfinished, release_resources
+                            )
+                            handed_off = True
+                        raise
         finally:
-            await _await_uncancellable(release_resources())
+            if not handed_off:
+                await _await_uncancellable(release_resources())
 
     await _drain_and_release()
 
