@@ -18,6 +18,11 @@
   <img src="docs/media/hero.png" alt="OpenVoiceStream - streaming ASR and TTS for edge dialogue" width="760" />
 </p>
 
+> [!TIP]
+> **寻找即插即用的边缘 AI 语音硬件与开发套件？**  
+> 本流式语音栈已在 Seeed Studio reComputer 边缘工控机与 reSpeaker 麦克风阵列上完成全链路基准测试与深度调优。  
+> 🛒 **[获取带硬件 AEC 的语音开发套件 (reSpeaker XVF3800)](https://www.seeedstudio.com/reSpeaker-XVF3800-p-5784.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hero_banner)** | 📖 **[探索智能零售语音方案与 BOM 配置器](https://www.seeed.cc/solutions/smart-retail-store?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hero_banner)**
+
 **OpenVoiceStream 提供一套开箱即用、高性能、经过我们实测的方案，可以直接
 用来搭建本地语音应用。** 语音识别、语音合成，以及现成的应用 —— 对话、
 智能家居控制、语音控制机械臂、翻译、实时字幕 —— 全部运行在你自己的设备
@@ -561,15 +566,16 @@ revision 按 profile 锁定 —— 见[配置](#配置)与 [BENCHMARKS.md](BENCH
 
 ## Supported Devices
 
-技术栈按芯片系列划分且完全开源 —— 同系列任何板卡都应该能跑。以下是我们实测所用的板卡（均为 Seeed Studio 套件）：
+技术栈按芯片系列划分且完全开源 —— 同系列任何板卡都应该能跑。以下是我们进行基准测试并推荐的硬件与音频外设：
 
-| 设备系列 | 实测于 | 说明 |
-|---|---|---|
-| **Jetson Orin Nano / NX** | Orin Nano 8GB、Orin NX 16GB | CUDA 12.6 / JetPack 6.2。全功能，含 Qwen3 多语言 + 声音克隆。 |
-| **RK3588** | Seeed reComputer（RK3588） | RKNN 运行时。Qwen3-ASR 可用；发布版 TTS 使用经过验证的 hybrid Matcha 路径。 |
-| **RK3576** | Seeed reComputer（RK3576） | RKNN 运行时，后端集合与 RK3588 相同，功耗预算更低。 |
-| **RK1828**（PCIe NPU 协处理器） | 经由 [`rkvoice-stream`](third_party/rkvoice-stream) | RK1828 卡上的 Qwen3-TTS 与 Gemma-4 AudioLLM 卸载。 |
-| **Raspberry Pi 5 / 4** | Raspberry Pi 5 8GB、Pi 4 4GB | CPU 推理。最低 BOM（约 $80）。实时中英命令。 |
+| 推荐设备型号 | 计算 / 音频平台 | 硬件规格与特性 | 典型实测角色 | 采购样机 / 套件 |
+|---|---|---|---|---|
+| **reComputer Industrial J4012** | NVIDIA Jetson Orin NX 16GB | 100 TOPS, IP40 无风扇, -20~60°C 宽温, 双千兆网口 | 高并发 Qwen3 多语言识别与语音克隆 | [🛒 立即选购](https://www.seeedstudio.com/reComputer-Industrial-J4012-p-5586.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
+| **reComputer J3011** | NVIDIA Jetson Orin Nano 8GB | 40 TOPS, M.2 NVMe, JetPack 6.2 | 实时中英双语对话与 Kokoro TensorRT 加速 | [🛒 立即选购](https://www.seeedstudio.com/reComputer-J3011-p-5585.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
+| **reComputer RK3588** | Rockchip RK3588 | 6 TOPS NPU, 8核 CPU, HDMI 2.1 | 12 路高并发 SenseVoice + Matcha 本地语音服务 | [🛒 立即选购](https://www.seeedstudio.com/reComputer-RK3588-30-p-6817.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
+| **reComputer RK3576** | Rockchip RK3576 | 6 TOPS NPU, 低功耗, 四核 A72 + 四核 A53 | 超低功耗边缘语音网关与智能家居中控 | [🛒 立即选购](https://www.seeedstudio.com/reComputer-RK3576-p-6202.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
+| **reSpeaker XVF3800** | XMOS XVF3800 4 麦克风阵列 | 硬件级回声消除 (AEC), 波束成形, 降噪 | 5 米远场拾音与全双工语音打断 (Barge-in) 必备 | [🛒 立即选购](https://www.seeedstudio.com/reSpeaker-XVF3800-p-5784.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
+| **Raspberry Pi 5** | Broadcom BCM2712 8GB | 4 核 Cortex-A76 @ 2.4GHz | CPU 推理, 最低硬件成本实时中英控制 (~$80 BOM) | [🛒 立即选购](https://www.seeedstudio.com/Raspberry-Pi-5-8GB-p-5810.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
 
 要求：Docker 加上足以容纳镜像和模型 volume 的磁盘空间。当前实测占用约为 Jetson 总计 7.5 GB、RK 3.2-4.4 GB、Raspberry Pi 5 2.8 GB。运行时内存取决于 profile：Jetson 约 1.0-2.1 GiB，RK 2.7-4.1 GiB，Raspberry Pi 上为纯 CPU。在 Jetson 上，需要 NVIDIA Container Runtime；在 Rockchip 上，必须加载主机 NPU 驱动（`rknpu`）。
 
@@ -641,6 +647,16 @@ openvoicestream/
 Jetson、RK 和 RPi 是 **一等同侪** —— 没有哪个是“主”后端，且相同的 `recipes → HF_ARTIFACTS → docs → AGENTS` 契约对每个后端都成立，因此任何人都可以自助完成复现或发布。
 
 > **差异 —— fork 与自研运行时。** 唯一的结构性差异在于运行时的 *来源*：Jetson 后端的运行时扩展位于我们 **fork 的 TensorRT-Edge-LLM** 中（上游 bug 修复 + 本地运行时扩展落在 fork 里；`jetson-voice-engine` 只承载 overlay/recipes 并从中重新生成补丁）。RK 和 RPi 运行时是 **自研的**（`rkvoice-stream`、打补丁的 sherpa-onnx）。这是有意为之的归属边界，而非不一致 —— 每个后端仍暴露上述相同的 recipes/artifacts/docs/agents 表面。
+
+## 💼 企业级方案与商业定制 (Enterprise & Commercial Deployment)
+
+如需在智能客服亭、商超零售语音导览、会议室转写或工业语音播报中规模化部署：
+
+- **硬件批量集采**：支持 100+ 节点规模化部署的阶梯采购价格与供货保障。
+- **语音硬件 ODM/OEM 定制**：提供专属声学结构麦克风外壳丝印、载板接口客制化、预刷出厂 Golden 模型固件及 CE/FCC 全球合规认证。
+- **垂直领域模型与 ASR 定制**：提供专有声学模型微调、行业热词词库注入与本地私有化部署支持。
+
+👉 **[联系 Seeed 企业解决方案团队](https://www.seeed.cc/customization?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=footer_enterprise)** 或访问 [智慧门店数字化解决方案页](https://www.seeed.cc/solutions/smart-retail-store?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=footer_solution) 提交项目需求。
 
 ## Changelog
 

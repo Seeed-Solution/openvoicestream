@@ -18,6 +18,11 @@
   <img src="docs/media/hero.png" alt="OpenVoiceStream - streaming ASR and TTS for edge dialogue" width="760" />
 </p>
 
+> [!TIP]
+> **Looking for Pre-Configured Edge AI Voice Hardware & Starter Kits?**  
+> This real-time voice stack is verified on Seeed Studio reComputer edge boxes and reSpeaker mic arrays.  
+> 🛒 **[Get Voice Starter Kit with reSpeaker XVF3800](https://www.seeedstudio.com/reSpeaker-XVF3800-p-5784.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hero_banner)** | 📖 **[Explore Retail Voice Solution & BOM](https://www.seeed.cc/solutions/smart-retail-store?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hero_banner)**
+
 **OpenVoiceStream is a tested, high-performance, out-of-the-box stack for
 building local voice applications.** Speech recognition, speech synthesis,
 and ready-made apps — dialogue, smart-home control, voice-controlled robot
@@ -643,16 +648,16 @@ see [Configuration](#configuration) and [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Supported Devices
 
-The stack is chip-family based and open — any board in the same family
-should work. These are the boards we measure on (all Seeed Studio kits):
+The stack is chip-family based and open — any board in the same family should work. These are the boards and audio peripherals we benchmark and recommend:
 
-| Device family | Validated on | Notes |
-|---|---|---|
-| **Jetson Orin Nano / NX** | Orin Nano 8GB, Orin NX 16GB | CUDA 12.6 / JetPack 6.2. Full feature set including Qwen3 multilingual + voice clone. |
-| **RK3588** | Seeed reComputer (RK3588) | RKNN runtime. Qwen3-ASR works; release TTS uses the validated hybrid Matcha path. |
-| **RK3576** | Seeed reComputer (RK3576) | RKNN runtime, same backend set as RK3588 at a lower power budget. |
-| **RK1828** (PCIe NPU coprocessor) | via [`rkvoice-stream`](third_party/rkvoice-stream) | Qwen3-TTS and Gemma-4 AudioLLM offload on the RK1828 card. |
-| **Raspberry Pi 5 / 4** | Raspberry Pi 5 8GB, Pi 4 4GB | CPU inference. Lowest BOM (~$80). Real-time zh+en commands. |
+| Device Model | Compute / Audio Platform | Hardware Specs | Validated Role | Buy Sample / Kit |
+|---|---|---|---|---|
+| **reComputer Industrial J4012** | NVIDIA Jetson Orin NX 16GB | 100 TOPS, Fanless -20~60°C, Dual GbE | High-concurrency Qwen3 multilingual + voice cloning | [🛒 Buy Now](https://www.seeedstudio.com/reComputer-Industrial-J4012-p-5586.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
+| **reComputer J3011** | NVIDIA Jetson Orin Nano 8GB | 40 TOPS, M.2 NVMe, JetPack 6.2 | Real-time bilingual dialogue (zh+en) & Kokoro TRT | [🛒 Buy Now](https://www.seeedstudio.com/reComputer-J3011-p-5585.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
+| **reComputer RK3588** | Rockchip RK3588 | 6 TOPS NPU, 8-Core CPU, HDMI 2.1 | 12-way concurrency offline SenseVoice + Matcha | [🛒 Buy Now](https://www.seeedstudio.com/reComputer-RK3588-30-p-6817.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
+| **reComputer RK3576** | Rockchip RK3576 | 6 TOPS NPU, Low Power, Quad A72 + Quad A53 | Ultra-low-power edge voice gateway & smart home | [🛒 Buy Now](https://www.seeedstudio.com/reComputer-RK3576-p-6202.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
+| **reSpeaker XVF3800** | XMOS XVF3800 4-Mic Array | Hardware AEC, Beamforming, Noise Suppression | 5m Far-field pickup & full-duplex barge-in (AEC) | [🛒 Buy Now](https://www.seeedstudio.com/reSpeaker-XVF3800-p-5784.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
+| **Raspberry Pi 5** | Broadcom BCM2712 8GB | 4-Core Cortex-A76 @ 2.4GHz | CPU inference, real-time command control (~$80 BOM) | [🛒 Buy Now](https://www.seeedstudio.com/Raspberry-Pi-5-8GB-p-5810.html?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=hw_table) |
 
 Requirements: Docker plus enough disk for the image and model volume. Current
 measured footprints are about 7.5 GB total for Jetson, 3.2-4.4 GB for RK, and
@@ -746,6 +751,16 @@ anyone can self-serve a reproduction or a release.
 > **self-authored** (`rkvoice-stream`, patched sherpa-onnx). This is a deliberate
 > ownership boundary, not an inconsistency — every backend still exposes the same
 > recipes/artifacts/docs/agents surface above.
+
+## 💼 Enterprise & Commercial Deployment
+
+Looking to deploy edge voice assistants, smart kiosk voice agents, or industrial voice dispatch at scale?
+
+- **Volume Hardware Pricing**: Tiered pricing available for 100+ deployments.
+- **Custom Voice Hardware ODM/OEM**: Custom acoustic mic enclosures, carrier board I/O adaptation, pre-flashed golden model firmware, and global certifications (CE/FCC/RoHS).
+- **Domain LLM & ASR Customization**: Acoustic fine-tuning, domain vocabulary injection, and private cloud/on-premise deployment support.
+
+👉 **[Contact Seeed Enterprise Solution Team](https://www.seeed.cc/customization?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=footer_enterprise)** or explore the [Smart Retail Store Solution & BOM Configurator](https://www.seeed.cc/solutions/smart-retail-store?utm_source=github&utm_medium=readme&utm_campaign=openvoicestream&utm_content=footer_solution).
 
 ## Changelog
 
