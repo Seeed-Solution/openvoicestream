@@ -392,6 +392,38 @@ def _lock(metadata: object) -> tuple[str | None, int | None]:
     return digest, size
 
 
+def _declared_mode(metadata: object, path: str) -> int | None:
+    """Return an optional safe regular-file mode from a manifest entry."""
+    if not isinstance(metadata, Mapping) or "mode" not in metadata:
+        return None
+    value = metadata["mode"]
+    if not isinstance(value, str) or value not in {"0644", "0755"}:
+        raise RuntimeError(f"model manifest mode is invalid: {path}")
+    return int(value, 8)
+
+
+def _manifest_modes(manifest: Mapping[str, object], model_id: str,
+                    canonical_id: str | None = None) -> dict[str, int]:
+    raw = manifest.get("files")
+    if raw is None:
+        raw = manifest.get("artifacts")
+    out: dict[str, int] = {}
+    if isinstance(raw, Mapping):
+        entries = ((str(path), metadata) for path, metadata in raw.items())
+    elif isinstance(raw, (list, tuple)):
+        entries = (
+            (str(item.get("path") or item.get("name") or item.get("file")), item)
+            for item in raw if isinstance(item, Mapping)
+        )
+    else:
+        entries = ()
+    for path, metadata in entries:
+        mode = _declared_mode(metadata, path)
+        if mode is not None:
+            out[_manifest_rel(path, model_id, canonical_id)] = mode
+    return out
+
+
 _STRICT_REVISION = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
@@ -425,6 +457,7 @@ def _strict_manifest_files(manifest: Mapping[str, object], model_id: str, canoni
             raise RuntimeError(f"strict model manifest size is invalid: {raw_path}")
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
             raise RuntimeError(f"strict model manifest SHA256 is invalid: {raw_path}")
+        _declared_mode(metadata, str(raw_path))
         rel = _strict_manifest_rel(raw_path, model_id, canonical)
         if rel in out:
             raise RuntimeError(f"strict model manifest path collision after normalization: {raw_path!r} -> {rel!r}")
@@ -505,6 +538,7 @@ def _verify_model_files(root: Path, model_id: str, required_files: Iterable[str]
         expected_id = canonical_model_id(canonical_id or model_id)
         raise RuntimeError(f"model manifest id mismatch: expected {expected_id!r}, got {declared!r}")
     files = _strict_manifest_files(manifest, model_id, canonical_id) if strict else _manifest_files(manifest, model_id, canonical_id)
+    modes = _manifest_modes(manifest, model_id, canonical_id)
     sums = _read_sums(root)
     if not files:
         files = sums
@@ -528,6 +562,8 @@ def _verify_model_files(root: Path, model_id: str, required_files: Iterable[str]
             raise RuntimeError(f"model artifact size mismatch: {rel}")
         if _sha256(path) != digest.lower():
             raise RuntimeError(f"model artifact SHA256 mismatch: {rel}")
+        if rel in modes and stat.S_IMODE(path.stat().st_mode) != modes[rel]:
+            raise RuntimeError(f"model artifact mode mismatch: {rel}")
     for raw in required_files:
         rel = _model_rel(root, str(raw))
         path = root / rel
@@ -541,7 +577,8 @@ def _verify_model_files(root: Path, model_id: str, required_files: Iterable[str]
             raise RuntimeError(f"required model artifact missing: {rel}")
 
 
-def _safe_extract(archive: Path, dest: Path) -> None:
+def _safe_extract(archive: Path, dest: Path, *, expected_modes: Mapping[str, int] | None = None,
+                  model_id: str | None = None, canonical_id: str | None = None) -> None:
     source = archive
     temp: Path | None = None
     if archive.name.endswith(".zst"):
@@ -571,6 +608,8 @@ def _safe_extract(archive: Path, dest: Path) -> None:
                     or not (member.isdir() or member.isfile())
                 ):
                     raise RuntimeError(f"unsafe model payload member: {member.name}")
+                if member.isfile() and member.mode & 0o7000:
+                    raise RuntimeError(f"unsafe model payload mode: {member.name}")
                 target = dest / member.name
                 target.resolve(strict=False).relative_to(base)
                 if member.isdir():
@@ -582,10 +621,32 @@ def _safe_extract(archive: Path, dest: Path) -> None:
                     raise RuntimeError(f"cannot read model payload member: {member.name}")
                 with stream, target.open("wb") as out:
                     shutil.copyfileobj(stream, out, length=8 * 1024 * 1024)
-                target.chmod(member.mode & 0o777)
+                actual_mode = member.mode & 0o777
+                expected_mode = None
+                if expected_modes:
+                    expected_mode = expected_modes.get(member.name)
+                    if expected_mode is None and model_id is not None:
+                        try:
+                            expected_mode = expected_modes.get(
+                                _manifest_rel(member.name, model_id, canonical_id)
+                            )
+                        except RuntimeError:
+                            expected_mode = None
+                if expected_mode is not None and actual_mode != expected_mode:
+                    raise RuntimeError(f"model payload mode mismatch: {member.name}")
+                target.chmod(expected_mode if expected_mode is not None else actual_mode)
     finally:
         if temp:
             temp.unlink(missing_ok=True)
+
+
+def _apply_declared_modes(root: Path, modes: Mapping[str, int]) -> None:
+    """Apply validated modes only inside a new staging tree."""
+    for rel, mode in modes.items():
+        path = root / rel
+        if not path.is_file() or path.is_symlink():
+            raise RuntimeError(f"declared mode target missing from staging: {rel}")
+        path.chmod(mode)
 
 
 def _adopt_legacy_archive(legacy: Path, target: Path, *, expected_size: int, expected_sha256: str) -> bool:
@@ -949,7 +1010,13 @@ def ensure_model_artifacts(
                 if archive_tmp.stat().st_size != int(archive["size"]) or _sha256(archive_tmp) != str(archive["sha256"]).lower():
                     raise RuntimeError("model payload archive integrity mismatch")
                 archive_verified = bool(strict_archive_tmp_dir)
-                _safe_extract(archive_tmp, staging)
+                _safe_extract(
+                    archive_tmp,
+                    staging,
+                    expected_modes=_manifest_modes(model_manifest, model_id, canonical),
+                    model_id=model_id,
+                    canonical_id=canonical,
+                )
                 _flatten(staging, model_id, required or _manifest_files(model_manifest, model_id, canonical), canonical)
             else:
                 if strict:
@@ -957,6 +1024,7 @@ def ensure_model_artifacts(
                     # every declared file is fetched through the checked
                     # downloader with its manifest-bound SHA/size.
                     files = _strict_manifest_files(model_manifest, model_id, canonical)
+                    modes = _manifest_modes(model_manifest, model_id, canonical)
                     seen: set[str] = set()
                     for rel, (digest, size) in sorted(files.items()):
                         if rel in seen or Path(rel).is_absolute() or ".." in Path(rel).parts:
@@ -967,6 +1035,7 @@ def ensure_model_artifacts(
                         hf_artifacts.download_file(rel, target, expected_sha256=digest, expected_size=size,
                                                    repo=repo, revision=revision, endpoint=endpoint,
                                                    allowed_redirect_hosts=redirect_hosts)
+                    _apply_declared_modes(staging, modes)
                 else:
                     from huggingface_hub import snapshot_download
                     files = _manifest_files(model_manifest, model_id, canonical)
@@ -991,6 +1060,8 @@ def ensure_model_artifacts(
                             fetched_files = _strict_manifest_files(model_manifest, model_id, canonical)
                             if embedded_files != fetched_files:
                                 raise RuntimeError("embedded payload manifest file locks conflict with fetched manifest")
+                            if _manifest_modes(payload_manifest, model_id, canonical) != _manifest_modes(model_manifest, model_id, canonical):
+                                raise RuntimeError("embedded payload manifest file modes conflict with fetched manifest")
                         # The fetched manifest is the trust root. An embedded
                         # payload manifest is checked in strict mode but never
                         # persisted as the cache identity.

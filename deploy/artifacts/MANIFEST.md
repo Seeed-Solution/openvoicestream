@@ -70,6 +70,13 @@ Their immutable Hugging Face revisions are
 `adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e` (8K) and
 `9f2c2059341fd2135cc3a0ec09e05150277ea5b6` (4K).
 
+Manifest file entries may include the optional mode string `"0644"` or
+`"0755"`, for example `{ "sha256": "…", "size": 38521904, "mode": "0755" }`.
+The downloader validates this declaration on cache hits and before runtime
+activation. Payload archives must carry the same regular-file mode; special
+permission bits, symlinks, and undeclared mode values are rejected. Manifests
+without `mode` remain compatible and retain the archive's ordinary mode.
+
 ## Legacy aggregate Jetson artifacts
 
 | Item | Location | Notes |
