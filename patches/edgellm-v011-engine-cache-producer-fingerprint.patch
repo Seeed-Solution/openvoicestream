@@ -1,0 +1,210 @@
+--- a/experimental/server/runtime/engine_build.py
++++ b/experimental/server/runtime/engine_build.py
+@@ -29,7 +29,14 @@
+ 
+ from . import engine_layout
+ 
+-_CACHE_LAYOUT_VERSION = 2
++_CACHE_LAYOUT_VERSION = 3
++_PRODUCER_RECEIPT = ".edgellm-producer.json"
++_PLUGIN_LIB_NAME = "libNvInfer_edgellm_plugin.so"
++_PRODUCER_SOURCE_FILES = (
++    "experimental/server/runtime/engine_build.py",
++    "experimental/builder/core/builder.py",
++    "experimental/builder/core/artifacts/runtime_artifacts.py",
++)
+ _DEFAULT_CACHE_DIR = Path.home() / ".cache" / "tensorrt-edgellm"
+ _DEFAULT_ENGINE_CACHE_MAX_BYTES = 50 * (1 << 30)
+ _CHECKPOINT_SUFFIXES = (".bin", ".json", ".model", ".pt", ".pth",
+@@ -197,23 +204,111 @@
+         digest.update(checkpoint_file.read(width))
+ 
+ 
++def _profile_identity(options: BuildOptions) -> dict:
++    return {
++        **{field.name: getattr(options, field.name)
++           for field in fields(options) if field.name not in {
++               "draft_model_dir", "plugin_path"
++           }},
++        "builder_spec_type": options.builder_spec_type,
++    }
++
++
++def _sha256_file(path: str) -> str:
++    digest = hashlib.sha256()
++    with open(path, "rb") as file:
++        for chunk in iter(lambda: file.read(1 << 20), b""):
++            digest.update(chunk)
++    return digest.hexdigest()
++
++
++def _producer_source_digest() -> str:
++    root = Path(__file__).resolve().parents[3]
++    digest = hashlib.sha256()
++    for relative in _PRODUCER_SOURCE_FILES:
++        path = root / relative
++        if not path.is_file():
++            raise FileNotFoundError(f"producer source file is missing: {path}")
++        digest.update(relative.encode("utf-8"))
++        digest.update(_sha256_file(str(path)).encode("ascii"))
++    return digest.hexdigest()
++
++
++def _resolve_plugin_path(explicit: str) -> str:
++    selected = explicit or os.environ.get("EDGELLM_PLUGIN_PATH", "")
++    if not selected:
++        from .engine import _ensure_plugin_path
++        _ensure_plugin_path()
++        selected = os.environ.get("EDGELLM_PLUGIN_PATH", "")
++    if selected:
++        path = Path(selected).expanduser().resolve()
++        if not path.is_file():
++            raise FileNotFoundError(f"plugin library not found: {path}")
++        return str(path)
++    project_root = Path(__file__).resolve().parents[3]
++    for path in (
++            project_root / "build" / "core" / _PLUGIN_LIB_NAME,
++            project_root / "build" / "lib" / _PLUGIN_LIB_NAME,
++            Path.cwd() / "build" / "lib" / _PLUGIN_LIB_NAME):
++        if path.is_file():
++            return str(path.resolve())
++    raise FileNotFoundError(
++        "unable to resolve an effective Edge-LLM plugin library; set "
++        "EDGELLM_PLUGIN_PATH or provide build/core or build/lib")
++
++
++def _producer_fingerprint(options: BuildOptions) -> dict:
++    plugin_path = _resolve_plugin_path(options.plugin_path)
++    return {
++        "plugin_sha256": _sha256_file(plugin_path),
++        "builder_source_sha256": _producer_source_digest(),
++    }
++
++
++def _write_producer_receipt(bundle_dir: str, options: BuildOptions,
++                            producer: dict) -> None:
++    receipt = {
++        "cache_layout_version": _CACHE_LAYOUT_VERSION,
++        "profile": _profile_identity(options),
++        "producer_fingerprint": producer,
++    }
++    path = os.path.join(bundle_dir, _PRODUCER_RECEIPT)
++    temporary = path + ".tmp"
++    with open(temporary, "w", encoding="utf-8") as file:
++        json.dump(receipt, file, sort_keys=True, indent=2)
++        file.write("\n")
++    os.replace(temporary, path)
++
++
++def _producer_receipt_matches(bundle_dir: str, options: BuildOptions,
++                              producer: dict) -> bool:
++    try:
++        with open(os.path.join(bundle_dir, _PRODUCER_RECEIPT),
++                  encoding="utf-8") as file:
++            receipt = json.load(file)
++        if not isinstance(receipt, dict):
++            return False
++        return (receipt.get("cache_layout_version") == _CACHE_LAYOUT_VERSION
++                and receipt.get("profile") == _profile_identity(options)
++                and receipt.get("producer_fingerprint") == producer)
++    except (OSError, ValueError, TypeError):
++        return False
++
++
+ def bundle_cache_path(model_dir: str, cache_dir: str,
+-                      options: BuildOptions) -> str:
++                      options: BuildOptions,
++                      producer: Optional[dict] = None) -> str:
+     """Return the cache path for one checkpoint and complete build profile."""
+     model_digest = _checkpoint_digest(model_dir)
+     draft_digest = (_checkpoint_digest(options.draft_model_dir)
+                     if options.draft_model_dir else "")
++    producer = producer or _producer_fingerprint(options)
+     profile = {
+         "cache_layout_version": _CACHE_LAYOUT_VERSION,
+         "model": model_digest,
+         "draft_model": draft_digest,
+-        **{
+-            field.name: getattr(options, field.name)
+-            for field in fields(options) if field.name not in {
+-                "draft_model_dir", "plugin_path"
+-            }
+-        },
+-        "builder_spec_type": options.builder_spec_type,
++        **_profile_identity(options),
++        "producer_fingerprint": producer,
+     }
+     profile_digest = hashlib.sha256(
+         json.dumps(profile, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+@@ -225,10 +320,15 @@
+                         f"model-{model_digest[:16]}", profile_name)
+ 
+ 
+-def _is_ready(model_dir: str, bundle_dir: str, options: BuildOptions) -> bool:
++def _is_ready(model_dir: str, bundle_dir: str, options: BuildOptions,
++              producer: Optional[dict] = None) -> bool:
+     """Verify every component and the requested runtime profile."""
+     from experimental.builder.core import contracts
+     from experimental.builder.core.bundle import BundleConfig
++    try:
++        producer = producer or _producer_fingerprint(options)
++    except (OSError, RuntimeError, ValueError):
++        return False
+ 
+     try:
+         bundle = BundleConfig.from_pretrained(model_dir)
+@@ -290,16 +390,8 @@
+     if (options.spec_type != "none"
+             and base.get("spec_decode_type") != options.builder_spec_type):
+         return False
+-    return any("checkpoint_identity" in config for config in configs)
+-
+-
+-def _resolve_plugin_path(explicit: str) -> str:
+-    if explicit:
+-        return explicit
+-    from .engine import _ensure_plugin_path
+-
+-    _ensure_plugin_path()
+-    return os.environ.get("EDGELLM_PLUGIN_PATH", "")
++    return (any("checkpoint_identity" in config for config in configs)
++            and _producer_receipt_matches(bundle_dir, options, producer))
+ 
+ 
+ @contextmanager
+@@ -422,13 +514,14 @@
+     if options.draft_model_dir:
+         draft_model_dir = resolve_model_dir(options.draft_model_dir, cache_dir)
+         options = replace(options, draft_model_dir=draft_model_dir)
++    producer = _producer_fingerprint(options)
+ 
+     if clear_cache:
+         clear_engine_cache(cache_dir)
+-    bundle_dir = bundle_cache_path(model_dir, cache_dir, options)
++    bundle_dir = bundle_cache_path(model_dir, cache_dir, options, producer)
+     built = False
+     with _bundle_lock(bundle_dir):
+-        if _is_ready(model_dir, bundle_dir, options):
++        if _is_ready(model_dir, bundle_dir, options, producer):
+             os.utime(bundle_dir)
+         else:
+             parent = os.path.dirname(bundle_dir)
+@@ -442,10 +535,16 @@
+                 from experimental.builder.cli import main as builder_main
+ 
+                 builder_main(build_options.to_argv(model_dir, staging_dir))
+-                if not _is_ready(model_dir, staging_dir, build_options):
++                after_build = _producer_fingerprint(build_options)
++                if after_build != producer:
++                    raise RuntimeError(
++                        "Edge-LLM producer changed during engine build")
++                _write_producer_receipt(staging_dir, build_options, producer)
++                if not _is_ready(model_dir, staging_dir, build_options,
++                                 producer):
+                     raise RuntimeError(
+                         "the checkpoint-native builder did not produce a "
+-                        f"complete runtime bundle for {model!r}")
++                        "complete runtime bundle with producer provenance")
+                 if os.path.exists(bundle_dir):
+                     shutil.rmtree(bundle_dir)
+                 os.chmod(staging_dir, stat.S_IMODE(os.stat(parent).st_mode))
