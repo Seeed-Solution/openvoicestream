@@ -137,8 +137,28 @@ def _verify_base_reference_artifacts(profile: Optional[dict], config, env: dict)
                 return False
         worker_rel = worker.resolve().relative_to(root).as_posix()
         worker_sha = files.get(worker_rel, (None, None))[0]
-        if not worker_sha or str(build_defs.get("native_worker_source_sha256", "")).lower() != worker_sha:
+        if not worker_sha:
             return False
+        # New manifests distinguish the C++ source provenance from the
+        # installed worker binary.  The old field was historically named
+        # ``source`` but actually carried the worker binary hash; retain that
+        # interpretation only for manifests which predate the explicit key.
+        if "native_worker_binary_sha256" in build_defs:
+            binary_sha = build_defs.get("native_worker_binary_sha256")
+            if not isinstance(binary_sha, str) or binary_sha.lower() != worker_sha:
+                return False
+        else:
+            legacy_binary_sha = build_defs.get("native_worker_source_sha256")
+            if not isinstance(legacy_binary_sha, str) or legacy_binary_sha.lower() != worker_sha:
+                return False
+
+        # ``native_worker_source_sha256`` is source provenance when the
+        # explicit binary field is present; it is intentionally not compared
+        # with the installed binary hash.
+        if "native_worker_binary_sha256" in build_defs and "native_worker_source_sha256" in build_defs:
+            source_sha = build_defs.get("native_worker_source_sha256")
+            if not isinstance(source_sha, str) or not source_sha:
+                return False
 
         # These file names are the actual paths checked by the v0.11 worker
         # readiness code; directory-prefix presence alone is insufficient.
