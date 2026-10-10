@@ -54,7 +54,28 @@ DEFAULT_REVISION = "main"
 _UA = "openvoicestream/1.0; hf_hub-emulating"
 
 
-class _AllowedRedirect(urllib.request.HTTPRedirectHandler):
+class _CompatibleRedirect(urllib.request.HTTPRedirectHandler):
+    """Add Python 3.10-compatible handling for GET/HEAD HTTP 308 redirects."""
+
+    def http_error_308(self, req, fp, code, msg, headers):
+        # Reuse urllib's complete redirect implementation, preserving the
+        # original 308 code for errors and its loop guard.
+        return self.http_error_302(req, fp, code, msg, headers)
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if code != 308:
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+        if req.get_method() not in {"GET", "HEAD"}:
+            raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+        # Use urllib's 307 validation and request construction, then restore
+        # HEAD, which Python 3.10's 307 helper incorrectly changes to GET.
+        new = super().redirect_request(req, fp, 307, msg, headers, newurl)
+        if req.get_method() == "HEAD":
+            new.method = "HEAD"
+        return new
+
+
+class _AllowedRedirect(_CompatibleRedirect):
     def __init__(self, allowed_hosts: frozenset[str], initial_scheme: str):
         self.allowed_hosts = allowed_hosts
         self.initial_scheme = initial_scheme
@@ -68,14 +89,21 @@ class _AllowedRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _open(url: str, timeout: float = 30.0, *, allowed_redirect_hosts: frozenset[str] | None = None):
-    req = urllib.request.Request(url, headers={"User-Agent": _UA})
-    if allowed_redirect_hosts is None:
-        return urllib.request.urlopen(req, timeout=timeout)
+def _open(url: str, timeout: float = 30.0, *, allowed_redirect_hosts: frozenset[str] | None = None,
+          headers: Optional[dict[str, str]] = None, method: Optional[str] = None):
+    request_headers = {"User-Agent": _UA}
+    if headers:
+        request_headers.update(headers)
+    req = urllib.request.Request(url, headers=request_headers, method=method)
     parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.hostname.casefold() not in allowed_redirect_hosts:
-        raise ArtifactError(f"endpoint host is not allowlisted: {url}")
-    opener = urllib.request.build_opener(_AllowedRedirect(allowed_redirect_hosts, parsed.scheme))
+    if allowed_redirect_hosts is None:
+        handler = _CompatibleRedirect()
+    else:
+        if (parsed.scheme not in {"http", "https"} or not parsed.hostname or
+                parsed.hostname.casefold() not in allowed_redirect_hosts):
+            raise ArtifactError(f"endpoint host is not allowlisted: {url}")
+        handler = _AllowedRedirect(allowed_redirect_hosts, parsed.scheme)
+    opener = urllib.request.build_opener(handler)
     return opener.open(req, timeout=timeout)
 
 
@@ -84,7 +112,10 @@ class ArtifactError(RuntimeError):
 
 
 def _endpoint(endpoint: Optional[str] = None) -> str:
-    return str(endpoint or os.environ.get("HF_ENDPOINT", DEFAULT_ENDPOINT)).rstrip("/")
+    if endpoint:
+        return str(endpoint).rstrip("/")
+    return str(os.environ.get("HF_ARTIFACT_ENDPOINT") or
+               os.environ.get("HF_ENDPOINT") or DEFAULT_ENDPOINT).rstrip("/")
 
 
 def _repo() -> str:
@@ -422,15 +453,11 @@ def _download_file_resumable(
                 timeout = min(30.0, deadline - time.monotonic()) if deadline is not None else 30.0
                 if timeout <= 0:
                     raise ArtifactError("strict resume deadline exceeded")
-                req = urllib.request.Request(url, headers={"User-Agent": _UA, "Range": f"bytes={committed}-{end}"})
                 try:
-                    if allowed_redirect_hosts is None:
-                        resp = urllib.request.urlopen(req, timeout=timeout)
-                    else:
-                        parsed = urllib.parse.urlsplit(url)
-                        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.hostname.casefold() not in allowed_redirect_hosts:
-                            raise ArtifactError("endpoint host is not allowlisted")
-                        resp = urllib.request.build_opener(_AllowedRedirect(allowed_redirect_hosts, parsed.scheme)).open(req, timeout=timeout)
+                    resp = _open(
+                        url, timeout=timeout, allowed_redirect_hosts=allowed_redirect_hosts,
+                        headers={"Range": f"bytes={committed}-{end}"},
+                    )
                     with resp:
                         final_host = urllib.parse.urlsplit(resp.geturl()).hostname
                         if (allowed_redirect_hosts is not None and expected_size > 10 * 1024 * 1024 and
