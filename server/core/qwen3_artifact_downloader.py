@@ -61,6 +61,7 @@ _MANIFEST_PATH = "/opt/qwen3-edgellm-jetson/deploy/artifacts/qwen3_manifest.json
 # succession (ASR preload + TTS preload). One download in flight at a
 # time avoids two snapshot_download passes hammering HF.
 _LOCK = threading.Lock()
+_DEFAULT_CAPACITY_RESERVE_BYTES = 1 << 30
 
 
 def _artifact_roots(set_spec: dict) -> tuple[Path, Path, str]:
@@ -684,7 +685,7 @@ def _adopt_legacy_archive(legacy: Path, target: Path, *, expected_size: int, exp
     return True
 
 
-def _strict_archive_tmp_dir() -> Path | None:
+def _strict_archive_tmp_dir(*, create: bool = True) -> Path | None:
     """Return the optional user-owned directory for strict archive downloads."""
     raw = os.environ.get("QWEN3_ARTIFACT_DOWNLOAD_TMP_DIR", "").strip()
     if not raw:
@@ -722,11 +723,100 @@ def _strict_archive_tmp_dir() -> Path | None:
         if info.st_uid != current_uid or info.st_mode & 0o022:
             raise RuntimeError(f"strict archive temporary path is not a private owned directory: {path}")
     else:
+        if not create:
+            return path
         path.mkdir(mode=0o700)
         info = path.lstat()
         if stat.S_ISLNK(info.st_mode) or info.st_uid != current_uid or info.st_mode & 0o022:
             raise RuntimeError(f"strict archive temporary path failed ownership check: {path}")
     return path
+
+
+def _capacity_reserve_bytes() -> int:
+    raw = os.environ.get("QWEN3_ARTIFACT_CAPACITY_RESERVE_BYTES")
+    if raw is None or not raw.strip():
+        return _DEFAULT_CAPACITY_RESERVE_BYTES
+    try:
+        value = int(raw, 10)
+    except ValueError as exc:
+        raise RuntimeError(
+            "QWEN3_ARTIFACT_CAPACITY_RESERVE_BYTES must be a nonnegative integer"
+        ) from exc
+    if value < 0:
+        raise RuntimeError(
+            "QWEN3_ARTIFACT_CAPACITY_RESERVE_BYTES must be a nonnegative integer"
+        )
+    return value
+
+
+def _nearest_existing_path(path: Path) -> Path:
+    current = path.absolute()
+    while not current.exists():
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    if not current.exists():
+        raise RuntimeError(f"capacity path has no existing ancestor: {path}")
+    return current
+
+
+def _filesystem_capacity(path: Path) -> tuple[int, int]:
+    info = os.stat(path)
+    statvfs = os.statvfs(path)
+    return int(info.st_dev), int(statvfs.f_bavail) * int(statvfs.f_frsize)
+
+
+def _strict_capacity_admit(
+    requirements: Iterable[tuple[Path, int]], *, reserve_bytes: int | None = None
+) -> None:
+    """Reject strict downloads before staging when a filesystem lacks space.
+
+    Existing cache bytes are already reflected by f_bavail and are not
+    subtracted again. Requirements on one filesystem share one reserve.
+    """
+    reserve = _capacity_reserve_bytes() if reserve_bytes is None else reserve_bytes
+    if reserve < 0:
+        raise RuntimeError("strict artifact capacity reserve must be nonnegative")
+    grouped: dict[int, dict[str, object]] = {}
+    for raw_path, amount in requirements:
+        if amount < 0:
+            raise RuntimeError("strict artifact capacity requirement must be nonnegative")
+        path = _nearest_existing_path(raw_path)
+        device, available = _filesystem_capacity(path)
+        group = grouped.setdefault(
+            device, {"available": available, "paths": [], "required": 0}
+        )
+        group["available"] = min(int(group["available"]), available)
+        group["required"] = int(group["required"]) + int(amount)
+        group["paths"].append((str(raw_path), int(amount)))
+    for group in grouped.values():
+        required = int(group["required"]) + reserve
+        available = int(group["available"])
+        if available < required:
+            paths = ", ".join(
+                f"{path}={amount}B" for path, amount in group["paths"]
+            )
+            raise RuntimeError(
+                "strict artifact capacity insufficient: "
+                f"required={required}B available={available}B "
+                f"paths=[{paths}]"
+            )
+
+
+def _verified_existing_archive(
+    path: Path, *, expected_size: int, expected_sha256: str
+) -> bool:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    return (
+        stat.S_ISREG(info.st_mode)
+        and info.st_nlink == 1
+        and info.st_size == expected_size
+        and _sha256(path) == expected_sha256.lower()
+    )
 
 
 def _strict_archive_path(cache: Path, repo: str, revision: str, archive: Mapping[str, object], tmp_dir: Path | None) -> Path:
@@ -914,7 +1004,8 @@ def ensure_model_artifacts(
     else:
         cache = model_cache_dir(model_id, cache_root, canonical)
     runtime = Path(root) if root else cache
-    cache.parent.mkdir(parents=True, exist_ok=True)
+    if not strict:
+        cache.parent.mkdir(parents=True, exist_ok=True)
     with _LOCK:
         local_path = cache / "manifest.json"
         if local_path.is_file():
@@ -970,12 +1061,64 @@ def ensure_model_artifacts(
                 if rel not in strict_files and not any(item.startswith(rel + "/") for item in strict_files):
                     raise RuntimeError(f"strict required model artifact absent from manifest: {rel}")
         archive = _archive_spec(model_manifest, model_id, canonical, strict=strict)
-        strict_archive_tmp_dir = _strict_archive_tmp_dir() if strict and archive else None
+        strict_archive_tmp_dir = (
+            _strict_archive_tmp_dir(create=False) if strict and archive else None
+        )
+        existing_archive_verified = False
+        if strict:
+            expanded_bytes = sum(size for _digest, size in strict_files.values())
+            requirements: list[tuple[Path, int]] = [(cache.parent, expanded_bytes)]
+            if archive:
+                archive_path = _strict_archive_path(
+                    cache, repo, revision, archive, strict_archive_tmp_dir
+                )
+                archive_size = int(archive["size"])
+                existing_archive_verified = _verified_existing_archive(
+                    archive_path,
+                    expected_size=archive_size,
+                    expected_sha256=str(archive["sha256"]),
+                )
+                if not existing_archive_verified:
+                    identity = "|".join(
+                        (
+                            str(cache),
+                            str(repo),
+                            str(revision),
+                            str(archive["path"]),
+                            str(archive["sha256"]).lower(),
+                        )
+                    )
+                    resume_digest = hashlib.sha256(identity.encode()).hexdigest()
+                    legacy_path = cache.parent / f".qwen-archive-{resume_digest}.tar.gz"
+                    legacy_verified = _verified_existing_archive(
+                        legacy_path,
+                        expected_size=archive_size,
+                        expected_sha256=str(archive["sha256"]),
+                    )
+                    # The legacy name can only be credited when the declared
+                    # target is absent and adoption can hard-link on the same
+                    # filesystem.  An invalid target must still be replaced,
+                    # which requires admitting the full archive allocation.
+                    target_absent = not os.path.lexists(archive_path)
+                    if legacy_verified and target_absent:
+                        legacy_device, _ = _filesystem_capacity(legacy_path)
+                        target_device, _ = _filesystem_capacity(
+                            _nearest_existing_path(archive_path)
+                        )
+                        existing_archive_verified = legacy_device == target_device
+                if not existing_archive_verified:
+                    requirements.append((strict_archive_tmp_dir or cache.parent, archive_size))
+            _strict_capacity_admit(requirements)
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            if archive:
+                strict_archive_tmp_dir = (
+                    _strict_archive_tmp_dir() if strict_archive_tmp_dir else None
+                )
         staging: Path | None = Path(
             tempfile.mkdtemp(prefix=f".{cache.name}-", dir=str(cache.parent))
         )
         archive_tmp: Path | None = None
-        archive_verified = False
+        archive_verified = existing_archive_verified
         try:
             from server.core import hf_artifacts
             if archive:
@@ -986,11 +1129,10 @@ def ensure_model_artifacts(
                     # forcing every download to ``.tar.gz`` makes
                     # _safe_extract select gzip mode for an uncompressed tar.
                     declared_name = Path(str(archive["path"])).name
-                    declared_suffix = "".join(Path(declared_name).suffixes)
                     archive_tmp = _strict_archive_path(cache, repo, revision, archive, strict_archive_tmp_dir)
-                    if declared_suffix != ".tar.gz":
-                        resume_digest = hashlib.sha256(resume_identity.encode()).hexdigest()
-                        legacy_tmp = cache.parent / f".qwen-archive-{resume_digest}.tar.gz"
+                    resume_digest = hashlib.sha256(resume_identity.encode()).hexdigest()
+                    legacy_tmp = cache.parent / f".qwen-archive-{resume_digest}.tar.gz"
+                    if archive_tmp != legacy_tmp:
                         _adopt_legacy_archive(
                             legacy_tmp,
                             archive_tmp,
