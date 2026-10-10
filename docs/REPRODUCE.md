@@ -179,6 +179,15 @@ HF_ENDPOINT=https://hf-mirror.com OVS_PROFILE=jetson-qwen3asr-matcha-nx \
 `qwen3_artifact_downloader.py`, `moss_artifacts.py`, `rk_artifacts.py`). The
 compose file passes it through (`HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}`).
 
+For a separate mirror or CDN serving only the HF artifact repository used by
+server/core/hf_artifacts.py, set HF_ARTIFACT_ENDPOINT. It must expose the same
+HF resolve layout, including the repository/revision paths and manifest.json;
+downloaded files are still checked against the manifest's SHA-256 and size.
+HF_ARTIFACT_ENDPOINT takes precedence only for this artifact downloader and
+does not change HF_ENDPOINT for the other downloaders. The endpoint should
+serve the artifact files itself; do not use a redirect back to huggingface.co
+as a substitute for a domestic source.
+
 ### Validate
 
 ```bash
