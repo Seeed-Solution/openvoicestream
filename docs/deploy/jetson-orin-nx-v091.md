@@ -19,7 +19,7 @@ pin `7f061f21f0a581ba234a1e233c9315b89d8e47d6`.
 
 ## v0.11 candidate entrypoints
 
-The v0.11 release is a separate candidate path. It does not replace the qualified v0.9.1 default above, and it is not an official JetPack qualification. The published Linux/ARM64 voice image is:
+The v0.11 release is now the default Jetson voice candidate path through the combined ASR + CustomVoice profile. It remains candidate-unqualified and is not an official JetPack qualification. The v0.9.1 path above remains available through `deploy/install.sh --target orin-nx --legacy --pull --verify`. The published Linux/ARM64 voice image is:
 
 ```text
 sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.11.0-candidate-voice-dfd6aae

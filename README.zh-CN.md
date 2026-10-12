@@ -79,7 +79,7 @@ deploy/install.sh --target rpi --pull --verify
 
 ### v0.11 Jetson 候选版本
 
-已发布的 v0.11 入口仍是候选版本。现有稳定默认不变：`deploy/install.sh --pull --verify` 在 Orin NX 上仍选择已验收的 v0.9.1 路径，其他平台也仍使用各自现有版本。因此，相关仓库并不是全部绑定到 v0.11。入口版本对应关系是：`--target orin-nx` 使用 v0.9.1 语音与 cutover 路径；`--target jetson` 和 `--target orin-nano` 使用 v0.9.0 on-demand 路径；v0.10 保留为显式生产语音入口；v0.11 是下文说明的显式候选入口。
+Jetson 语音默认入口现在使用 v0.11 合并语音候选 profile（Qwen3-ASR IFB B2 + Qwen3-TTS CustomVoice R16）。它仍保留 candidate-unqualified 标记；v0.11 LLM 仍需显式 opt-in。回滚 Orin NX 使用 `deploy/install.sh --target orin-nx --legacy --pull --verify`，回滚通用 Jetson 使用 `deploy/install.sh --target jetson --legacy --pull --verify`。RK 和 Raspberry Pi 默认保持不变。
 
 v0.11 语音镜像面向 Linux/ARM64、JetPack 6.2 / TensorRT 10.3，按不可变 digest 拉取并选择已审查的 CustomVoice profile：
 
@@ -98,7 +98,7 @@ v0.11 Orin NX LLM 是独立的 IFB B2 候选镜像。多平台 index 为 `sha256
 HF_ENDPOINT=https://hf-mirror.com   deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
 ```
 
-启动 LLM 还需要使用独立的候选 compose 文件，显式设置 `EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=1`，准备好本地 checkpoint，并提供该 compose 文件要求的宿主 CUDA/TensorRT 挂载。LLM engine bundle 独立锁定在 `41fb732368307f2a6a6ef3ba67d35aef027845b4a`；checkpoint 来源是 `harvestsu/Qwen3.5-4B-AWQ` 的 `7551dd662b7f7b140aaa9958ac62ac9317be1b5` revision。该候选版本没有官方 JetPack 资格或一键生产部署声明；稳定默认仍使用现有 v0.9.1 路径。
+启动 LLM 还需要使用独立的候选 compose 文件，显式设置 `EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=1`，准备好本地 checkpoint，并提供该 compose 文件要求的宿主 CUDA/TensorRT 挂载。LLM engine bundle 独立锁定在 `41fb732368307f2a6a6ef3ba67d35aef027845b4a`；checkpoint 来源是 `harvestsu/Qwen3.5-4B-AWQ` 的 `7551dd662b7f7b140aaa9958ac62ac9317be1b5` revision。该候选版本没有官方 JetPack 资格或一键生产部署声明；需要回滚时使用 `deploy/install.sh --target orin-nx --legacy --pull --verify`。
 
 ### 推荐模型
 
@@ -694,3 +694,7 @@ Jetson、RK 和 RPi 是 **一等同侪** —— 没有哪个是“主”后端�
 - [Qwen3](https://huggingface.co/Qwen) —— 多语言 ASR + TTS 基础模型（52 语言路径）
 - [TensorRT-EdgeLLM](https://github.com/NVIDIA/TensorRT-LLM) —— Qwen3 路径的 Jetson 推理运行时
 - [RKNN Toolkit](https://github.com/rockchip-linux/rknn-toolkit2) —— RK3576/RK3588 路径的 Rockchip NPU 运行时
+
+## Jetson v0.11 默认语音
+
+Jetson 默认语音入口现在使用 `deploy/docker-compose.edgellm-v011-candidate-voice.yml`、固定 digest 的 v0.11 语音镜像和合并 profile `jetson-edgellm-v011-default-voice`。ASR 与 CustomVoice 的缓存和插件路径保持隔离，候选未合格标记保持不变。回滚 Orin NX 使用 `deploy/install.sh --target orin-nx --legacy --pull --verify`。

@@ -87,7 +87,7 @@ deploy/install.sh --target rpi --pull --verify
 
 ### v0.11 Jetson candidate
 
-The published v0.11 entrypoints are candidate-only profiles. The existing stable defaults remain unchanged: `deploy/install.sh --pull --verify` still selects the qualified v0.9.1 path on Orin NX, and the other platform defaults remain on their existing releases. The repositories are therefore not all bound to v0.11. The entrypoint version map is: `--target orin-nx` uses the v0.9.1 voice and cutover path; `--target jetson` and `--target orin-nano` use the v0.9.0 on-demand path; v0.10 remains an explicit production voice entrypoint; v0.11 is the explicit candidate entrypoint documented below.
+The Jetson voice default now uses the v0.11 combined Qwen3-ASR IFB B2 + Qwen3-TTS CustomVoice R16 candidate profile. It remains candidate-unqualified; the separate v0.11 LLM service is explicit opt-in. Use `deploy/install.sh --target orin-nx --legacy --pull --verify` for the v0.9.1 rollback, or `deploy/install.sh --target jetson --legacy --pull --verify` for the previous v0.9.0 path. RK and Raspberry Pi defaults are unchanged.
 
 The v0.11 voice image is a Linux/ARM64 JetPack 6.2 / TensorRT 10.3 candidate image. Pull it by its immutable digest and select the reviewed CustomVoice profile:
 
@@ -799,3 +799,7 @@ If you're working on a larger change, open an issue first to align on the approa
 - [Qwen3](https://huggingface.co/Qwen) — multilingual ASR + TTS foundation model (52-language path)
 - [TensorRT-EdgeLLM](https://github.com/NVIDIA/TensorRT-LLM) — Jetson inference runtime for the Qwen3 path
 - [RKNN Toolkit](https://github.com/rockchip-linux/rknn-toolkit2) — Rockchip NPU runtime for the RK3576/RK3588 path
+
+## Jetson v0.11 default voice
+
+The default Jetson voice entry now uses `deploy/docker-compose.edgellm-v011-candidate-voice.yml` with the digest-pinned v0.11 voice image and the combined `jetson-edgellm-v011-default-voice` profile. The profile keeps ASR and CustomVoice caches and plugins separate. It remains candidate-unqualified. Use `deploy/install.sh --target orin-nx --legacy --pull --verify` for the v0.9.1 rollback.

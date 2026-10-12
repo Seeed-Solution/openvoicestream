@@ -326,3 +326,7 @@ v0.9.1、v0.8、4K、8K 的缓存是刻意不共享的。
 
 方案侧另外补了两个我们这边没有的前置动作（宿主库检查、容器名冲突检查），
 其中宿主库那条已经收进本文档 [§3.1](#31-装宿主库-libsentencepiece0-️)。
+
+## v0.11 默认语音入口
+
+默认 Jetson 语音使用合并的 Qwen3-ASR IFB B2 与 Qwen3-TTS CustomVoice R16 候选 profile。回滚到旧版本时使用 `deploy/install.sh --target orin-nx --legacy --pull --verify` 或 `deploy/install.sh --target jetson --legacy --pull --verify`。候选状态和 LLM 独立 opt-in 保持不变。

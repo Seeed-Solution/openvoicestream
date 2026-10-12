@@ -79,7 +79,7 @@ rk3588 -> sense-voice-encoder.rk3588.fp16-scaled.rknn | fp16-scaled: True
 
 On-device accuracy has not been re-measured on this tag.
 
-**当前默认**：`docker-compose.edgellm-v091-voice.yml` 的 `SPEECH_IMAGE` 缺省值是
+**当前默认**：Jetson 语音使用 `docker-compose.edgellm-v011-candidate-voice.yml` 的 v0.11 digest 和合并 ASR+CustomVoice profile；v0.9.1 通过 installer 的 `--legacy` 显式回滚。旧版说明如下：`docker-compose.edgellm-v091-voice.yml` 的 `SPEECH_IMAGE` 缺省值是
 `...-vox080a0`（在 slim2 基础上换 voxedge 0.0.8a0 + 老 profile 的
 `profile_owned_env` 修复），其构建基础是 `jetson-v1.16-symlink`。两者相对 `jetson-v1.14-hotswap`
 一线的差异：剔除 `transformers`、补上 `onnx`、插件由三份实体改为一份实体 + 两条软链接。
