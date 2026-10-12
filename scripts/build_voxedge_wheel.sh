@@ -24,7 +24,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VOXEDGE_SRC="${VOXEDGE_SRC:-$(cd "${REPO_ROOT}/../voxedge" && pwd)}"
 WHEELS_DIR="${REPO_ROOT}/deploy/wheels"
-EXPECTED_VERSION="${VOXEDGE_VERSION:-0.0.13a0}"
+EXPECTED_VERSION="0.0.15a3"
 
 if [[ ! -f "${VOXEDGE_SRC}/pyproject.toml" ]]; then
   echo "ERROR: voxedge source not found at ${VOXEDGE_SRC}" >&2
