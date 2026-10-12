@@ -6,6 +6,7 @@ usage() {
 Usage:
   deploy/install.sh [--target auto|jetson|orin-nx|rk3576|rk3588|rpi] [--pull] [--build] [--verify]
   deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
+  deploy/install.sh --target orin-nx --legacy --pull --verify
 
 Examples:
   deploy/install.sh --pull --verify
@@ -71,6 +72,7 @@ build=0
 verify=0
 v011_llm_candidate=0
 prepare_only=0
+legacy=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -96,6 +98,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --prepare-only)
       prepare_only=1
+      shift
+      ;;
+    --legacy)
+      legacy=1
       shift
       ;;
     -h|--help)
@@ -510,32 +516,30 @@ if [[ -z "$target" || "$target" == "auto" ]]; then
   echo "Auto-detected target: ${target}"
 fi
 
+project_root="$(cd "$(dirname "$0")/.." && pwd)"
+export OVS_PROFILE_JSON_HOST="${OVS_PROFILE_JSON_HOST:-$project_root/configs/profiles/jetson-edgellm-v011-default-voice.json}"
 compose_files=()
 canonical_target=""
 case "$target" in
   orin-nx)
     canonical_target="orin-nx"
-    case "${EDGELLM_ENGINE_PROFILE:-8k}" in
-      8k)
-        compose_files=(
-          "deploy/docker-compose.edgellm-v091-voice.yml"
-          "deploy/docker-compose.edgellm-v091-cutover.yml"
-        )
-        ;;
-      4k)
-        compose_files=(
-          "deploy/docker-compose.edgellm-v091-voice.yml"
-          "deploy/docker-compose.edgellm-v091-cutover-4k.yml"
-        )
-        ;;
-      *)
-        die "EDGELLM_ENGINE_PROFILE must be 4k or 8k for --target orin-nx"
-        ;;
-    esac
+    if [[ "$legacy" -eq 1 ]]; then
+      case "${EDGELLM_ENGINE_PROFILE:-8k}" in
+        8k) compose_files=("deploy/docker-compose.edgellm-v091-voice.yml" "deploy/docker-compose.edgellm-v091-cutover.yml") ;;
+        4k) compose_files=("deploy/docker-compose.edgellm-v091-voice.yml" "deploy/docker-compose.edgellm-v091-cutover-4k.yml") ;;
+        *) die "EDGELLM_ENGINE_PROFILE must be 4k or 8k for --target orin-nx" ;;
+      esac
+    else
+      compose_files=("deploy/docker-compose.edgellm-v011-candidate-voice.yml")
+    fi
     ;;
   jetson|orin|orin-nano)
     canonical_target="jetson"
-    compose_files=("deploy/docker-compose.yml")
+    if [[ "$legacy" -eq 1 ]]; then
+      compose_files=("deploy/docker-compose.edgellm-v090-legacy.yml")
+    else
+      compose_files=("deploy/docker-compose.edgellm-v011-candidate-voice.yml")
+    fi
     ;;
   rk3576|rk)
     canonical_target="rk3576"
@@ -590,16 +594,24 @@ case "$canonical_target" in
     fi
     profile="${OVS_PROFILE:-}"
     if [[ "$canonical_target" == "orin-nx" ]]; then
-      echo "Jetson v0.9.1 model-level profile: ${profile:-jetson-edgellm-v091-matcha}"
-      echo "Speech and Qwen3.5-4B GDN/MTP ${EDGELLM_ENGINE_PROFILE:-8k} will start as independent services."
-      if [[ "${EDGELLM_ENGINE_PROFILE:-8k}" == "4k" ]]; then
+      if [[ "$legacy" -eq 1 ]]; then
+        echo "Jetson legacy v0.9.1 model-level profile: ${profile:-jetson-edgellm-v091-matcha}"
+      else
+        echo "Jetson v0.11 combined voice profile: ${profile:-jetson-edgellm-v011-default-voice}"
+      fi
+      if [[ "$legacy" -eq 1 ]]; then
+        echo "Speech and Qwen3.5-4B GDN/MTP ${EDGELLM_ENGINE_PROFILE:-8k} will start as independent services."
+      else
+        echo "v0.11 combined voice starts by default; v0.11 LLM remains an explicit opt-in service."
+      fi
+      if [[ "$legacy" -eq 1 && "${EDGELLM_ENGINE_PROFILE:-8k}" == "4k" ]]; then
         echo "4K payload SHA: 06273e358a579590bb8344b451aa35c89983cd99401339fb1858d61af4dbd107"
         echo "4K HF revision: ${EDGELLM_4K_ENGINE_REVISION:-9f2c2059341fd2135cc3a0ec09e05150277ea5b6}"
-      else
+      elif [[ "$legacy" -eq 1 ]]; then
         echo "8K payload SHA: 9208e46d61a4f1440ac68a312e35dde3d04b88edf0e4ee12b32210e7190d3325"
         echo "8K HF revision: ${EDGELLM_8K_ENGINE_REVISION:-adb1c78fb61513e2d7d8e7f889f6196dbefb1e5e}"
       fi
-      echo "Rollback: deploy/install.sh --target jetson --pull --verify"
+      echo "Rollback: deploy/install.sh --target orin-nx --legacy --pull --verify"
     elif [[ -n "${profile}" && "${profile}" == jetson-multilang-* ]]; then
       echo "Jetson Qwen3 profile: ${profile}"
       echo "Qwen3 artifacts: ${QWEN3_HF_REPO_ID:-harvestsu/qwen3-edgellm-jetson-artifacts}@${QWEN3_HF_REVISION:-main}"
@@ -638,6 +650,7 @@ fi
 
 up_args=(up -d)
 if [[ "$build" -eq 1 ]]; then
+  [[ "$legacy" -eq 1 ]] || die "v0.11 default uses the published digest; --build is allowed only with --legacy"
   up_args+=(--build)
 fi
 
@@ -660,7 +673,7 @@ if [[ "$verify" -eq 1 ]]; then
     docker compose "${compose_args[@]}" logs --tail=120 >&2 || true
     exit 1
   fi
-  if [[ "$canonical_target" == "orin-nx" ]]; then
+  if [[ "$canonical_target" == "orin-nx" && "$legacy" -eq 1 ]]; then
     if ! deploy/verify-llm.sh "http://127.0.0.1:8000"; then
       warn "LLM verification failed; recent logs follow"
       docker compose "${compose_args[@]}" logs --tail=120 edge-llm >&2 || true

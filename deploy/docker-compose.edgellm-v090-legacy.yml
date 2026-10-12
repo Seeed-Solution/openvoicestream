@@ -1,0 +1,151 @@
+# OpenVoiceStream — production deployment.
+#
+# Usage:
+#   LANGUAGE_MODE=en docker compose -f deploy/docker-compose.yml up -d
+#   OVS_PROFILE=jetson-multilang-highperf docker compose -f deploy/docker-compose.yml up -d
+#
+# Models auto-download on first start (~1-2 min) and persist in a Docker volume.
+# Set LANGUAGE_MODE to "zh_en" (default, Chinese+English), "en" (English only),
+# or LANGUAGE_MODE=multilanguage for Qwen3 ASR + Matcha TTS (default multilang
+# preset, runs on Orin Nano 8GB and Orin NX 16GB). Set OVS_PROFILE=jetson-multilang-highperf
+# explicitly for the heavier Qwen3 ASR + Qwen3 TTS combination (NX/AGX only).
+
+services:
+  speech:
+    # The v0.9.0 on-demand image: no baked engines, voxedge from PyPI, behavior
+    # selected by OVS_PROFILE / LANGUAGE_MODE at runtime with artifacts
+    # provisioned on first boot. Replaces the jetson-v1.14-hotswap line, whose
+    # Dockerfile baked v071 customvoice binaries that exist on no published
+    # source (see deploy/docker/archive/).
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.9.0-ondemand-20260721c}
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand
+    # NOTE: this file covers the Jetson target. RK and Raspberry Pi run on
+    # different hosts (different runtime, different volumes) and have their
+    # own compose files: deploy/docker-compose.rk.yml, deploy/docker-compose.rpi.yml.
+    runtime: nvidia
+    ipc: host
+    ports:
+      - "8621:8000"
+    environment:
+      - LANGUAGE_MODE=${LANGUAGE_MODE:-zh_en}
+      - OVS_PROFILE=${OVS_PROFILE:-}
+      - OVS_PROFILE_JSON=${OVS_PROFILE_JSON:-}
+      # Week 2: structured JSON logs in production; override to ``text``
+      # locally if you want human-grep-friendly output.
+      - OVS_LOG_FORMAT=${OVS_LOG_FORMAT:-json}
+      # Admin endpoints (/admin/backend/reload, /admin/backend/status, PATCH
+      # /admin/tts/runtime) are loopback-only by default. To call them from
+      # outside the container, set OVS_ADMIN_KEY (e.g. in .env or shell) and
+      # pass it back as the X-Admin-Key header. Leaving it unset keeps remote
+      # admin disabled (403), which is the safe default for production.
+      - OVS_ADMIN_KEY=${OVS_ADMIN_KEY:-}
+      # Open-dialogue endpointing defaults. Override in .env for product tuning.
+      - OVS_VAD_BACKEND=${OVS_VAD_BACKEND:-silero}
+      - OVS_VAD_SILENCE_MS=${OVS_VAD_SILENCE_MS:-400}
+      # Realtime V2 backend switch. Applications keep the same /v2v/stream
+      # endpoint; credentials and provider URLs stay Gateway-side.
+      - OVS_REALTIME_PROVIDER=${OVS_REALTIME_PROVIDER:-local}
+      - OVS_REALTIME_OPENAI_MODEL=${OVS_REALTIME_OPENAI_MODEL:-gpt-realtime-2.1}
+      - OVS_REALTIME_OPENAI_URL=${OVS_REALTIME_OPENAI_URL:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OVS_REALTIME_QWEN_MODEL=${OVS_REALTIME_QWEN_MODEL:-qwen-audio-3.0-realtime-flash}
+      - OVS_REALTIME_QWEN_URL=${OVS_REALTIME_QWEN_URL:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - QWEN3_EDGELLM_JETSON_ROOT=${QWEN3_EDGELLM_JETSON_ROOT:-/opt/qwen3-edgellm-jetson}
+      - QWEN3_ARTIFACT_MANIFEST=${QWEN3_ARTIFACT_MANIFEST:-}
+      - QWEN3_ARTIFACT_SET=${QWEN3_ARTIFACT_SET:-}
+      - QWEN3_ARTIFACT_ROOT=${QWEN3_ARTIFACT_ROOT:-/opt/models/qwen3-edgellm}
+      - QWEN3_HF_REPO_ID=${QWEN3_HF_REPO_ID:-}
+      - QWEN3_HF_REVISION=${QWEN3_HF_REVISION:-main}
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+      - TTS_PROVIDER=${TTS_PROVIDER:-cuda}
+      - TTS_DEFAULT_SID=${TTS_DEFAULT_SID:-0}
+      - TTS_DEFAULT_SPEED=${TTS_DEFAULT_SPEED:-0.85}
+      # User-created speaker registrations and voice profiles live outside
+      # the model volume so container replacement cannot discard them.
+      - OVS_TTS_SPEAKERS_FILE=/opt/seeed-local-voice/data/speakers.json
+      - SPARKTTS_VOICES_DIR=/opt/seeed-local-voice/data/sparktts_voices
+      - PARAFORMER_PREROLL_MS=${PARAFORMER_PREROLL_MS:-100}
+      - TTS_NUM_THREADS=4
+      - STREAMING_ASR_PROVIDER=cuda
+      - STREAMING_ASR_NUM_THREADS=4
+      - CUDA_MODULE_LOADING=LAZY
+      - LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/onnxruntime/capi:/host-cuda:/host-nvidia-libs:/host-libs
+      - PYTHONPATH=/opt/speech:/usr/lib/python3.10/dist-packages
+      - ORT_CUDA_ARENA_EXTEND_STRATEGY=kSameAsRequested
+    volumes:
+      - speech-models:/opt/models
+      - seeed-local-voice-data:/opt/seeed-local-voice/data
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /lib/aarch64-linux-gnu:/host-libs:ro
+      - /usr/lib/python3.10/dist-packages/tensorrt:/usr/lib/python3.10/dist-packages/tensorrt:ro
+      - /usr/src/tensorrt:/usr/src/tensorrt:ro
+    restart: unless-stopped
+    # Week 1 hardening: orchestrators should rely on /readyz (backend
+    # READY + capacity + watchdog OK). /health is preserved but
+    # deprecated; see docs/archive/specs/prod-hardening-week1.md Deliverable 3.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: ${OVS_MEMORY_LIMIT:-6G}
+
+  translator:
+    # Jetson Orin slim CUDA image (~580 MB, ct2 built bare-metal on Orin
+    # for sm_87 — see services/translator/BUILD.md). To use the older
+    # CPU-only image instead, override TRANSLATOR_IMAGE to
+    # seeed-local-voice:translator-latest and TRANSLATOR_DEVICE=cpu.
+    image: ${TRANSLATOR_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:translator-cuda-jetson-v2}
+    runtime: nvidia
+    ports:
+      - "9001:9001"
+    environment:
+      - TRANSLATOR_DEVICE=${TRANSLATOR_DEVICE:-cuda}
+      - TRANSLATOR_DEVICE_INDEX=${TRANSLATOR_DEVICE_INDEX:-0}
+      - TRANSLATOR_MODEL_PATH=${TRANSLATOR_MODEL_PATH:-/models/nllb-200-distilled-600m-ct2-int8}
+      # Worker threadpool size for offloading the blocking CT2 call off the
+      # event loop. GPU is single-tenant so this doesn't increase translate
+      # throughput, but it keeps /health (and any other endpoint) responsive
+      # while translates are in flight — important for docker healthchecks
+      # not to time out under load.
+      - TRANSLATOR_WORKERS=${TRANSLATOR_WORKERS:-4}
+      # CSV-mode Jetson container runtime: must map /dev/nvmap into the
+      # container or CUDA init fails with "NvRmMemInitNvmap failed".
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      # The slim image relies on host CUDA libs (cudnn / cublas / cudart)
+      # — bind-mounted below; this path puts /usr/local/lib (where the
+      # bare-metal-built libctranslate2.so lives) first, then host CUDA
+      # paths after. See services/translator/BUILD.md.
+      - LD_LIBRARY_PATH=/usr/local/lib:/host-libs:/host-nvidia-libs:/host-cuda
+    volumes:
+      - translator-models:/models:ro
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /usr/lib/aarch64-linux-gnu:/host-libs:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${TRANSLATOR_MEMORY_LIMIT:-4G}
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  speech-models:
+    name: speech-models
+  seeed-local-voice-data:
+    name: seeed-local-voice-data
+  translator-models:
+    name: translator-models

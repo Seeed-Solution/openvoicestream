@@ -2,14 +2,15 @@
 services:
   speech:
     container_name: seeed-voice-v011-candidate
-    image: ${SPEECH_IMAGE:?set SPEECH_IMAGE to the reviewed candidate digest}
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a}
     runtime: nvidia
     ipc: host
     restart: unless-stopped
     environment:
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
       LANGUAGE_MODE: multilanguage
-      OVS_PROFILE: ${OVS_PROFILE:?set OVS_PROFILE to an audited v0.11 profile}
+      OVS_PROFILE: ${OVS_PROFILE:-jetson-edgellm-v011-default-voice}
+      OVS_PROFILE_JSON: /opt/voice-profile/jetson-edgellm-v011-default-voice.json
       OVS_AUTO_DOWNLOAD_ARTIFACTS: "1"
       HF_MODEL_CACHE_ROOT: /opt/models
       HF_HOME: /opt/models/huggingface
@@ -24,8 +25,9 @@ services:
       PYTHONPATH: /opt/speech:/usr/lib/python3.10/dist-packages
       LD_LIBRARY_PATH: /usr/local/lib/python3.10/dist-packages/onnxruntime/capi:/host-cuda:/host-nvidia-libs:/host-libs
     ports:
-      - "${OVS_V011_PORT:-18624}:8000"
+      - "${OVS_V011_PORT:-8621}:8000"
     volumes:
+      - ${OVS_PROFILE_JSON_HOST:-../configs/profiles/jetson-edgellm-v011-default-voice.json}:/opt/voice-profile/jetson-edgellm-v011-default-voice.json:ro
       - /usr/lib/python3.10/dist-packages/tensorrt:/usr/lib/python3.10/dist-packages/tensorrt:ro
       - /usr/src/tensorrt:/usr/src/tensorrt:ro
       - speech-models-v011:/opt/models

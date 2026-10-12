@@ -12,15 +12,12 @@
 
 services:
   speech:
-    # The v0.9.0 on-demand image: no baked engines, voxedge from PyPI, behavior
-    # selected by OVS_PROFILE / LANGUAGE_MODE at runtime with artifacts
-    # provisioned on first boot. Replaces the jetson-v1.14-hotswap line, whose
+    # The default Jetson voice image is the digest-pinned v0.11 candidate; ASR/TTS
+    # artifacts are resolved from the combined external profile. The previous
+    # v0.9.0 on-demand path remains available through the explicit --legacy mode.
     # Dockerfile baked v071 customvoice binaries that exist on no published
     # source (see deploy/docker/archive/).
-    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.9.0-ondemand-20260721c}
-    build:
-      context: ..
-      dockerfile: deploy/docker/Dockerfile.jetson.edgellm-v090-ondemand
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a}
     # NOTE: this file covers the Jetson target. RK and Raspberry Pi run on
     # different hosts (different runtime, different volumes) and have their
     # own compose files: deploy/docker-compose.rk.yml, deploy/docker-compose.rpi.yml.
@@ -30,8 +27,8 @@ services:
       - "8621:8000"
     environment:
       - LANGUAGE_MODE=${LANGUAGE_MODE:-zh_en}
-      - OVS_PROFILE=${OVS_PROFILE:-}
-      - OVS_PROFILE_JSON=${OVS_PROFILE_JSON:-}
+      - OVS_PROFILE=${OVS_PROFILE:-jetson-edgellm-v011-default-voice}
+      - OVS_PROFILE_JSON=/opt/voice-profile/jetson-edgellm-v011-default-voice.json
       # Week 2: structured JSON logs in production; override to ``text``
       # locally if you want human-grep-friendly output.
       - OVS_LOG_FORMAT=${OVS_LOG_FORMAT:-json}
@@ -59,7 +56,7 @@ services:
       - QWEN3_ARTIFACT_ROOT=${QWEN3_ARTIFACT_ROOT:-/opt/models/qwen3-edgellm}
       - QWEN3_HF_REPO_ID=${QWEN3_HF_REPO_ID:-}
       - QWEN3_HF_REVISION=${QWEN3_HF_REVISION:-main}
-      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - TTS_PROVIDER=${TTS_PROVIDER:-cuda}
       - TTS_DEFAULT_SID=${TTS_DEFAULT_SID:-0}
       - TTS_DEFAULT_SPEED=${TTS_DEFAULT_SPEED:-0.85}
@@ -76,6 +73,7 @@ services:
       - PYTHONPATH=/opt/speech:/usr/lib/python3.10/dist-packages
       - ORT_CUDA_ARENA_EXTEND_STRATEGY=kSameAsRequested
     volumes:
+      - ${OVS_PROFILE_JSON_HOST:-../configs/profiles/jetson-edgellm-v011-default-voice.json}:/opt/voice-profile/jetson-edgellm-v011-default-voice.json:ro
       - speech-models:/opt/models
       - seeed-local-voice-data:/opt/seeed-local-voice/data
       - /usr/local/cuda/lib64:/host-cuda:ro
