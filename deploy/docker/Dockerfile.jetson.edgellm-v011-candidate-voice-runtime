@@ -1,0 +1,65 @@
+# Candidate-only v0.11 voice runtime. Models and TRT engines stay external HF/host inputs.
+ARG BASE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:jetson-v1.16-symlink
+ARG BASE_DIGEST=sha256:8946825a69555f0396fe7aa386520a88e00615c4f870d218f5819cccbe51d696
+FROM ${BASE}@${BASE_DIGEST}
+
+ARG VOXEDGE_VERSION=0.0.15a3
+ARG VOXEDGE_WHEEL_SHA256
+ARG SOURCE_REVISION=unknown
+ARG JVE_SOURCE_REVISION=unknown
+
+LABEL org.opencontainers.image.title="Seeed Local Voice v0.11 candidate voice runtime" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      com.seeed.release-state="candidate_unpublished" \
+      com.seeed.voxedge.version="${VOXEDGE_VERSION}" \
+      com.seeed.jve.source-revision="${JVE_SOURCE_REVISION}"
+
+ENV PYTHONPATH=/opt/speech \
+    PATH=/opt/speech/.venv/bin:$PATH \
+    HF_ENDPOINT=https://hf-mirror.com \
+    UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    UV_NO_CONFIG=1 \
+    OVS_AUTO_DOWNLOAD_ARTIFACTS=1 \
+    OVS_RELEASE_STATE=candidate_unpublished \
+    VOXEDGE_VERSION=${VOXEDGE_VERSION}
+
+WORKDIR /opt/speech
+
+# The published base must provide the Linux ARM64 uv binary. This avoids copying
+# a macOS uv binary or downloading an unpinned installer during the image build.
+RUN set -eux; command -v uv; uv --version; uv venv --system-site-packages --python python3 /opt/speech/.venv
+
+# Only selected server/config inputs enter this candidate image; no legacy v091 gate
+# or native engine is copied. ASR/TTS runtime artifacts resolve from immutable HF refs.
+COPY server/ /opt/speech/server/
+COPY configs/profiles/jetson-edgellm-v011-candidate-asr.json /opt/speech/configs/profiles/
+COPY configs/profiles/jetson-edgellm-v011-candidate-customvoice.json /opt/speech/configs/profiles/
+COPY deploy/artifacts/v011-candidate-asr-inputs.json /opt/speech/deploy/artifacts/
+COPY deploy/artifacts/v011-candidate-llm-inputs.json /opt/speech/deploy/artifacts/
+COPY deploy/wheels/voxedge-0.0.15a3-py3-none-any.whl /tmp/voxedge-0.0.15a3-py3-none-any.whl
+
+RUN set -eux; \
+    wheel="/tmp/voxedge-${VOXEDGE_VERSION}-py3-none-any.whl"; \
+    test -f "$wheel"; \
+    test -n "$VOXEDGE_WHEEL_SHA256"; \
+    echo "$VOXEDGE_WHEEL_SHA256  $wheel" | sha256sum -c -; \
+    uv pip install --python /opt/speech/.venv/bin/python --no-cache "$wheel"; \
+    uv pip install --python /opt/speech/.venv/bin/python --no-cache -r /opt/speech/server/requirements.txt; \
+    /opt/speech/.venv/bin/python - <<'PY'
+import importlib.metadata
+import os
+want = os.environ["VOXEDGE_VERSION"]
+actual = importlib.metadata.version("voxedge")
+assert actual == want, (actual, want)
+PY
+
+# Candidate checks bind the new profile/input contract; they do not inspect or
+# reject historical files that may exist in the published base image.
+RUN set -eux; \
+    test -s /opt/speech/configs/profiles/jetson-edgellm-v011-candidate-asr.json; \
+    test -s /opt/speech/configs/profiles/jetson-edgellm-v011-candidate-customvoice.json; \
+    test -s /opt/speech/deploy/artifacts/v011-candidate-asr-inputs.json; \
+    /opt/speech/.venv/bin/python -m py_compile /opt/speech/server/main.py /opt/speech/server/core/api_capabilities.py
+
+EXPOSE 8000
+ENTRYPOINT ["/opt/speech/.venv/bin/python", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]

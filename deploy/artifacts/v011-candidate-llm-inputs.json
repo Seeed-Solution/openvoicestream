@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "artifact_set": "orin-sm87-edgellm-v011-candidate-llm",
+  "release_state": "draft_inputs_unqualified",
+  "deployable": false,
+  "candidate_notice": "DRAFT INPUT CONTRACT ONLY. Nothing here is built, staged, qualified or publishable. A schema-valid draft is explicitly NOT launch-ready. The runtime gate requires all identities and staged bytes; the image identity is validated by an external deployment gate (no self-referential in-image digest). Target is Jetson Orin SM87 with CUDA 12.6 / TensorRT 10.3 as a CUSTOM COMPATIBILITY candidate: this is NOT an official JetPack qualification claim, and the CUDA/TensorRT versions are DECLARED until independently generated build/runtime evidence exists.",
+  "rollback_release_lock": "deploy/artifacts/v010-release-lock.json",
+  "gate_policy": {
+    "draft_gate": "input-schema-only",
+    "runtime_gate": "verify-runtime-required",
+    "image_identity_gate": "external-deployment-gate-required",
+    "image_build_state": "artifacts_unqualified_inputs_pending",
+    "image_self_identity_fields": [
+      "ref",
+      "image_id",
+      "registry_digest",
+      "size_bytes"
+    ]
+  },
+  "source": {
+    "upstream_commit": "95515c2f87fba8982db5a519f9022277667b3cc9",
+    "upstream_remote": "https://github.com/NVIDIA/TensorRT-Edge-LLM",
+    "upstream_version": "0.11.0",
+    "server_entry_module": "experimental.server",
+    "server_console_script": "tensorrt-edgellm-serve",
+    "in_flight_batching_flag": "--enable-in-flight-batching",
+    "tree_hash_scope": "relpath\\0bytes\\0 sorted; exclude __pycache__ and *.pyc",
+    "status": "candidate_pinned",
+    "patches": {
+      "status": "candidate_not_applied",
+      "series": []
+    },
+    "server_tree_sha256": null,
+    "native_payload_sha256": null,
+    "packages": {
+      "tensorrt_edgellm": {
+        "kind": "package_dir",
+        "path": "tensorrt_edgellm",
+        "sha256": null
+      },
+      "experimental": {
+        "kind": "package_dir",
+        "path": "experimental",
+        "sha256": null
+      },
+      "wheel-dist-info": {
+        "kind": "wheel",
+        "path": "wheel/tensorrt_edgellm-0.11.0.dist-info",
+        "sha256": null
+      }
+    }
+  },
+  "target": {
+    "target_id": "jetson-orin-sm87",
+    "platform": "NVIDIA Jetson Orin (SM87), custom compatibility candidate",
+    "sm": "87",
+    "cpu_arch": "aarch64",
+    "python_abi": null,
+    "os_sdk": null,
+    "cuda": null,
+    "tensorrt": null,
+    "precision": null,
+    "qualification_status": "not_qualified",
+    "qualification_evidence": null,
+    "qualification_notice": "custom_compatibility_candidate; no official JetPack support claim; any qualification label above not_qualified must bind a hash-verified evidence record (path+sha256+scope), a freeform 'measured' string is not proof"
+  },
+  "engine": {
+    "kind": "vanilla_non_mtp",
+    "speculative_decoding": false,
+    "mtp_enabled": false,
+    "candidate_profiles": [
+      "b1",
+      "b2"
+    ],
+    "max_batch_size": 2,
+    "max_input_len": 8192,
+    "max_kv_cache_capacity": 8192,
+    "model_dir": null,
+    "cache_dir": null,
+    "checkpoint_digest": null,
+    "checkpoint_digest_semantics": "official engine_build._checkpoint_digest SAMPLED cache fingerprint only (safetensors header + bounded samples); NOT a full byte binding - see model.checkpoint_content_sha256",
+    "bundle_dir": null,
+    "bundle_sha256": null,
+    "bundle_files": null,
+    "bundle_files_semantics": "full ready-bundle closure: every component engine/config file with per-file sha256+size; set must equal the actual bundle files",
+    "engine_bundle_repo": null,
+    "engine_bundle_revision": "41fb732368307f2a6aef3ba67d35aef027845b4a",
+    "payload_sha256": null,
+    "payload_size": null,
+    "manifest_recipe": null,
+    "status": "not_built"
+  },
+  "model": {
+    "model_id": "qwen3.5-4b",
+    "checkpoint_repo": "harvestsu/Qwen3.5-4B-AWQ",
+    "revision": "7551dd662b7f7b140aaa99558ac62ac9317be1b5",
+    "checkpoint_identity_status": "declared_not_measured",
+    "checkpoint_content_sha256": null,
+    "precision": "int4_awq",
+    "quantization_algorithm": "W4A16_AWQ",
+    "quantization_group_size": 128,
+    "status": "not_qualified",
+    "checkpoint_notice": "The v0.11 candidate consumes the frozen byte-bound quant artifact repository harvestsu/Qwen3.5-4B-AWQ at checkpoint revision 7551dd662b7f7b140aaa99558ac62ac9317be1b5. The engine bundle is pinned separately to artifact revision 41fb732368307f2a6aef3ba67d35aef027845b4a. ModelOpt 0.42 W4A16 g128 AWQ, no zero point, pre-quant scales, lm_head F16. The original unquantized repo Qwen/Qwen3.5-4B is not this checkpoint and its revision is not claimed. The checkpoint config family stays the original multimodal qwen3_5 (no text-only relabel). DECLARED until the staged checkpoint content is measured at the runtime gate; checkpoint_content_sha256 stays null until full inventory verification"
+  },
+  "runtime_images": {
+    "llm": {
+      "ref": null,
+      "image_id": null,
+      "registry_digest": null,
+      "size_bytes": null,
+      "service_revision": null,
+      "image_identity_status": "external_gate_pending",
+      "base_image": null,
+      "build_runtime_root": null,
+      "target_ids": [
+        "jetson-orin-sm87"
+      ]
+    }
+  },
+  "runtime_artifacts": {
+    "llm/experimental-server": {
+      "path": "experimental/server",
+      "sha256": null,
+      "size": null,
+      "status": "not_staged"
+    },
+    "source/tensorrt_edgellm": {
+      "path": "tensorrt_edgellm",
+      "sha256": null,
+      "size": null,
+      "status": "not_staged"
+    },
+    "source/experimental": {
+      "path": "experimental",
+      "sha256": null,
+      "size": null,
+      "status": "not_staged"
+    },
+    "source/wheel-dist-info": {
+      "path": "wheel/tensorrt_edgellm-0.11.0.dist-info",
+      "sha256": null,
+      "size": null,
+      "status": "not_staged"
+    }
+  },
+  "server_dependencies": {
+    "source": "requirements-server.txt",
+    "pins": {
+      "fastapi": "0.139.2",
+      "uvicorn": "0.51.0",
+      "huggingface-hub": ">=1.5.0,<2.0",
+      "av": "17.1.0",
+      "numpy": "2.2.6",
+      "python-multipart": "0.0.32"
+    }
+  },
+  "runtime_profile": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "max_queued_requests": 16,
+    "queue_timeout": 600.0,
+    "engine_cache_max_size_gb": 50.0
+  },
+  "expected_client_compatibility": {
+    "chat_completions_path": "/v1/chat/completions",
+    "health_path": "/health",
+    "ready_path": "/health/ready",
+    "save_system_prompt_kv_cache": "per-request flag; no direct warm-up API under IFB",
+    "return_cache_metrics": "tolerate absence under IFB",
+    "enable_thinking": "request field preserved"
+  },
+  "tts_isolation": {
+    "tts_plugin_mounted": false,
+    "tts_models_root_mounted": false,
+    "co_load_v010_plugin": false
+  }
+}

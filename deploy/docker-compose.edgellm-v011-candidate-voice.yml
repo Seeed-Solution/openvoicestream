@@ -1,0 +1,49 @@
+# Versioned v0.11 candidate entrypoint. Keep SPEECH_IMAGE pinned by digest for deployment.
+services:
+  speech:
+    container_name: seeed-voice-v011-candidate
+    image: ${SPEECH_IMAGE:?set SPEECH_IMAGE to the reviewed candidate digest}
+    runtime: nvidia
+    ipc: host
+    restart: unless-stopped
+    environment:
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      LANGUAGE_MODE: multilanguage
+      OVS_PROFILE: ${OVS_PROFILE:?set OVS_PROFILE to an audited v0.11 profile}
+      OVS_AUTO_DOWNLOAD_ARTIFACTS: "1"
+      HF_MODEL_CACHE_ROOT: /opt/models
+      HF_HOME: /opt/models/huggingface
+      HUGGINGFACE_HUB_CACHE: /opt/models/huggingface/hub
+      TRANSFORMERS_CACHE: /opt/models/huggingface/transformers
+      TTS_PROVIDER: cuda
+      STREAMING_ASR_PROVIDER: cuda
+      OVS_TTS_SPEAKERS_FILE: /opt/seeed-local-voice/data/speakers.json
+      SPARKTTS_VOICES_DIR: /opt/seeed-local-voice/data/sparktts_voices
+      CUDA_MODULE_LOADING: LAZY
+      OVS_RELEASE_STATE: candidate_unpublished
+      PYTHONPATH: /opt/speech:/usr/lib/python3.10/dist-packages
+      LD_LIBRARY_PATH: /usr/local/lib/python3.10/dist-packages/onnxruntime/capi:/host-cuda:/host-nvidia-libs:/host-libs
+    ports:
+      - "${OVS_V011_PORT:-18624}:8000"
+    volumes:
+      - /usr/lib/python3.10/dist-packages/tensorrt:/usr/lib/python3.10/dist-packages/tensorrt:ro
+      - /usr/src/tensorrt:/usr/src/tensorrt:ro
+      - speech-models-v011:/opt/models
+      - seeed-local-voice-data:/opt/seeed-local-voice/data
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /lib/aarch64-linux-gnu:/host-libs:ro
+    mem_limit: 8g
+    memswap_limit: 14g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/readyz >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15m
+
+volumes:
+  speech-models-v011:
+    name: ${SPEECH_MODEL_VOLUME:-speech-models-v011-candidate}
+  seeed-local-voice-data:
+    name: seeed-local-voice-data

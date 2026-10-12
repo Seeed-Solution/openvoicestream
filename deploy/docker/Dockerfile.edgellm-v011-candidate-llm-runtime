@@ -1,0 +1,165 @@
+# Jetson Orin (SM87) Qwen3.5 LLM v0.11 IFB candidate runtime.
+#
+# CUSTOM COMPATIBILITY candidate target: SM87 with CUDA 12.6 / TensorRT 10.3
+# as DECLARED inputs. This is NOT an official JetPack qualification claim; a
+# qualification marker requires independently generated build/runtime
+# evidence.
+#
+# Assembled from EXTERNALLY STAGED v0.11 inputs: the official server packages
+# (tensorrt_edgellm + experimental, INCLUDING the package-internal native
+# manifest and payload directory) and the pinned server dependencies. Every
+# required input must be present and hash-verified; an unset or mismatched
+# input fails the build closed. No image digest, engine hash or bundle hash is
+# invented here.
+ARG BASE=docker.m.daocloud.io/library/python@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea
+ARG BUILD_RUNTIME_ROOT
+
+FROM ${BASE}
+
+# ARGs declared before FROM are not in stage scope; re-declare them here.
+ARG BASE
+ARG BUILD_RUNTIME_ROOT
+ARG VENV_ROOT=/opt/edgellm-v011/venv
+ARG SOURCE_REVISION=unknown
+ARG UPSTREAM_COMMIT=95515c2f87fba8982db5a519f9022277667b3cc9
+ARG RUNTIME_ROOT=/opt/edgellm-v011
+ARG SERVER_TREE_SHA256
+ARG TENSORRT_EDGELLM_SHA256
+ARG EXPERIMENTAL_SHA256
+ARG DIST_INFO_SHA256
+ARG NATIVE_TREE_SHA256
+
+# Staged context layout (produced by the external v0.11 build) preserves the
+# CANONICAL official release-wheel package layout: the native manifest and the
+# payload directory live INSIDE the tensorrt_edgellm package, exactly where the
+# official resolver (tensorrt_edgellm._native.load.resolve_payload) expects them.
+# There is deliberately no force-rename of the extension and no relocated
+# plugin: renaming would build the manifestless bare-import fallback in
+# experimental/server/runtime/engine.py, which skips every manifest hash and the
+# source_revision binding.
+#
+#   wheel/tensorrt_edgellm-*.dist-info      official wheel metadata
+#   tensorrt_edgellm/                       official python package
+#     tensorrt_edgellm/_native/variants.json               manifest (schema 1)
+#     tensorrt_edgellm/_native/payloads/<variant_id>/_edgellm_runtime.cpython-<abi>-aarch64-linux-gnu.so
+#     tensorrt_edgellm/_native/payloads/<variant_id>/lib/libNvInfer_edgellm_plugin.so
+#   experimental/                           official builder + server tree
+COPY tensorrt_edgellm/ ${RUNTIME_ROOT}/tensorrt_edgellm/
+COPY experimental/ ${RUNTIME_ROOT}/experimental/
+COPY wheel/ ${RUNTIME_ROOT}/wheel/
+COPY runtime/uv /tmp/uv
+# The checker lives BESIDE the launcher so the in-image entrypoint can
+# resolve it (both under ${RUNTIME_ROOT}).
+COPY scripts/check_edgellm_v011_candidate.py ${RUNTIME_ROOT}/check_edgellm_v011_candidate.py
+COPY scripts/start_edgellm_v011_candidate_llm_runtime.py ${RUNTIME_ROOT}/start_edgellm_v011_candidate_llm_runtime.py
+COPY deploy/artifacts/v011-candidate-llm-inputs.json ${RUNTIME_ROOT}/v011-candidate-llm-inputs.json
+
+ENV EDGELLM_V011_VENV=${VENV_ROOT} \
+    PATH=${VENV_ROOT}/bin:${PATH}
+
+# Create an isolated CP312 environment; never install into the base system Python.
+RUN set -eux; \
+    /tmp/uv venv --python /usr/local/bin/python3 "${VENV_ROOT}"
+
+RUN python3 -c 'import platform,sys; assert sys.version_info[:2] == (3, 12), sys.version_info; assert sys.implementation.cache_tag == "cpython-312", sys.implementation.cache_tag; assert platform.machine() == "aarch64", platform.machine(); print("python ABI", sys.implementation.cache_tag, platform.machine())'
+
+# Canonical tree digest is the SAME code path as the checker (no shell/hash
+# scheme drift): `check_edgellm_v011_candidate.py --tree-digest DIR`.
+RUN set -eux; \
+    test -n "${BASE}"; \
+    test -n "${BUILD_RUNTIME_ROOT}"; \
+    test -n "${SERVER_TREE_SHA256}"; \
+    test -n "${TENSORRT_EDGELLM_SHA256}"; \
+    test -n "${EXPERIMENTAL_SHA256}"; \
+    test -n "${DIST_INFO_SHA256}"; \
+    test -n "${NATIVE_TREE_SHA256}"; \
+    digest() { python3 ${RUNTIME_ROOT}/check_edgellm_v011_candidate.py --tree-digest "$1"; }; \
+    test "$(digest ${RUNTIME_ROOT}/experimental/server)" = "${SERVER_TREE_SHA256}"; \
+    test "$(digest ${RUNTIME_ROOT}/tensorrt_edgellm)" = "${TENSORRT_EDGELLM_SHA256}"; \
+    test "$(digest ${RUNTIME_ROOT}/experimental)" = "${EXPERIMENTAL_SHA256}"; \
+    test "$(digest ${RUNTIME_ROOT}/wheel/tensorrt_edgellm-0.11.0.dist-info)" = "${DIST_INFO_SHA256}"; \
+    test "$(digest ${RUNTIME_ROOT}/tensorrt_edgellm/_native)" = "${NATIVE_TREE_SHA256}"
+
+# Install exactly the upstream-pinned server dependencies through the
+# configured domestic mirror using uv. The pins mirror requirements-server.txt.
+RUN UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple /tmp/uv pip install --python "${VENV_ROOT}/bin/python" --no-cache \
+      'fastapi==0.139.2' \
+      'uvicorn==0.51.0' \
+      'huggingface-hub>=1.5.0,<2.0' \
+      'av==17.1.0' \
+      'numpy==2.2.6' \
+      'python-multipart==0.0.32' \
+      'cuda-python>=12.6,<14' \
+    && rm -f /tmp/uv
+
+# The staged native payload name must match the running interpreter ABI; the
+# launcher/checker also bind this at runtime. Fail closed on mismatch.
+RUN python3 -c 'import platform,sys; assert sys.version_info[:2] == (3, 12), sys.version_info; assert sys.implementation.cache_tag == "cpython-312", sys.implementation.cache_tag; assert platform.machine() == "aarch64", platform.machine(); print("python ABI", sys.implementation.cache_tag, platform.machine())'
+
+# The package-internal native manifest MUST exist and be contract-valid, and the
+# manifest-declared extension/plugin MUST resolve for this architecture/ABI.
+# This prevents building the manifestless fallback that skips the
+# source_revision/hash binding (tensorrt_edgellm._native.load).
+RUN printf '%s\n' \
+      'import hashlib' \
+      'import pathlib' \
+      'from tensorrt_edgellm._native import select' \
+      "root = pathlib.Path('${RUNTIME_ROOT}') / 'tensorrt_edgellm'" \
+      'manifest_path = root / "_native" / "variants.json"' \
+      'assert manifest_path.is_file(), "canonical native manifest is absent: " + str(manifest_path)' \
+      'manifest = select.load_manifest(manifest_path)' \
+      'resolved_root = root.resolve(strict=True)' \
+      'for selected in manifest["variants"]:' \
+      '    for field, hash_field in (("extension", "extension_sha256"), ("plugin", "plugin_sha256")):' \
+      '        relative = selected[field]' \
+      '        assert isinstance(relative, str) and relative, (field, relative)' \
+      '        relative_path = pathlib.PurePosixPath(relative)' \
+      '        assert not relative_path.is_absolute(), (field, relative)' \
+      '        assert ".." not in relative_path.parts, (field, relative)' \
+      '        path = (root / relative_path).resolve(strict=True)' \
+      '        assert path.is_relative_to(resolved_root), (field, relative)' \
+      '        assert path.is_file(), (field, relative)' \
+      '        digest = hashlib.sha256(path.read_bytes()).hexdigest()' \
+      '        assert digest == selected[hash_field], (field, digest, selected[hash_field])' \
+      'print("native manifest payload hashes", len(manifest["variants"]))' \
+      > /tmp/check_native_manifest.py \
+ && PYTHONPATH=${RUNTIME_ROOT} python3 /tmp/check_native_manifest.py \
+ && rm -f /tmp/check_native_manifest.py
+
+# Verify the official server entrypoint is importable from the staged tree.
+RUN PYTHONPATH=${RUNTIME_ROOT} python3 -c 'import experimental.server.cli, tensorrt_edgellm' \
+    && PYTHONPATH=${RUNTIME_ROOT} python3 -m experimental.server --help >/dev/null
+
+# Schema lint of the staged draft contract (build-time only; runtime requires
+# --verify-runtime, which the entrypoint performs).
+RUN python3 ${RUNTIME_ROOT}/check_edgellm_v011_candidate.py \
+      --contract ${RUNTIME_ROOT}/v011-candidate-llm-inputs.json --draft
+
+# Do NOT pre-set EDGELLM_PLUGIN_PATH: the official loader sets it from the
+# manifest-selected plugin and raises NativeLoadError if a pre-set value
+# conflicts with the wheel payload. Leaving it unset keeps the manifest binding
+# authoritative.
+ENV EDGELLM_V011_RUNTIME_ROOT=${RUNTIME_ROOT} \
+    EDGELLM_V011_INPUT_CONTRACT=${RUNTIME_ROOT}/v011-candidate-llm-inputs.json \
+    PYTHONPATH=${RUNTIME_ROOT} \
+    EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=0 \
+    PYTHONUNBUFFERED=1
+
+LABEL org.opencontainers.image.title="Seeed Edge LLM TensorRT-Edge-LLM v0.11 Orin SM87 candidate" \
+      org.opencontainers.image.version="v0.11-candidate" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      com.seeed.edgellm.upstream-commit="${UPSTREAM_COMMIT}" \
+      com.seeed.edgellm.build-runtime-root="${BUILD_RUNTIME_ROOT}" \
+      com.seeed.edgellm.server-tree.sha256="${SERVER_TREE_SHA256}" \
+      com.seeed.edgellm.native-tree.sha256="${NATIVE_TREE_SHA256}" \
+      com.seeed.release-state="candidate_unpublished"
+
+# REMAINING PHYSICAL IMAGE BUILD GAP (not closable here): this image is NOT
+# buildable or launchable until an actual official released wheel _native/
+# payload exists -- a real variants.json plus the hash-matching
+# _native/payloads/<variant_id>/ extension and lib/ plugin selected for
+# aarch64/cp312/SM87 -- together with a real staged checkpoint whose bytes match
+# contract engine.model_dir/digests. No artifact identity, hash or model
+# identity is invented in this file; the runtime gate fails closed without them.
+
+ENTRYPOINT ["python3", "/opt/edgellm-v011/start_edgellm_v011_candidate_llm_runtime.py"]
