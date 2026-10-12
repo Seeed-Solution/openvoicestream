@@ -87,7 +87,7 @@ deploy/install.sh --target rpi --pull --verify
 
 ### v0.11 Jetson candidate
 
-The published v0.11 entrypoints are candidate-only profiles. The existing stable defaults remain unchanged: `deploy/install.sh --pull --verify` still selects the qualified v0.9.1 path on Orin NX, and the other platform defaults remain on their existing releases. The repositories are therefore not all bound to v0.11.
+The published v0.11 entrypoints are candidate-only profiles. The existing stable defaults remain unchanged: `deploy/install.sh --pull --verify` still selects the qualified v0.9.1 path on Orin NX, and the other platform defaults remain on their existing releases. The repositories are therefore not all bound to v0.11. The entrypoint version map is: `--target orin-nx` uses the v0.9.1 voice and cutover path; `--target jetson` and `--target orin-nano` use the v0.9.0 on-demand path; v0.10 remains an explicit production voice entrypoint; v0.11 is the explicit candidate entrypoint documented below.
 
 The v0.11 voice image is a Linux/ARM64 JetPack 6.2 / TensorRT 10.3 candidate image. Pull it by its immutable digest and select the reviewed CustomVoice profile:
 

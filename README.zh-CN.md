@@ -79,7 +79,7 @@ deploy/install.sh --target rpi --pull --verify
 
 ### v0.11 Jetson 候选版本
 
-已发布的 v0.11 入口仍是候选版本。现有稳定默认不变：`deploy/install.sh --pull --verify` 在 Orin NX 上仍选择已验收的 v0.9.1 路径，其他平台也仍使用各自现有版本。因此，相关仓库并不是全部绑定到 v0.11。
+已发布的 v0.11 入口仍是候选版本。现有稳定默认不变：`deploy/install.sh --pull --verify` 在 Orin NX 上仍选择已验收的 v0.9.1 路径，其他平台也仍使用各自现有版本。因此，相关仓库并不是全部绑定到 v0.11。入口版本对应关系是：`--target orin-nx` 使用 v0.9.1 语音与 cutover 路径；`--target jetson` 和 `--target orin-nano` 使用 v0.9.0 on-demand 路径；v0.10 保留为显式生产语音入口；v0.11 是下文说明的显式候选入口。
 
 v0.11 语音镜像面向 Linux/ARM64、JetPack 6.2 / TensorRT 10.3，按不可变 digest 拉取并选择已审查的 CustomVoice profile：
 

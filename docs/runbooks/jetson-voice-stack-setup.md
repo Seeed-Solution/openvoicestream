@@ -11,7 +11,7 @@
 
 ## 0. v0.11 候选入口
 
-本 runbook 的默认拓扑仍指向 v0.9.1 稳定路径。v0.11 是单独的 Jetson Linux/ARM64 候选入口，不能把 `--pull --verify` 的默认行为理解为切换到 v0.11，也不能把候选镜像写成已通过官方 JetPack 或生产 GPU 验收。
+本 runbook 的 Orin NX 默认拓扑仍指向 v0.9.1 稳定路径；`--target jetson` 和 `--target orin-nano` 使用 v0.9.0 on-demand 路径，v0.10 仍需显式选择。v0.11 是单独的 Jetson Linux/ARM64 候选入口，不能把 `--pull --verify` 的默认行为理解为切换到 v0.11，也不能把候选镜像写成已通过官方 JetPack 或生产 GPU 验收。
 
 语音候选镜像按 digest 拉取：
 
