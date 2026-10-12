@@ -11,13 +11,13 @@
 
 ## 0. v0.11 候选入口
 
-本 runbook 的 Orin NX 默认拓扑仍指向 v0.9.1 稳定路径；`--target jetson` 和 `--target orin-nano` 使用 v0.9.0 on-demand 路径，v0.10 仍需显式选择。v0.11 是单独的 Jetson Linux/ARM64 候选入口，不能把 `--pull --verify` 的默认行为理解为切换到 v0.11，也不能把候选镜像写成已通过官方 JetPack 或生产 GPU 验收。
+本 runbook 的 Orin NX 默认语音入口绑定 v0.11 合并 voice profile；旧版安装器仍需显式使用 `--legacy` 回滚。v0.11 镜像和模型产物保持候选质量标记，不能把本节的单次 GPU smoke 当作全量性能或生产资格验收。
 
 语音候选镜像按 digest 拉取：
 
 ```bash
 export SPEECH_IMAGE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
-export OVS_PROFILE=jetson-edgellm-v011-candidate-customvoice
+export OVS_PROFILE=jetson-edgellm-v011-default-voice
 export HF_ENDPOINT=https://hf-mirror.com
 docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
 ```
@@ -28,7 +28,19 @@ docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
 HF_ENDPOINT=https://hf-mirror.com deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
 ```
 
-随后按 `deploy/docker-compose.edgellm-v011-candidate-llm.yml` 提供显式 `EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=1`、本地 staging checkpoint 目录和宿主 CUDA/TensorRT 库挂载。该服务固定使用 IFB B2；不提供一键生产启动。
+准备完成后按 `deploy/docker-compose.edgellm-v011-candidate-llm.yml` 或 `deploy/install.sh --target orin-nx --v011-llm-candidate` 启动显式 LLM 候选；安装器只启动该独立服务并退出。服务固定使用 IFB B2，公开 model name 为 `qwen3.5-4b`，需要本地 staging checkpoint、宿主 CUDA/TensorRT 库和 launcher 只读 bind。该服务仍保持候选质量标记，不等同于生产资格。
+
+### v0.11 默认 voice smoke 记录（Orin NX）
+
+已发布的 voice 镜像固定为：
+
+```text
+sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
+```
+
+默认 profile 同时挂载 ASR IFB B2（12 个必需文件）和 TTS CustomVoice R16（25 个必需文件），使用既有本地缓存；profile 的 ASR revision 为 `862ae0db85703e894ed9ae7448ae1ce11a79cda3`，TTS revision 为 `009cd08677ec0f42378060f99c99a0a409e5ca70`。一次 Orin NX GPU smoke 使用该 digest 启动容器并完成一条 TTS→ASR 回环：音频 `172844` bytes、`3.6s`，ASR 文本为“你好，今天天气真不错。”，similarity `1.0`。
+
+原始验收 wrapper 因按行解析格式化 JSON 而记录 aggregate `FAIL`；客户端实际 exit code 为 `0`，原始 stdout 的完整 JSON 已离线重放为 request `PASS`。保留该 aggregate FAIL 记录，不能将这次单条回环提升为候选质量标记、性能矩阵、soak 或生产资格。证据见 `/tmp/slv-v011-voice-image-final-smoke-oct12-r1/actual-run-r3-nx/reconciled-evidence.json`、`wrapper-fix.diff` 及其 `evidence/` 子目录。
 
 ## 1. 先选拓扑
 

@@ -70,7 +70,7 @@ deploy/install.sh --pull --verify   # 自动识别 Jetson / Rockchip / Raspberry
 自动检测不适用时显式指定：
 
 ```bash
-deploy/install.sh --target orin-nx --pull --verify  # v0.9.1：Qwen3-ASR + Matcha + 本地 LLM
+deploy/install.sh --target orin-nx --pull --verify  # v0.11 合并语音默认入口
 deploy/install.sh --target jetson --pull --verify
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
@@ -85,7 +85,7 @@ v0.11 语音镜像面向 Linux/ARM64、JetPack 6.2 / TensorRT 10.3，按不可�
 
 ```bash
 export SPEECH_IMAGE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
-export OVS_PROFILE=jetson-edgellm-v011-candidate-customvoice
+export OVS_PROFILE=jetson-edgellm-v011-default-voice
 export HF_ENDPOINT=https://hf-mirror.com
 docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
 ```
@@ -96,9 +96,10 @@ v0.11 Orin NX LLM 是独立的 IFB B2 候选镜像。多平台 index 为 `sha256
 
 ```bash
 HF_ENDPOINT=https://hf-mirror.com   deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
+# 准备完成后，使用 --v011-llm-candidate（不带 --prepare-only）启动独立 LLM
 ```
 
-启动 LLM 还需要使用独立的候选 compose 文件，显式设置 `EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=1`，准备好本地 checkpoint，并提供该 compose 文件要求的宿主 CUDA/TensorRT 挂载。LLM engine bundle 独立锁定在 `41fb732368307f2a6a6ef3ba67d35aef027845b4a`；checkpoint 来源是 `harvestsu/Qwen3.5-4B-AWQ` 的 `7551dd662b7f7b140aaa9958ac62ac9317be1b5` revision。该候选版本没有官方 JetPack 资格或一键生产部署声明；需要回滚时使用 `deploy/install.sh --target orin-nx --legacy --pull --verify`。
+准备完成后，使用 `deploy/install.sh --target orin-nx --v011-llm-candidate` 启动独立 LLM；安装器只启动该服务并退出。服务需要显式 candidate opt-in、本地 checkpoint、宿主 CUDA/TensorRT 挂载和 launcher 只读 bind，公开 model name 固定为 `qwen3.5-4b`；`--verify` 不适用于该 candidate 入口。LLM engine bundle 独立锁定在 `41fb732368307f2a6a6ef3ba67d35aef027845b4a`；checkpoint 来源是 `harvestsu/Qwen3.5-4B-AWQ` 的 `7551dd662b7f7b140aaa99558ac62ac9317be1b5` revision。该候选版本保持未合格标记，不代表官方 JetPack 或生产资格；需要回滚时使用 `deploy/install.sh --target orin-nx --legacy --pull --verify`。
 
 ### 推荐模型
 

@@ -78,7 +78,7 @@ deploy/install.sh --pull --verify   # auto-detects Jetson, Rockchip, or Raspberr
 Choose the target explicitly when auto-detect is not enough:
 
 ```bash
-deploy/install.sh --target orin-nx --pull --verify  # v0.9.1: Qwen3-ASR + Matcha + local LLM
+deploy/install.sh --target orin-nx --pull --verify  # v0.11 combined voice default
 deploy/install.sh --target jetson --pull --verify
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
@@ -93,7 +93,7 @@ The v0.11 voice image is a Linux/ARM64 JetPack 6.2 / TensorRT 10.3 candidate ima
 
 ```bash
 export SPEECH_IMAGE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
-export OVS_PROFILE=jetson-edgellm-v011-candidate-customvoice
+export OVS_PROFILE=jetson-edgellm-v011-default-voice
 export HF_ENDPOINT=https://hf-mirror.com
 docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
 ```
@@ -104,9 +104,10 @@ The v0.11 Orin NX LLM image is a separate IFB B2 candidate. Its multi-platform i
 
 ```bash
 HF_ENDPOINT=https://hf-mirror.com   deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
+# after preparation, use --v011-llm-candidate without --prepare-only for the explicit LLM service
 ```
 
-Starting the LLM requires the separate candidate compose file, the explicit `EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=1` opt-in, a staged checkpoint and the host CUDA/TensorRT mounts required by that file. The LLM engine bundle is pinned separately to `41fb732368307f2a6a6ef3ba67d35aef027845b4a`, while the checkpoint source is `harvestsu/Qwen3.5-4B-AWQ` at revision `7551dd662b7f7b140aaa9958ac62ac9317be1b5`. The candidate is not an official JetPack qualification or one-click production deployment; keep the existing v0.9.1 path for the stable default.
+After preparation, start the LLM with the same explicit candidate flag; the installer launches only the separate LLM service and then exits. The service uses the public model name `qwen3.5-4b` and requires the read-only reviewed launcher bind together with the staged checkpoint and host CUDA/TensorRT mounts. The LLM engine bundle is pinned separately to `41fb732368307f2a6a6ef3ba67d35aef027845b4a`, while the checkpoint source is `harvestsu/Qwen3.5-4B-AWQ` at revision `7551dd662b7f7b140aaa9958ac62ac9317be1b5`. The candidate remains separate from the default voice service and is not an official JetPack or production qualification.
 
 ### Recommended models
 
