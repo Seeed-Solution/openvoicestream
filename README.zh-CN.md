@@ -77,6 +77,29 @@ deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
 
+### v0.11 Jetson 候选版本
+
+已发布的 v0.11 入口仍是候选版本。现有稳定默认不变：`deploy/install.sh --pull --verify` 在 Orin NX 上仍选择已验收的 v0.9.1 路径，其他平台也仍使用各自现有版本。因此，相关仓库并不是全部绑定到 v0.11。
+
+v0.11 语音镜像面向 Linux/ARM64、JetPack 6.2 / TensorRT 10.3，按不可变 digest 拉取并选择已审查的 CustomVoice profile：
+
+```bash
+export SPEECH_IMAGE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
+export OVS_PROFILE=jetson-edgellm-v011-candidate-customvoice
+export HF_ENDPOINT=https://hf-mirror.com
+docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
+```
+
+语音 profile 会从不可变 Hugging Face revision 拉取 ASR 和 CustomVoice R16 产物（分别为 `862ae0db85703e894ed9ae7448ae1ce11a79cda3` 和 `009cd08677ec0f42378060f99c99a0a409e5ca70`）。ASR 使用省内存的 B2 配方，CustomVoice worker 并发为 1。
+
+v0.11 Orin NX LLM 是独立的 IFB B2 候选镜像。多平台 index 为 `sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868`，Linux/ARM64 leaf 为 `sha256:f882ff1daf2acb6cbf544d660f9e8763121a26fc3cfffacd0e4cd79aa9ebf4fc`。先用候选门禁准备本地 staging checkpoint：
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com   deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
+```
+
+启动 LLM 还需要使用独立的候选 compose 文件，显式设置 `EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=1`，准备好本地 checkpoint，并提供该 compose 文件要求的宿主 CUDA/TensorRT 挂载。LLM engine bundle 独立锁定在 `41fb732368307f2a6a6ef3ba67d35aef027845b4a`；checkpoint 来源是 `harvestsu/Qwen3.5-4B-AWQ` 的 `7551dd662b7f7b140aaa9958ac62ac9317be1b5` revision。该候选版本没有官方 JetPack 资格或一键生产部署声明；稳定默认仍使用现有 v0.9.1 路径。
+
 ### 推荐模型
 
 模型跟随场景与语言 —— 中文对话 → Qwen3-ASR + Matcha，英文 → Kokoro，

@@ -9,6 +9,8 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 
 | Tag | Seeed commit | voxedge commit | Date | Build host | Registry digest |
 |-----|-------------|----------------|------|-----------|-----------------|
+| `v0.11.0-candidate-voice-dfd6aae` (`seeed-local-voice`, Linux/ARM64) | `dfd6aae3c8d287fbba564c691e650ef5bf739d27` / closure `0a815fdda79411377a7e92ff952888437054b15a` | `voxedge==0.0.15a3` (`fd96f0a793873c080b88e13cabc1ab265b9c2901`) | 2026-10-12 | macbook | `sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a` |
+| `edgellm-v011-cp312-ifb-b2-20261012-candidate` (`edge-llm-chat-service`, index) | v0.11 candidate closure `0a815fdda79411377a7e92ff952888437054b15a` | engine bundle `41fb732368307f2a6a6ef3ba67d35aef027845b4a`; VoxEdge pin is separate | 2026-10-12 | macbook | `sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868` (Linux/ARM64 leaf `sha256:f882ff1daf2acb6cbf544d660f9e8763121a26fc3cfffacd0e4cd79aa9ebf4fc`) |
 | `prod-unified-v8` | `9bad68d99d2c20e0448c6b958f1302b35756829f` | `02e4f0bbe46e4c0cb6513c396cc83aab652ade65` | 2026-06-03 | recomputer-desktop | `sha256:910e298e9b5bf3643133c070618588164f104f9b326cc3f16de8200f5c760f5a` |
 | `prod-unified-v9` | `9bad68d99d2c20e0448c6b958f1302b35756829f` | `02e4f0b+mossfix(afdef16)` | 2026-06-17 | seeed-orin-nx | `sha256:bf355e8af0e214be2c76681313f5e2ff590b0f6f692679c5f27a3b6e77c5ac22` |
 | `jetson-jp62-trt103-edgellm-v091-20260804-r5` | release lock `orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5` | `f738123` (0.0.5a0, superseded by next reproducible rebuild) | 2026-08-04 | seeed-orin-nx | `sha256:b1d9db8d0e61344dc02367bb0114fd6889335f21638cea790e3f795d8226ce5c` |

@@ -85,6 +85,29 @@ deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
 
+### v0.11 Jetson candidate
+
+The published v0.11 entrypoints are candidate-only profiles. The existing stable defaults remain unchanged: `deploy/install.sh --pull --verify` still selects the qualified v0.9.1 path on Orin NX, and the other platform defaults remain on their existing releases. The repositories are therefore not all bound to v0.11.
+
+The v0.11 voice image is a Linux/ARM64 JetPack 6.2 / TensorRT 10.3 candidate image. Pull it by its immutable digest and select the reviewed CustomVoice profile:
+
+```bash
+export SPEECH_IMAGE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
+export OVS_PROFILE=jetson-edgellm-v011-candidate-customvoice
+export HF_ENDPOINT=https://hf-mirror.com
+docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
+```
+
+The voice profile pulls the ASR and CustomVoice R16 artifacts from immutable Hugging Face revisions (`862ae0db85703e894ed9ae7448ae1ce11a79cda3` and `009cd08677ec0f42378060f99c99a0a409e5ca70`). It uses the memory-saving ASR recipe at B2 and the selected CustomVoice worker at concurrency 1.
+
+The v0.11 Orin NX LLM image is a separate IFB B2 candidate. Its multi-platform index is `sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868` and its Linux/ARM64 leaf is `sha256:f882ff1daf2acb6cbf544d660f9e8763121a26fc3cfffacd0e4cd79aa9ebf4fc`. Prepare the locally staged checkpoint with the candidate guard:
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com   deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
+```
+
+Starting the LLM requires the separate candidate compose file, the explicit `EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=1` opt-in, a staged checkpoint and the host CUDA/TensorRT mounts required by that file. The LLM engine bundle is pinned separately to `41fb732368307f2a6a6ef3ba67d35aef027845b4a`, while the checkpoint source is `harvestsu/Qwen3.5-4B-AWQ` at revision `7551dd662b7f7b140aaa9958ac62ac9317be1b5`. The candidate is not an official JetPack qualification or one-click production deployment; keep the existing v0.9.1 path for the stable default.
+
 ### Recommended models
 
 Models follow your use case and language — zh dialogue → Qwen3-ASR + Matcha,

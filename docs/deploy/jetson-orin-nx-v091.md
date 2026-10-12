@@ -17,6 +17,29 @@ the runtime image. The final OCI-provenance LLM runtime image is
 `85965efe31a1b1f377a97f4e9be41405bc67737c` and the official v0.9.1 upstream
 pin `7f061f21f0a581ba234a1e233c9315b89d8e47d6`.
 
+## v0.11 candidate entrypoints
+
+The v0.11 release is a separate candidate path. It does not replace the qualified v0.9.1 default above, and it is not an official JetPack qualification. The published Linux/ARM64 voice image is:
+
+```text
+sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:v0.11.0-candidate-voice-dfd6aae
+sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
+```
+
+Use the versioned voice compose with an audited profile and the HF mirror:
+
+```bash
+SPEECH_IMAGE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a OVS_PROFILE=jetson-edgellm-v011-candidate-customvoice HF_ENDPOINT=https://hf-mirror.com docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
+```
+
+The separate IFB B2 LLM candidate uses index digest `sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868` (the Linux/ARM64 leaf is `sha256:f882ff1daf2acb6cbf544d660f9e8763121a26fc3cfffacd0e4cd79aa9ebf4fc`). Prepare it only through the guarded entrypoint:
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
+```
+
+Launching the LLM requires the separate candidate compose file, `EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=1`, an explicitly staged checkpoint, and the host CUDA/TensorRT mounts declared there. The engine bundle revision is `41fb732368307f2a6a6ef3ba67d35aef027845b4a`; the checkpoint source is `harvestsu/Qwen3.5-4B-AWQ` at revision `7551dd662b7f7b140aaa9958ac62ac9317be1b5`. The candidate remains separate from the stable service and has no one-click production or official JetPack claim.
+
 ## Install
 
 ```bash

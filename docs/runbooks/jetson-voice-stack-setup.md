@@ -9,6 +9,27 @@
 
 ---
 
+## 0. v0.11 候选入口
+
+本 runbook 的默认拓扑仍指向 v0.9.1 稳定路径。v0.11 是单独的 Jetson Linux/ARM64 候选入口，不能把 `--pull --verify` 的默认行为理解为切换到 v0.11，也不能把候选镜像写成已通过官方 JetPack 或生产 GPU 验收。
+
+语音候选镜像按 digest 拉取：
+
+```bash
+export SPEECH_IMAGE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
+export OVS_PROFILE=jetson-edgellm-v011-candidate-customvoice
+export HF_ENDPOINT=https://hf-mirror.com
+docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
+```
+
+它使用 ASR B2 省内存配方和 CustomVoice R16；对应 HF revision 已固定在 profile。LLM 候选是独立服务，必须先执行：
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
+```
+
+随后按 `deploy/docker-compose.edgellm-v011-candidate-llm.yml` 提供显式 `EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=1`、本地 staging checkpoint 目录和宿主 CUDA/TensorRT 库挂载。该服务固定使用 IFB B2；不提供一键生产启动。
+
 ## 1. 先选拓扑
 
 | 拓扑 | 起几个容器 | 大模型在哪 | 用哪套 compose |
