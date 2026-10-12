@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage:
   deploy/install.sh [--target auto|jetson|orin-nx|rk3576|rk3588|rpi] [--pull] [--build] [--verify]
-  deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
+  deploy/install.sh --target orin-nx --v011-llm-candidate [--prepare-only] [--pull]
   deploy/install.sh --target orin-nx --legacy --pull --verify
 
 Examples:
@@ -23,7 +23,9 @@ Environment overrides:
   SLV_LLM_RUNTIME_REPO, SLV_LLM_RUNTIME_REVISION, SLV_LLM_RUNTIME_MANIFEST,
   SLV_LLM_RUNTIME_CONTRACT,
   SLV_LLM_CACHE_ROOT, SLV_LLM_PAYLOAD_ROOT, SLV_LLM_CHECKPOINT_ROOT,
-  SLV_LLM_CHECKPOINT_INVENTORY, SLV_LLM_CONSUMER_OVERRIDE
+  SLV_LLM_CHECKPOINT_INVENTORY, SLV_LLM_CONSUMER_OVERRIDE,
+  EDGELLM_V011_LAUNCHER_HOST, EDGELLM_V011_SERVED_MODEL_NAME,
+  SLV_LLM_EFFECTIVE_OVERLAY
 EOF
 }
 
@@ -117,13 +119,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$v011_llm_candidate" -eq 1 ]]; then
-  [[ "$prepare_only" -eq 1 ]] || die "v0.11 LLM candidate is not qualified for launch; use --prepare-only"
+  [[ "$verify" -eq 0 ]] || die "--verify is not supported for --v011-llm-candidate; use the candidate runtime gate and its explicit chat smoke"
   [[ "$target" == "orin-nx" ]] || die "v0.11 LLM candidate requires --target orin-nx (Jetson Orin NX SM87)"
   [[ "$build" -eq 0 ]] || die "v0.11 candidate preparation never builds images"
-  [[ "$pull" -eq 0 ]] || die "v0.11 candidate preparation does not use Compose registry pull"
   script_dir="$(cd "$(dirname "$0")" && pwd)"
   project_root="$(cd "$script_dir/.." && pwd)"
   export SLV_LLM_PROJECT_ROOT="${SLV_LLM_PROJECT_ROOT:-$project_root}"
+  export EDGELLM_V011_LAUNCHER_HOST="${EDGELLM_V011_LAUNCHER_HOST:-$SLV_LLM_PROJECT_ROOT/scripts/start_edgellm_v011_candidate_llm_runtime.py}"
+  export EDGELLM_V011_SERVED_MODEL_NAME="${EDGELLM_V011_SERVED_MODEL_NAME:-qwen3.5-4b}"
+  export SLV_LLM_PREPARE_ONLY="$prepare_only"
   export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
   if [[ "$HF_ENDPOINT" != "https://hf-mirror.com" && "${SLV_LLM_ALLOW_LOCAL_FIXTURE:-0}" != "1" ]]; then
     die "v0.11 strict candidate preparation requires HF_ENDPOINT=https://hf-mirror.com"
@@ -135,6 +139,8 @@ if [[ "$v011_llm_candidate" -eq 1 ]]; then
   export SLV_LLM_CACHE_ROOT="${SLV_LLM_CACHE_ROOT:-$project_root/.cache/slv-v011-llm}"
   export SLV_LLM_PAYLOAD_ROOT="${SLV_LLM_PAYLOAD_ROOT:-$SLV_LLM_CACHE_ROOT/payload}"
   export SLV_LLM_CHECKPOINT_ROOT="${SLV_LLM_CHECKPOINT_ROOT:-$SLV_LLM_CACHE_ROOT/checkpoint}"
+  export SLV_LLM_EFFECTIVE_OVERLAY="${SLV_LLM_EFFECTIVE_OVERLAY:-$SLV_LLM_CACHE_ROOT/overlays/v011-llm-candidate-effective.json}"
+  export EDGE_LLM_V011_CANDIDATE_IMAGE="${EDGE_LLM_V011_CANDIDATE_IMAGE:-sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service@sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868}"
   export SLV_LLM_RUNTIME_CONTRACT="${SLV_LLM_RUNTIME_CONTRACT:-$SLV_LLM_PAYLOAD_ROOT/manifest.json}"
   export SLV_LLM_CHECKPOINT_INVENTORY="${SLV_LLM_CHECKPOINT_INVENTORY:-$SLV_LLM_RUNTIME_CONTRACT}"
   export SLV_LLM_CONSUMER_OVERRIDE="${SLV_LLM_CONSUMER_OVERRIDE:-$SLV_LLM_PAYLOAD_ROOT/deploy/docker-compose.edgellm-v011-candidate-llm.consumer-override.yml}"
@@ -142,8 +148,8 @@ if [[ "$v011_llm_candidate" -eq 1 ]]; then
   export SLV_LLM_IMAGE_ID="${SLV_LLM_IMAGE_ID:-sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868}"
   export SLV_LLM_IMAGE_ARCHIVE_SHA256="${SLV_LLM_IMAGE_ARCHIVE_SHA256:-fae58ffd267f451fd06b4c2120e0b01bb9fccd0b30236c7f14c726532d364067}"
   export PYTHONPATH="${SLV_LLM_PROJECT_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
-  exec python3 - "$SLV_LLM_PROJECT_ROOT" <<'PY'
-import hashlib, json, os, pathlib, re, stat, subprocess, sys, tarfile
+  python3 - "$SLV_LLM_PROJECT_ROOT" <<'PY'
+import hashlib, json, os, pathlib, re, stat, subprocess, sys, tarfile, tempfile
 
 def fail(msg):
     print("ERROR: v0.11 candidate preparation: " + msg, file=sys.stderr)
@@ -402,6 +408,21 @@ if not isinstance(observed.get("RepoTags"), list) or os.environ["SLV_LLM_IMAGE_T
 print("DOCKER_LOAD_RC=0 image_id=%s" % image_id)
 
 override = pathlib.Path(required("SLV_LLM_CONSUMER_OVERRIDE")).expanduser()
+launcher_host = pathlib.Path(required("EDGELLM_V011_LAUNCHER_HOST")).expanduser()
+if not launcher_host.is_file() or launcher_host.is_symlink(): fail("reviewed launcher host file is missing or symlinked: %s" % launcher_host)
+effective_overlay = pathlib.Path(required("SLV_LLM_EFFECTIVE_OVERLAY")).expanduser()
+cache_root_real = cache_root.resolve(strict=True)
+if effective_overlay.is_symlink() or effective_overlay.is_absolute() is not True:
+    fail("effective Compose overlay must be an absolute non-symlink path")
+try:
+    effective_overlay.parent.relative_to(cache_root_real)
+except ValueError:
+    fail("effective Compose overlay must be inside the owned cache root")
+if effective_overlay.parent.exists() and effective_overlay.parent.is_symlink():
+    fail("effective Compose overlay parent is symlinked")
+payload_cache = payload_root / "cache"
+if payload_cache.is_symlink() or not payload_cache.is_dir():
+    fail("payload cache must be a real directory")
 if not override.is_file(): fail("consumer Compose override missing: %s" % override)
 text = override.read_text()
 for token in ("SLV_LLM_PAYLOAD_ROOT", "SLV_LLM_CHECKPOINT_ROOT", "EDGELLM_V011_MODEL_CONTAINER_DIR", "EDGELLM_V011_CACHE_DIR", "EDGELLM_V011_INPUT_CONTRACT", "EDGELLM_V011_CHECKPOINT"):
@@ -422,7 +443,7 @@ if not base_compose.is_file(): fail("candidate base Compose file missing: %s" % 
 # bindings from the already-validated contract and image/checkpoint inputs.
 # Reject a caller-provided disagreement instead of silently masking it.
 derived_compose_env = {
-    "EDGE_LLM_V011_CANDIDATE_IMAGE": "seeed-local-voice@" + image_id,
+    "EDGE_LLM_V011_CANDIDATE_IMAGE": os.environ["EDGE_LLM_V011_CANDIDATE_IMAGE"],
     "EDGELLM_V011_MODEL_HOST_DIR": str(checkpoint_root),
     "EDGELLM_V011_MODEL_CONTAINER_DIR": model_dir,
     "EDGELLM_V011_CHECKPOINT": model_dir,
@@ -433,14 +454,44 @@ for name, value in derived_compose_env.items():
     if supplied is not None and supplied != value:
         fail("Compose identity environment conflict for %s" % name)
     compose_env[name] = value
-render = subprocess.run(["docker", "compose", "-f", str(base_compose), "-f", str(override), "config", "--format", "json"], env=compose_env, text=True, capture_output=True)
+model_id = contract.get("model", {}).get("model_id")
+if not isinstance(model_id, str) or not model_id: fail("runtime contract model.model_id is missing")
+overlay_payload = {
+    "services": {"edge-llm-v011-candidate": {
+        "image": os.environ["EDGE_LLM_V011_CANDIDATE_IMAGE"],
+        "environment": {
+            "EDGELLM_V011_SERVED_MODEL_NAME": model_id,
+            "EDGELLM_V011_LAUNCHER_HOST": str(launcher_host),
+            "EDGELLM_V011_CACHE_DIR": contract_cache,
+        },
+        "volumes": [
+            {"type": "bind", "source": str(launcher_host), "target": "/opt/edgellm-v011/start_edgellm_v011_candidate_llm_runtime.py", "read_only": True},
+            {"type": "bind", "source": str(payload_cache), "target": "/workspace/v011-candidate-cache", "read_only": False},
+            {"type": "bind", "source": str(payload_cache), "target": contract_cache, "read_only": False},
+        ],
+    }}
+}
+effective_overlay.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+if effective_overlay.parent.is_symlink() or effective_overlay.exists() and effective_overlay.is_symlink(): fail("effective Compose overlay path is symlinked")
+fd, temp_name = tempfile.mkstemp(prefix=".v011-overlay.", suffix=".tmp", dir=str(effective_overlay.parent))
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(overlay_payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temp_name, effective_overlay)
+finally:
+    if os.path.exists(temp_name): os.unlink(temp_name)
+if effective_overlay.is_symlink() or not effective_overlay.is_file(): fail("effective Compose overlay was not written as a regular file")
+render = subprocess.run(["docker", "compose", "-f", str(base_compose), "-f", str(override), "-f", str(effective_overlay), "config", "--format", "json"], env=compose_env, text=True, capture_output=True)
 if render.returncode: fail("candidate consumer Compose config rejected: %s" % render.stderr.strip())
 try: rendered = json.loads(render.stdout)
 except Exception as exc: fail("candidate Compose did not return rendered JSON: %s" % exc)
 services = rendered.get("services") if isinstance(rendered, dict) else None
 service = services.get("edge-llm-v011-candidate") if isinstance(services, dict) else None
 if not isinstance(service, dict): fail("rendered Compose target service missing")
-if service.get("image") != "seeed-local-voice@" + image_id: fail("rendered candidate image identity mismatch")
+if service.get("image") != os.environ["EDGE_LLM_V011_CANDIDATE_IMAGE"]: fail("rendered candidate image identity mismatch")
 if service.get("runtime") != "nvidia": fail("rendered GPU runtime binding missing")
 gpus = service.get("gpus")
 valid_gpus = gpus in ("all", ["all"])
@@ -456,10 +507,11 @@ if isinstance(gpus, list) and len(gpus) == 1 and isinstance(gpus[0], dict):
 if not valid_gpus: fail("rendered GPU runtime binding missing")
 env = service.get("environment")
 if not isinstance(env, dict): fail("rendered candidate environment missing")
-required_env = ("EDGELLM_V011_INPUT_CONTRACT", "EDGELLM_V011_MODEL_HOST_DIR", "EDGELLM_V011_MODEL_CONTAINER_DIR", "EDGELLM_V011_CHECKPOINT", "EDGELLM_V011_CACHE_DIR")
+required_env = ("EDGELLM_V011_INPUT_CONTRACT", "EDGELLM_V011_MODEL_HOST_DIR", "EDGELLM_V011_MODEL_CONTAINER_DIR", "EDGELLM_V011_CHECKPOINT", "EDGELLM_V011_CACHE_DIR", "EDGELLM_V011_SERVED_MODEL_NAME", "EDGELLM_V011_LAUNCHER_HOST")
 if any(key not in env or not isinstance(env.get(key), str) or not env[key] for key in required_env): fail("rendered candidate required environment binding missing")
 if env["EDGELLM_V011_MODEL_CONTAINER_DIR"] != model_dir or env["EDGELLM_V011_CHECKPOINT"] != model_dir: fail("rendered model path differs from runtime contract")
 if env["EDGELLM_V011_CACHE_DIR"] != contract_cache: fail("rendered cache path differs from runtime contract")
+if env["EDGELLM_V011_SERVED_MODEL_NAME"] != contract.get("model", {}).get("model_id"): fail("rendered served model name differs from runtime contract")
 volumes = service.get("volumes")
 if not isinstance(volumes, list): fail("rendered candidate volumes missing")
 canonical_contract_rel = "contract/v011-candidate-llm-inputs.json"
@@ -499,12 +551,42 @@ def mount(source, target):
             if len(bits) >= 3 and bits[0] == source and bits[1] == target and bits[-1] == "ro": return True
     return False
 if not mount(env["EDGELLM_V011_MODEL_HOST_DIR"], model_dir): fail("rendered checkpoint bind is not read-only or path-matched")
+launcher_mount = [v for v in volumes if isinstance(v, dict) and v.get("target") == "/opt/edgellm-v011/start_edgellm_v011_candidate_llm_runtime.py"]
+if len(launcher_mount) != 1 or launcher_mount[0].get("source") != env["EDGELLM_V011_LAUNCHER_HOST"] or launcher_mount[0].get("read_only") is not True: fail("rendered launcher bind is missing, ambiguous, or writable")
 if contract_mounts[0].get("type") not in (None, "bind"): fail("rendered input contract mount is not a bind")
 if not contract_mounts[0].get("read_only") is True: fail("rendered input contract mount missing or not canonical")
-if not any(isinstance(v, dict) and v.get("target") == contract_cache and v.get("read_only") is True for v in volumes): fail("rendered cache mount missing")
+cache_mounts = [v for v in volumes if isinstance(v, dict) and v.get("target") == contract_cache]
+if len(cache_mounts) != 1 or cache_mounts[0].get("source") != str(payload_cache) or cache_mounts[0].get("read_only", False) is not False: fail("rendered contract cache must be the payload cache with read-write access")
+workspace_cache_mounts = [v for v in volumes if isinstance(v, dict) and v.get("target") == "/workspace/v011-candidate-cache"]
+if len(workspace_cache_mounts) != 1 or workspace_cache_mounts[0].get("source") != str(payload_cache) or workspace_cache_mounts[0].get("read_only", False) is not False: fail("rendered workspace cache must be the payload cache with read-write access")
 print("COMPOSE_OVERRIDE_READY=%s" % override)
-print("CANDIDATE_PREPARED_ONLY=1; compose up/native GPU/run/foreign service stop were not executed")
+print("CANDIDATE_PREPARED_ONLY=1" if os.environ.get("SLV_LLM_PREPARE_ONLY") == "1" else "CANDIDATE_PRECHECK_READY=1")
 PY
+  if [[ "$prepare_only" -eq 1 ]]; then
+    exit 0
+  fi
+  export EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE=1
+  export EDGE_LLM_V011_CANDIDATE_IMAGE=sensecraft-missionpack.seeed.cn/solution/edge-llm-chat-service@sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868
+  export EDGELLM_V011_MODEL_HOST_DIR="$SLV_LLM_CHECKPOINT_ROOT"
+  export EDGELLM_V011_MODEL_CONTAINER_DIR="$(python3 - "$SLV_LLM_RUNTIME_CONTRACT" <<'PYMODEL'
+import json, sys
+obj=json.load(open(sys.argv[1]))
+contract=obj.get("engine_contract", obj)
+print(contract["engine"]["model_dir"])
+PYMODEL
+  )"
+  export EDGELLM_V011_CHECKPOINT="$EDGELLM_V011_MODEL_CONTAINER_DIR"
+  export EDGELLM_V011_INPUT_CONTRACT=/opt/edgellm-v011/v011-candidate-llm-inputs.json
+  export HF_ENDPOINT=https://hf-mirror.com
+  export SLV_LLM_BASE_COMPOSE="$SLV_LLM_PAYLOAD_ROOT/contract/docker-compose.edgellm-v011-candidate-llm.yml"
+  export SLV_LLM_CONSUMER_OVERRIDE="$SLV_LLM_PAYLOAD_ROOT/deploy/docker-compose.edgellm-v011-candidate-llm.consumer-override.yml"
+  compose=(docker compose -f "$SLV_LLM_BASE_COMPOSE" -f "$SLV_LLM_CONSUMER_OVERRIDE" -f "$SLV_LLM_EFFECTIVE_OVERLAY")
+  if [[ "$pull" -eq 1 ]]; then
+    "${compose[@]}" pull edge-llm-v011-candidate
+  fi
+  "${compose[@]}" up -d --no-build edge-llm-v011-candidate
+  "${compose[@]}" ps edge-llm-v011-candidate
+  exit 0
 fi
 
 if [[ -z "$target" || "$target" == "auto" ]]; then

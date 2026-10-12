@@ -43,6 +43,10 @@ services:
       EDGELLM_V011_MODEL_CONTAINER_DIR: ${EDGELLM_V011_MODEL_CONTAINER_DIR:?set container path equal to contract engine.model_dir}
       EDGELLM_V011_CHECKPOINT: ${EDGELLM_V011_CHECKPOINT:?set staged local checkpoint directory (must equal contract engine.model_dir and EDGELLM_V011_MODEL_CONTAINER_DIR)}
       EDGELLM_V011_CACHE_DIR: /workspace/v011-candidate-cache
+      # Keep the public OpenAI model name stable; the launcher derives and validates it from the contract.
+      EDGELLM_V011_SERVED_MODEL_NAME: ${EDGELLM_V011_SERVED_MODEL_NAME:-qwen3.5-4b}
+      # Bind the reviewed launcher into the published image; no image rebuild is required for this alias fix.
+      EDGELLM_V011_LAUNCHER_HOST: ${EDGELLM_V011_LAUNCHER_HOST:?set host path to scripts/start_edgellm_v011_candidate_llm_runtime.py}
       # Expose ONLY the specific host GPU/SDK libraries needed by the TRT 10.3
       # runtime, at distinct /host-* paths. Never bind-mount a whole host
       # libc/libstdc++ directory (e.g. /lib/aarch64-linux-gnu): that would
@@ -63,6 +67,7 @@ services:
       PYTHONUNBUFFERED: "1"
     volumes:
       - v011-candidate-cache:/workspace/v011-candidate-cache
+      - ${EDGELLM_V011_LAUNCHER_HOST:?set host path to scripts/start_edgellm_v011_candidate_llm_runtime.py}:/opt/edgellm-v011/start_edgellm_v011_candidate_llm_runtime.py:ro
       # Explicit read-only staged-checkpoint bind: host dir -> the exact
       # container path the contract's engine.model_dir names. The container
       # path is the operator-owned EDGELLM_V011_CHECKPOINT and must equal

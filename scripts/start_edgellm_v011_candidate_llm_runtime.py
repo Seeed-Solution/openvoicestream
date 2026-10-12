@@ -147,6 +147,7 @@ def build_server_command(
     max_queued_requests: str,
     queue_timeout: str,
     load_media_engines: bool = True,
+    served_model_name: str = "qwen3.5-4b",
 ) -> list[str]:
     """Assemble the official CLI argv (pure; unit-testable).
 
@@ -169,7 +170,11 @@ def build_server_command(
         raise ValueError("load_media_engines must be a bool")
     if not load_media_engines:
         command.append("--no-load-media-engines")
+    if not served_model_name.strip():
+        raise ValueError("served_model_name must be non-empty")
     command += [
+        "--served-model-name",
+        served_model_name.strip(),
         "--max-batch-size",
         str(batch_size),
         "--max-input-len",
@@ -210,6 +215,21 @@ def main() -> int:
     # The contract is the single source of launch identity. Environment
     # overrides that disagree with the validated contract fail closed.
     engine = contract_data["engine"]
+    model = contract_data.get("model") or {}
+    contract_model_id = str(model.get("model_id") or "").strip()
+    if not contract_model_id:
+        _fail("model.model_id is not set in the contract")
+    served_model_name_env = os.environ.get("EDGELLM_V011_SERVED_MODEL_NAME")
+    served_model_name = (served_model_name_env or contract_model_id).strip()
+    if not served_model_name:
+        _fail("EDGELLM_V011_SERVED_MODEL_NAME must be non-empty")
+    if served_model_name_env is not None and served_model_name != contract_model_id:
+        _fail(
+            "EDGELLM_V011_SERVED_MODEL_NAME "
+            f"({served_model_name!r}) differs from the validated contract "
+            f"model.model_id ({contract_model_id!r}); refusing to alias the "
+            "candidate service to a different model"
+        )
 
     contract_batch = engine.get("max_batch_size")
     profile_env = os.environ.get("EDGELLM_V011_ENGINE_PROFILE")
@@ -301,6 +321,7 @@ def main() -> int:
         max_queued,
         queue_timeout,
         load_media_engines,
+        served_model_name,
     )
     print(f"v0.11 candidate launcher: exec {command!r}", file=sys.stderr)
     # Keep the staged tree byte-stable for the canonical tree hash: the
