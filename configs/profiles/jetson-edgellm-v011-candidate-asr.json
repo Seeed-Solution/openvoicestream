@@ -42,8 +42,7 @@
     "QWEN3_MODEL_CACHE_ROOT": "/opt/models/v011-candidate-cache",
     "QWEN3_ARTIFACT_DOWNLOAD_TMP_DIR": "/opt/models/v011-candidate-cache/archive",
     "MODEL_DIR": "/opt/models/v011-candidate-cache/engine-state",
-    "OVS_MODELS_DIR": "/opt/models/v011-candidate-cache/engine-state",
-    "OVS_PROFILE_JSON": "/opt/asr-stage/profile.json"
+    "OVS_MODELS_DIR": "/opt/models/v011-candidate-cache/engine-state"
   },
   "asr_max_slots": 2,
   "max_concurrent_sessions": 2,
@@ -88,5 +87,29 @@
       ],
       "strict": true
     }
+  ],
+  "profile_owned_env": [
+    "ASR_BACKEND",
+    "EDGE_LLM_ASR_WORKER",
+    "EDGE_LLM_ASR_STREAM_MODE",
+    "EDGELLM_REQUEST_AUDIO_WAV",
+    "EDGE_LLM_ASR_MAX_CONCURRENT",
+    "EDGE_LLM_ASR_REQUIRE_IFB",
+    "EDGE_LLM_ASR_WORKER_BIN",
+    "EDGE_LLM_ASR_ENGINE_DIR",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR",
+    "EDGE_LLM_ASR_MEL_SETTINGS",
+    "EDGE_LLM_ASR_MEL_FILTERS",
+    "EDGE_LLM_ASR_PLUGIN_PATH",
+    "EDGELLM_PLUGIN_PATH",
+    "OVS_AUTO_DOWNLOAD_ARTIFACTS",
+    "QWEN3_ARTIFACT_AUTO_DOWNLOAD",
+    "OVS_MAX_CONCURRENT_SESSIONS",
+    "OVS_WORKER_IO_QUEUE_WHEN_SATURATED",
+    "QWEN3_HF_REVISION",
+    "QWEN3_MODEL_CACHE_ROOT",
+    "QWEN3_ARTIFACT_DOWNLOAD_TMP_DIR",
+    "MODEL_DIR",
+    "OVS_MODELS_DIR"
   ]
 }
