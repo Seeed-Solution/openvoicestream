@@ -1,0 +1,100 @@
+# v0.11 Jetson Orin (SM87) Qwen3.5 LLM In-Flight-Batching candidate service.
+#
+# CUSTOM COMPATIBILITY candidate (SM87, CUDA 12.6 / TensorRT 10.3 DECLARED;
+# no official JetPack qualification claim). Everything identity-related is
+# mandatory: Compose expansion fails before pull/start while the candidate is
+# unpublished. The image ref must already be digest-pinned; its identity is
+# validated by the external deployment gate (no self-referential digest is
+# stored in-image). This service is separate from the v010 LLM/TTS services:
+# distinct service/container/volume names, distinct checkpoint cache and
+# distinct port. The TTS/MOSS plugin and models root are never mounted here.
+# There is deliberately no probe override and no provenance env knob here:
+# the contract file and the real device probe are the only identity sources.
+# The staged checkpoint is bind-mounted read-only from an explicit host dir to
+# the exact contract engine.model_dir container path (EDGELLM_V011_CHECKPOINT),
+# and the engine cache is the profile-coherent named volume mounted at
+# EDGELLM_V011_CACHE_DIR; the launcher fails closed if either diverges from the
+# contract-validated values.
+services:
+  edge-llm-v011-candidate:
+    container_name: edge-llm-chat-service-v011-candidate
+    image: ${EDGE_LLM_V011_CANDIDATE_IMAGE:?set digest-pinned v0.11 candidate image ref}
+    runtime: nvidia
+    gpus: all
+    # Never mask a crashed candidate: explicit operator restart only.
+    restart: "no"
+    shm_size: "512m"
+    environment:
+      # Explicit opt-in to the unpublished candidate; default off.
+      EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE: ${EDGELLM_V011_ALLOW_UNPUBLISHED_CANDIDATE:-0}
+      EDGELLM_V011_INPUT_CONTRACT: /opt/edgellm-v011/v011-candidate-llm-inputs.json
+      EDGELLM_V011_RUNTIME_ROOT: /opt/edgellm-v011
+      # Checkpoint positional source + the profile-specific cache root the
+      # checker validates and the launcher reuses (no implicit build/download).
+      # Staged checkpoint source: a LOCAL DIRECTORY containing the checkpoint
+      # the contract binds. No Hugging Face model id: the official server
+      # would resolve it by download at launch, which this candidate forbids.
+      # Two explicit owned paths: the host directory mounted read-only, and the
+      # exact container path the contract engine.model_dir names. The container
+      # path and EDGELLM_V011_CHECKPOINT MUST be identical and equal the
+      # contract engine.model_dir, or the launcher fails closed; the bind mount
+      # below makes the container path real (never a nonexistent unmounted dir).
+      EDGELLM_V011_MODEL_HOST_DIR: ${EDGELLM_V011_MODEL_HOST_DIR:?set host directory holding the staged checkpoint}
+      EDGELLM_V011_MODEL_CONTAINER_DIR: ${EDGELLM_V011_MODEL_CONTAINER_DIR:?set container path equal to contract engine.model_dir}
+      EDGELLM_V011_CHECKPOINT: ${EDGELLM_V011_CHECKPOINT:?set staged local checkpoint directory (must equal contract engine.model_dir and EDGELLM_V011_MODEL_CONTAINER_DIR)}
+      EDGELLM_V011_CACHE_DIR: /workspace/v011-candidate-cache
+      # Expose ONLY the specific host GPU/SDK libraries needed by the TRT 10.3
+      # runtime, at distinct /host-* paths. Never bind-mount a whole host
+      # libc/libstdc++ directory (e.g. /lib/aarch64-linux-gnu): that would
+      # shadow the container core libraries. Host libs are read-only and come
+      # last on the search path so image libraries stay authoritative.
+      LD_LIBRARY_PATH: /host-cuda:/host-cuda-target-lib:/host-nvidia-libs:/host-trt-libs
+      # Must equal the contract engine.max_batch_size (B2) or the launcher
+      # fails closed: the launch argv derives the engine bundle cache path.
+      EDGELLM_V011_ENGINE_PROFILE: ${EDGELLM_V011_ENGINE_PROFILE:-b2}
+      EDGELLM_V011_HOST: "0.0.0.0"
+      EDGELLM_V011_PORT: "8000"
+      EDGELLM_V011_MAX_QUEUED_REQUESTS: ${EDGELLM_V011_MAX_QUEUED_REQUESTS:-16}
+      EDGELLM_V011_QUEUE_TIMEOUT: ${EDGELLM_V011_QUEUE_TIMEOUT:-600}
+      # EDGELLM_PLUGIN_PATH is deliberately NOT set here: the official loader
+      # sets it from the manifest-selected wheel plugin. A pre-set path that
+      # does not exist or disagrees with the wheel raises NativeLoadError.
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - v011-candidate-cache:/workspace/v011-candidate-cache
+      # Explicit read-only staged-checkpoint bind: host dir -> the exact
+      # container path the contract's engine.model_dir names. The container
+      # path is the operator-owned EDGELLM_V011_CHECKPOINT and must equal
+      # EDGELLM_V011_MODEL_CONTAINER_DIR.
+      - ${EDGELLM_V011_MODEL_HOST_DIR:?set host directory holding the staged checkpoint}:${EDGELLM_V011_CHECKPOINT:?set staged local checkpoint directory (must equal contract engine.model_dir and EDGELLM_V011_MODEL_CONTAINER_DIR)}:ro
+      # Individual host GPU/SDK libraries (NOT a whole libc/libstdc++ dir).
+      # The release marker and individual soname mounts below make the official
+      # platform/library probes visible at their standard paths without masking
+      # the image libc or libstdc++.
+      # The set below mirrors packaging/dependency_allowlist.toml for this
+      # payload: libnvinfer, libnvinfer_plugin, libnvonnxparser, libnvrtc,
+      # libcudart. libnvparsers (legacy ONNX parser) is deliberately NOT mounted:
+      # it is absent from the official allowlist and is not linked by the
+      # extension/plugin; a native prep worker will confirm the actual Jetson
+      # library presence from real linkage before any physical build. libcuda
+      # is driver-injected by the nvidia runtime.
+      - /etc/nv_tegra_release:/etc/nv_tegra_release:ro
+      - /usr/local/cuda/lib64/libcudart.so.12:/usr/lib/aarch64-linux-gnu/libcudart.so.12:ro
+      - /usr/lib/aarch64-linux-gnu/libnvinfer.so.10:/usr/lib/aarch64-linux-gnu/libnvinfer.so.10:ro
+      - /usr/lib/aarch64-linux-gnu/libnvinfer_plugin.so.10:/usr/lib/aarch64-linux-gnu/libnvinfer_plugin.so.10:ro
+      - /usr/lib/aarch64-linux-gnu/libnvonnxparser.so.10:/usr/lib/aarch64-linux-gnu/libnvonnxparser.so.10:ro
+      - /usr/local/cuda/lib64:/host-cuda:ro
+      - /usr/local/cuda/targets/aarch64-linux/lib:/host-cuda-target-lib:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
+      - /usr/lib/aarch64-linux-gnu/libnvinfer.so.10:/host-trt-libs/libnvinfer.so.10:ro
+      - /usr/lib/aarch64-linux-gnu/libnvinfer_plugin.so.10:/host-trt-libs/libnvinfer_plugin.so.10:ro
+      - /usr/lib/aarch64-linux-gnu/libnvonnxparser.so.10:/host-trt-libs/libnvonnxparser.so.10:ro
+    ports:
+      # Explicit localhost test port; avoids v010 production (8000/18000),
+      # v010 candidate (18000) and the other candidate (8621).
+      - "127.0.0.1:${EDGE_LLM_V011_CANDIDATE_PORT:-18100}:8000"
+
+volumes:
+  v011-candidate-cache:
+    name: v011-candidate-cache
