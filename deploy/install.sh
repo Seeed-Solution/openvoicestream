@@ -644,13 +644,16 @@ echo "Target: $canonical_target"
 echo "Compose: ${compose_files[*]}"
 docker compose "${compose_args[@]}" config --quiet
 
+if [[ "$build" -eq 1 && "$legacy" -eq 0 && ( "$canonical_target" == "jetson" || "$canonical_target" == "orin-nx" ) ]]; then
+  die "v0.11 default uses the published digest; --build is allowed only with --legacy"
+fi
+
 if [[ "$pull" -eq 1 ]]; then
   docker compose "${compose_args[@]}" pull
 fi
 
 up_args=(up -d)
 if [[ "$build" -eq 1 ]]; then
-  [[ "$legacy" -eq 1 ]] || die "v0.11 default uses the published digest; --build is allowed only with --legacy"
   up_args+=(--build)
 fi
 
