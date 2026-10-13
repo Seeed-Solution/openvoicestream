@@ -26,7 +26,7 @@ services:
     ports:
       - "8621:8000"
     environment:
-      - LANGUAGE_MODE=${LANGUAGE_MODE:-zh_en}
+      - LANGUAGE_MODE=${LANGUAGE_MODE:-multilanguage}
       - OVS_PROFILE=${OVS_PROFILE:-jetson-edgellm-v011-default-voice}
       - OVS_PROFILE_JSON=/opt/voice-profile/jetson-edgellm-v011-default-voice.json
       # Week 2: structured JSON logs in production; override to ``text``
@@ -79,6 +79,7 @@ services:
       - /usr/local/cuda/lib64:/host-cuda:ro
       - /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro
       - /lib/aarch64-linux-gnu:/host-libs:ro
+      - /etc/nv_tegra_release:/etc/nv_tegra_release:ro
       - /usr/lib/python3.10/dist-packages/tensorrt:/usr/lib/python3.10/dist-packages/tensorrt:ro
       - /usr/src/tensorrt:/usr/src/tensorrt:ro
     restart: unless-stopped

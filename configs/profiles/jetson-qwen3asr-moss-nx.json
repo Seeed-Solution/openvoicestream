@@ -131,6 +131,7 @@
     "default": ""
   },
   "profile_owned_env": [
+    "LANGUAGE_MODE",
     "EDGE_LLM_ASR_PLUGIN_PATH"
   ]
 }

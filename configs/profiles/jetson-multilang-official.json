@@ -32,6 +32,7 @@
   },
   "tts_model_id": "qwen3-tts",
   "profile_owned_env": [
+    "LANGUAGE_MODE",
     "EDGE_LLM_ASR_PLUGIN_PATH"
   ]
 }

@@ -65,6 +65,7 @@
     "tts": "tts.qwen3_tts.orin-nx.n1"
   },
   "profile_owned_env": [
+    "LANGUAGE_MODE",
     "EDGE_LLM_ASR_PLUGIN_PATH"
   ]
 }

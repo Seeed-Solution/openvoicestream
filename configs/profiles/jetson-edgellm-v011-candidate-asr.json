@@ -89,6 +89,7 @@
     }
   ],
   "profile_owned_env": [
+    "LANGUAGE_MODE",
     "ASR_BACKEND",
     "EDGE_LLM_ASR_WORKER",
     "EDGE_LLM_ASR_STREAM_MODE",
