@@ -112,3 +112,26 @@ def test_owned_key_is_restored_when_relinquished(monkeypatch) -> None:
     assert os.environ["EDGE_LLM_ASR_PLUGIN_PATH"] == legacy_want
     pl.apply_profile("jetson-edgellm-v091-moss")
     assert os.environ["EDGE_LLM_ASR_PLUGIN_PATH"] == image_default
+
+
+def test_profiles_with_owned_env_own_language_mode() -> None:
+    """Profiles that declare profile_owned_env and define LANGUAGE_MODE in env
+    must include LANGUAGE_MODE in profile_owned_env.
+
+    Otherwise, when run in a container image with baked ENV LANGUAGE_MODE=zh_en,
+    profile_loader treats LANGUAGE_MODE as operator-owned and raises a CRITICAL_KEYS
+    mismatch error at startup.
+    """
+    bad = []
+    for path in sorted(PROFILES_DIR.glob("*.json")):
+        prof = json.loads(path.read_text(encoding="utf-8"))
+        env = prof.get("env") or {}
+        if "LANGUAGE_MODE" in env and "profile_owned_env" in prof:
+            owned = set(prof.get("profile_owned_env") or [])
+            if "LANGUAGE_MODE" not in owned:
+                bad.append(
+                    f"{path.name} 声明了 LANGUAGE_MODE={env['LANGUAGE_MODE']} "
+                    f"且有 profile_owned_env，但未将 LANGUAGE_MODE 列入 profile_owned_env"
+                )
+    assert not bad, "\n".join(bad)
+
