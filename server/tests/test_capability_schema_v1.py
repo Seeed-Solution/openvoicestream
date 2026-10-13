@@ -13,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from server.core.api_capabilities import (
+    ASRRuntimeIFB,
     CapabilitiesResponse,
     CloneEnrollment,
     CloningCapabilities,
@@ -484,3 +485,324 @@ def test_legacy_tts_capability_clone_flags_derive_from_structured_component(monk
     body = response.json()
     assert body["supports_voice_cloning"] is True
     assert body["supports_voice_enrollment"] is True
+
+
+# ── v011 ASR IFB runtime provenance (additive, ASR-only) ────────────────────
+#
+# The live backend exposes ``runtime_diagnostics()`` (voxedge job 64627288).
+# These tests use a fake backend shaped exactly like that snapshot; the live
+# source is never imported so the changing dependency is decoupled.  The
+# canonical counter names/types come from the actual b2 snapshot
+# (``phases.E_lifecycle.health_final``).
+
+_READY_IFB2 = {
+    "event": "ready",
+    "ifb": True,
+    "max_slots": 2,
+    "gpu_slots": 2,
+    "engine_max_batch_size": 2,
+    "init_ms": 2291.633072,
+}
+
+_HEALTH = {
+    "type": "asr_ifb_health",
+    "admitted_mid_flight": 52,
+    "resident": 0,
+    "queued": 0,
+    "failed": 0,
+    "cancelled": 21,
+    "completed": 312,
+    "stalls_founder_only": 0,
+    "stalls_guided": 0,
+    "stalls_incompatible": 0,
+    "stalls_no_capacity": 0,
+}
+
+_HEALTH_FIELDS = (
+    "admitted_mid_flight",
+    "resident",
+    "queued",
+    "failed",
+    "cancelled",
+    "completed",
+    "stalls_founder_only",
+    "stalls_guided",
+    "stalls_incompatible",
+    "stalls_no_capacity",
+)
+
+
+def _ifb_backend(diagnostics):
+    """Fake ASR backend with a 2-slot ceiling and a diagnostics supplier."""
+
+    class Fake:
+        name = "trt_edgellm"
+        sample_rate = 16_000
+        capabilities: set = set()
+
+        def is_ready(self):
+            return True
+
+        def concurrency_capability(self):
+            from server.core.concurrency_capability import ConcurrencyCapability
+
+            return ConcurrencyCapability(max_concurrent=2)
+
+        def runtime_diagnostics(self):
+            if isinstance(diagnostics, Exception):
+                raise diagnostics
+            return diagnostics
+
+    return Fake()
+
+
+def _asr_doc(backend):
+    body = build_capabilities(
+        asr_backend=backend,
+        asr_ready=True,
+        asr_configured=True,
+        tts_configured=False,
+        profile={"asr_backend": "jetson.trt_edge_llm"},
+        limiter=None,
+    )
+    return body["asr"]
+
+
+def test_runtime_ifb_verified_on_actual_ifb2_ready_and_liveness():
+    asr = _asr_doc(
+        _ifb_backend(
+            {
+                "require_ifb": True,
+                "ready": True,
+                "worker_alive": True,
+                "worker_pid": 1888811,
+                "validated_ready": dict(_READY_IFB2),
+                "latest_asr_ifb_health": dict(_HEALTH),
+                "asr_ifb_traces": [{"work_id": 126}],
+                "asr_ifb_trace_capacity": 64,
+            }
+        )
+    )
+    ifb = asr["runtime_ifb"]
+    assert ifb["source"] == "native_worker_ready"
+    assert ifb["validation_required"] is True
+    assert ifb["reported_ifb"] is True
+    assert ifb["reported_max_slots"] == 2
+    assert ifb["reported_gpu_slots"] == 2
+    assert ifb["reported_engine_max_batch_size"] == 2
+    assert ifb["contract_verified"] is True
+    assert ifb["observed_health"] is True
+    assert {k: ifb["latest"][k] for k in _HEALTH_FIELDS} == {
+        k: _HEALTH[k] for k in _HEALTH_FIELDS
+    }
+
+
+def test_runtime_ifb_absent_when_backend_has_no_diagnostics():
+    class Plain:
+        name = "plain-asr"
+        sample_rate = 16_000
+        capabilities: set = set()
+
+        def is_ready(self):
+            return True
+
+    asr = _asr_doc(Plain())
+    assert "runtime_ifb" not in asr
+
+
+def test_runtime_ifb_absent_when_require_flag_missing():
+    # A diagnostics mapping without IFB opt-in context is not IFB telemetry.
+    asr = _asr_doc(_ifb_backend({"ready": True, "worker_alive": True,
+                                 "validated_ready": dict(_READY_IFB2)}))
+    assert "runtime_ifb" not in asr
+
+
+def test_runtime_ifb_present_but_unverified_when_require_false():
+    asr = _asr_doc(
+        _ifb_backend(
+            {
+                "require_ifb": False,
+                "ready": True,
+                "worker_alive": True,
+                "validated_ready": dict(_READY_IFB2),
+                "latest_asr_ifb_health": dict(_HEALTH),
+            }
+        )
+    )
+    ifb = asr["runtime_ifb"]
+    assert ifb["validation_required"] is False
+    assert ifb["contract_verified"] is False
+
+
+@pytest.mark.parametrize(
+    "validated",
+    [
+        {},  # reported slots missing
+        {"ifb": True, "max_slots": 3, "gpu_slots": 3,
+         "engine_max_batch_size": 3},  # mismatch vs configured ceiling
+        {"ifb": True, "max_slots": True, "gpu_slots": 2,
+         "engine_max_batch_size": 2},  # bool-as-int rejected
+        {"ifb": True, "max_slots": 2, "gpu_slots": "2",
+         "engine_max_batch_size": 2},  # non-int gpu_slots
+        {"ifb": False, "max_slots": 2, "gpu_slots": 2,
+         "engine_max_batch_size": 2},  # reported ifb false
+        {"ifb": True, "max_slots": 2, "gpu_slots": 2,
+         "engine_max_batch_size": 1},  # batch < slots
+    ],
+)
+def test_runtime_ifb_unverified_on_reported_capacity_defects(validated):
+    asr = _asr_doc(
+        _ifb_backend(
+            {
+                "require_ifb": True,
+                "ready": True,
+                "worker_alive": True,
+                "validated_ready": validated,
+            }
+        )
+    )
+    ifb = asr["runtime_ifb"]
+    assert ifb["contract_verified"] is False
+
+
+def test_runtime_ifb_unproven_when_worker_liveness_metadata_absent():
+    # Current live backend does not return ``worker_alive``.  Cached ready is
+    # NOT sufficient: readiness/liveness must remain UNPROVEN.
+    asr = _asr_doc(
+        _ifb_backend(
+            {
+                "require_ifb": True,
+                "ready": True,
+                "validated_ready": dict(_READY_IFB2),
+                "latest_asr_ifb_health": dict(_HEALTH),
+            }
+        )
+    )
+    ifb = asr["runtime_ifb"]
+    assert ifb["contract_verified"] is False
+
+
+def test_runtime_ifb_unproven_when_worker_dead():
+    asr = _asr_doc(
+        _ifb_backend(
+            {
+                "require_ifb": True,
+                "ready": True,
+                "worker_alive": False,
+                "validated_ready": dict(_READY_IFB2),
+            }
+        )
+    )
+    assert asr["runtime_ifb"]["contract_verified"] is False
+
+
+def test_runtime_ifb_missing_health_stays_none_not_fabricated_zero():
+    asr = _asr_doc(
+        _ifb_backend(
+            {
+                "require_ifb": True,
+                "ready": True,
+                "worker_alive": True,
+                "validated_ready": dict(_READY_IFB2),
+                "latest_asr_ifb_health": None,
+            }
+        )
+    )
+    ifb = asr["runtime_ifb"]
+    assert ifb["observed_health"] is False
+    assert ifb["latest"] is None
+    assert ifb["contract_verified"] is True  # health is not part of verification
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [-1, "7", True, 1.5, None],
+)
+def test_runtime_ifb_malformed_counter_is_none_not_zero(bad):
+    health = dict(_HEALTH)
+    health["admitted_mid_flight"] = bad
+    asr = _asr_doc(
+        _ifb_backend(
+            {
+                "require_ifb": True,
+                "ready": True,
+                "worker_alive": True,
+                "validated_ready": dict(_READY_IFB2),
+                "latest_asr_ifb_health": health,
+            }
+        )
+    )
+    assert asr["runtime_ifb"]["latest"]["admitted_mid_flight"] is None
+
+
+def test_runtime_ifb_diagnostics_exception_is_safe_and_preserves_document(caplog):
+    with caplog.at_level("WARNING"):
+        asr = _asr_doc(
+            _ifb_backend(RuntimeError("secret path /tmp/leak token=abc"))
+        )
+    assert "runtime_ifb" not in asr
+    # Concise, secret-free diagnostic; no exception text escapes.
+    messages = " ".join(r.getMessage() for r in caplog.records)
+    assert "runtime_diagnostics() raised" in messages
+    assert "/tmp/leak" not in messages and "token=abc" not in messages
+    # The rest of the configured ASR document is preserved.
+    assert asr["ready"] is True
+    assert asr["backend"] == "trt_edgellm"
+    assert asr["concurrency"]["backend_max_concurrent"] == 2
+
+
+def test_runtime_ifb_serialized_document_leaks_no_pid_trace_or_transcript():
+    backend = _ifb_backend(
+        {
+            "require_ifb": True,
+            "ready": True,
+            "worker_alive": True,
+            "worker_pid": 1888811,
+            "validated_ready": dict(_READY_IFB2),
+            "latest_asr_ifb_health": dict(_HEALTH),
+            "asr_ifb_traces": [{"work_id": 126, "engine_request_id": 126,
+                                "phase": "terminal",
+                                "transcript": "hello world"}],
+            "asr_ifb_trace_capacity": 64,
+        }
+    )
+    import json
+
+    blob = json.dumps(_asr_doc(backend))
+    assert "worker_pid" not in blob
+    assert "1888811" not in blob
+    assert "asr_ifb_trace" not in blob
+    assert "work_id" not in blob
+    assert "engine_request_id" not in blob
+    assert "transcript" not in blob
+    assert "hello world" not in blob
+
+
+def test_runtime_ifb_strict_nested_schema_rejects_unknown_field():
+    with pytest.raises(ValidationError):
+        ASRRuntimeIFB.model_validate(
+            {
+                "source": "native_worker_ready",
+                "validation_required": True,
+                "contract_verified": True,
+                "observed_health": False,
+                "worker_alive": True,  # not a public field
+            }
+        )
+
+
+def test_runtime_ifb_field_is_absent_for_tts_and_legacy_asr_document():
+    # Regression guard: TTS component carries no runtime_ifb even when the ASR
+    # side omitted provenance, and the ASR document only adds it when sourced.
+    body = build_capabilities(
+        tts_backend=_backend(
+            "qwen3-tts-customvoice",
+            {TTSCapability.BASIC_TTS, TTSCapability.STREAMING},
+        ),
+        tts_ready=True,
+        tts_configured=True,
+        asr_configured=False,
+        limiter=None,
+    )
+    assert "runtime_ifb" not in body["tts"]
+    assert body["asr"] == {}
