@@ -221,6 +221,26 @@ async def test_stop_to_sleep_disabled():
 
 
 @pytest.mark.asyncio
+async def test_traditional_chinese_stop_and_exit():
+    """Verify that traditional Chinese variants like '別說了', '再見' match."""
+    cfg = Config(exit_reply_text="那我先退下了")
+    app = _stub_app(cfg)
+    app._set_state(ConvState.IDLE)
+
+    # Traditional "別說了。" -> stop intent
+    evt = ASRFinal(text="別說了。", session_complete=True)
+    await app._dispatch_one(evt)
+    assert app._state == ConvState.IDLE
+
+    # Traditional "再見！" -> exit intent
+    evt2 = ASRFinal(text="再見！", session_complete=True)
+    await app._dispatch_one(evt2)
+    app.slv.speak.assert_awaited_with("那我先退下了", conversation="none")
+    assert app._sleep_after_assistant_turn is True
+
+
+
+@pytest.mark.asyncio
 async def test_single_char_stop_and_exit_not_dropped_as_low_signal():
     """'停' and '拜' are 1 character, which would normally be dropped as low-signal,
     but must be preserved and processed as stop/exit intents."""

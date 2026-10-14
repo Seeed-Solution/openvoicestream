@@ -549,15 +549,17 @@ class BaseApp:
         except RuntimeError:
             pass
 
+    _TRAD_TO_SIMP = str.maketrans("別說見聽閉靜結束後幹", "别说见听闭静结束后干")
+
     def _normalise_for_stop(self, text: str) -> str:
-        """Lowercase + strip whitespace and trailing punctuation."""
+        """Lowercase + strip whitespace and trailing punctuation, mapping common trad Chinese."""
         if not text:
             return ""
         s = text.strip()
         # Strip trailing CJK + ASCII sentence punctuation.
         while s and s[-1] in "。，！？.!?,;:":
             s = s[:-1]
-        return s.strip().lower()
+        return s.strip().lower().translate(self._TRAD_TO_SIMP)
 
     # Separators that can sit between a leaked wake phrase and the command.
     _WAKE_SEPARATORS = " ,，.。!！?？:：;、"
