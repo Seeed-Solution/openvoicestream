@@ -708,10 +708,13 @@ class BaseApp:
             return
         try:
             logger.info("wake reply: %s", text)
+            self._in_wake_greeting = True
             await self._broadcast("on_wake_reply", text)
             await speak_fn(text, conversation="none")
         except Exception:
+            self._in_wake_greeting = False
             logger.exception("wake reply failed")
+
 
     def _get_exit_reply_text(self) -> str:
         """Resolve configured exit reply text, or empty string if disabled."""
@@ -949,9 +952,11 @@ class BaseApp:
         if drain_task is not None and not drain_task.done():
             drain_task.cancel()
         self._first_tts_seen = False
+        self._in_wake_greeting = False
         self._sleep_after_assistant_turn = False
         self._set_state(ConvState.SLEEPING)
         self._play_sleep_tone()
+
 
         if self._sleep_task is not None and not self._sleep_task.done():
             self._sleep_task.cancel()
@@ -1101,8 +1106,19 @@ class BaseApp:
             await self._broadcast("on_assistant_done")
             await self.sleep()
             return
+        if getattr(self, "_in_wake_greeting", False):
+            self._in_wake_greeting = False
+            await self._broadcast("on_assistant_done")
+            self._set_state(ConvState.IDLE)
+            if self._wake_command_single_turn_enabled():
+                self._arm_wake_command_timeout()
+            else:
+                self._reset_sleep_timer()
+            return
+
         if (
             self._state != ConvState.BARGED_IN
+
 
             and self._wake_command_single_turn_enabled()
             and getattr(self, "_wake_command_retry_after_no_final", False)
@@ -2644,8 +2660,10 @@ class BaseApp:
         self._eos_sent_this_turn = False
         self._cancel_asr_watchdog()
         self._first_tts_seen = False
+        self._in_wake_greeting = False
         self._sleep_after_assistant_turn = False
         # A barge-in abandons whatever the user was mid-way through saying.
+
         self._clear_pending_asr_utterance()
 
 
@@ -3444,13 +3462,21 @@ class BaseApp:
                         try:
                             logger.info("exit reply: %s", exit_reply)
                             self._sleep_after_assistant_turn = True
+                            # Re-arm playback latch so farewell audio is not dropped by prior stop_playback
+                            arm = getattr(self.audio, "arm_for_next_turn", None)
+                            if callable(arm):
+                                arm()
+                            if self._state == ConvState.BARGED_IN:
+                                self._set_state(ConvState.IDLE)
                             await self._broadcast("on_assistant_sentence_start", exit_reply)
                             await speak_fn(exit_reply, conversation="none")
                             return
                         except Exception:
+                            self._sleep_after_assistant_turn = False
                             logger.exception("exit reply failed")
                     await self.sleep()
                     return
+
 
                 self._set_state(ConvState.IDLE)
                 self._reset_sleep_timer()

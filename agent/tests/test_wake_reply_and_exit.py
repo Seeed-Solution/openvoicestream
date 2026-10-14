@@ -44,7 +44,9 @@ def _stub_app(config: Config | None = None) -> BaseApp:
         play_notification=MagicMock(),
         arm_for_next_turn=MagicMock(),
         playback_position_ms=MagicMock(return_value=0),
+        set_output_sample_rate=MagicMock(),
     )
+
     app.slv = SimpleNamespace(
         abort=AsyncMock(),
         reconnect=AsyncMock(),
@@ -235,3 +237,56 @@ async def test_single_char_stop_and_exit_not_dropped_as_low_signal():
     evt_exit = ASRFinal(text="拜", session_complete=True)
     await app._dispatch_one(evt_exit)
     assert app._state == ConvState.SLEEPING
+
+
+@pytest.mark.asyncio
+async def test_wake_command_single_turn_greeting_does_not_prematurely_sleep():
+    """In wake_command_single_turn mode, the completion of wake greeting
+    must NOT transition to SLEEPING. It must keep listening for the command."""
+    from ovs_agent.slv_client import TTSDone
+
+    cfg = Config(
+        pipeline_mode="wake_word",
+        wake_command_single_turn=True,
+        wake_reply_text="在呢",
+        wake_command_timeout_s=5.0,
+    )
+    app = _stub_app(cfg)
+    app._state = ConvState.SLEEPING
+
+    await app.wake(source="openwakeword")
+    assert app._state == ConvState.IDLE
+    assert app._in_wake_greeting is True
+
+    # Greeting audio plays, flipping state to SPEAKING
+    from ovs_agent.slv_client import TTSAudio
+    await app._dispatch_one(TTSAudio(pcm=b"\x00" * 320, sample_rate=16000))
+    assert app._state == ConvState.SPEAKING
+
+    # SLV finishes playing the greeting
+    await app._dispatch_one(TTSDone(session_complete=False))
+
+    # Must be IDLE listening for the user's command, NOT SLEEPING and NOT stuck in SPEAKING!
+    assert app._state == ConvState.IDLE
+    assert app._in_wake_greeting is False
+
+
+
+@pytest.mark.asyncio
+async def test_exit_reply_rearms_playback_and_clears_barged_in():
+    """Exit reply must rearm playback and clear BARGED_IN so farewell is audible."""
+    cfg = Config(exit_reply_text="那我先退下了")
+    app = _stub_app(cfg)
+    app._set_state(ConvState.BARGED_IN)
+
+    evt = ASRFinal(text="退下", session_complete=True)
+    await app._dispatch_one(evt)
+
+    # Audio playback was re-armed
+    assert app.audio.arm_for_next_turn.call_count >= 2
+    # State reset from BARGED_IN to IDLE so TTS audio isn't discarded
+    assert app._state == ConvState.IDLE
+
+    assert app._sleep_after_assistant_turn is True
+    app.slv.speak.assert_awaited_once_with("那我先退下了", conversation="none")
+
