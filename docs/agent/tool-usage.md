@@ -228,3 +228,47 @@ def kitchen_light(on: bool) -> dict:
 Voice: "关一下厨房的灯" → LLM emits `tool_calls=[kitchen_light(on=false)]`
 → runner dispatches → `{"success": true, "on": false}` → LLM emits
 "好的，厨房灯已关。" → TTS speaks the answer.
+
+## Model Context Protocol (MCP) integration
+
+`ovs_agent` can bridge external MCP servers as tools via `McpBridgePlugin`. Tools exposed by configured MCP servers are dynamically registered into `default_registry` and surfaced to the LLM during dialogue turns.
+
+When no `mcp_servers` are configured, the MCP subsystem remains completely inactive with **zero runtime overhead**.
+
+### Transports
+
+1. **`sse` (Recommended for remote / decoupled services):**
+   Communicates over HTTP + Server-Sent Events. Best for connecting to tools hosted on a central server, Home Assistant, or independent microservices without polluting the edge device's Docker image.
+2. **`stdio` (For local scripts / binaries):**
+   Launches the tool as a subprocess and speaks JSON-RPC over `stdin` and `stdout`.
+
+### Configuration in YAML
+
+```yaml
+tools_enabled: true
+tools_default_allowlist: []  # expose all registered tools including MCP tools
+
+mcp_servers:
+  # Remote Home Assistant or custom API via SSE
+  - name: home_assistant
+    transport: sse
+    url: "http://192.168.1.100:8000/sse"
+    timeout_s: 5.0
+    preamble_text: "好的，正在处理。"  # Spoken acknowledgement emitted via TTS immediately
+
+  # Local Python script via stdio
+  - name: local_device
+    transport: stdio
+    command: python3
+    args: ["/opt/tools/device_mcp.py"]
+    timeout_s: 10.0
+```
+
+### Installation
+
+MCP support is included via the optional extra:
+
+```bash
+uv run --extra mcp ovs-agent run conversation
+```
+
