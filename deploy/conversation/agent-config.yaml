@@ -68,9 +68,16 @@ wake_sources: []
 wake_mic_skip_ms: "${WAKEWORD_MIC_SKIP_MS:-120}"
 wake_phrases:
   - "${WAKEWORD_PHRASE:-你好小智}"
+# Spoken greeting after wake-word detection (e.g. "在呢" / "我在"). If empty, only wake_tone plays.
+wake_reply_text: "${WAKE_REPLY_TEXT:-}"
+# Spoken farewell on exit-intent (e.g. "那我先退下了"). If empty, transitions to SLEEPING silently.
+exit_reply_text: "${EXIT_REPLY_TEXT:-}"
+# If true, stop words ("停下", "别说了") also transition to SLEEPING instead of staying in IDLE.
+stop_to_sleep: "${STOP_TO_SLEEP:-false}"
 default_mode: "${DEFAULT_MODE:-chat}"
 realtime_protocol_version: 1
 log_level: INFO
+
 
 metadata:
   dashboard_port: 18000
@@ -101,3 +108,22 @@ metadata:
       timeout_s: 10
     cooldown_s: "${WAKEWORD_COOLDOWN_S:-2.0}"
     state_path: /var/lib/ovs-agent/wakeword.json
+
+# Tool Calling & Model Context Protocol (MCP) configuration (optional, off by default).
+# Set tools_enabled: true to expose registered tools (including MCP tools) to the LLM.
+# tools_enabled: false
+# tools_default_allowlist: []  # empty list exposes all registered tools
+# mcp_servers:
+#   # SSE transport (recommended for decoupled / remote microservices):
+#   - name: home_assistant
+#     transport: sse
+#     url: "http://127.0.0.1:8000/sse"
+#     timeout_s: 10.0
+#     preamble_text: "好的，正在处理。"  # Spoken voice preamble during execution
+#   # stdio transport (for local CLI / script tools):
+#   - name: local_tools
+#     transport: stdio
+#     command: "python3"
+#     args: ["-m", "my_mcp_server"]
+#     timeout_s: 10.0
+

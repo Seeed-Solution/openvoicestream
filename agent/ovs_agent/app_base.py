@@ -443,6 +443,8 @@ class BaseApp:
         self._mic_rms_broadcast_task: asyncio.Task | None = None
         # Rate-limited stop-word matcher cache (compiled per Config update).
         self._stop_words_cache: tuple[list[str], list[str]] | None = None
+        self._sleep_after_assistant_turn: bool = False
+        self._in_wake_greeting: bool = False
 
     # ── startup budget validation ───────────────────────────────────
 
@@ -558,15 +560,17 @@ class BaseApp:
         except RuntimeError:
             pass
 
+    _TRAD_TO_SIMP = str.maketrans("別說見聽閉靜結束後幹", "别说见听闭静结束后干")
+
     def _normalise_for_stop(self, text: str) -> str:
-        """Lowercase + strip whitespace and trailing punctuation."""
+        """Lowercase + strip whitespace and trailing punctuation, mapping common trad Chinese."""
         if not text:
             return ""
         s = text.strip()
         # Strip trailing CJK + ASCII sentence punctuation.
         while s and s[-1] in "。，！？.!?,;:":
             s = s[:-1]
-        return s.strip().lower()
+        return s.strip().lower().translate(self._TRAD_TO_SIMP)
 
     # Separators that can sit between a leaked wake phrase and the command.
     _WAKE_SEPARATORS = " ,，.。!！?？:：;、"
@@ -655,6 +659,95 @@ class BaseApp:
                     if len(tail) <= self._STOP_PREFIX_MAX_TAIL_WORDS:
                         return True
         return False
+
+    def _is_exit_intent(self, text: str) -> bool:
+        """Match exit intent: Chinese -> exact full-string; English -> case-
+        insensitive whole-utterance OR word-boundary prefix (>= 2 chars).
+        Also checks wake-phrase stripped remainder (e.g. 'Hey Jarvis 退下').
+        """
+        if self._check_exit_intent_text(text):
+            return True
+        stripped = self._strip_wake_prefix(text)
+        if stripped and stripped != text:
+            return self._check_exit_intent_text(stripped)
+        return False
+
+    def _check_exit_intent_text(self, text: str) -> bool:
+        norm = self._normalise_for_stop(text)
+        if not norm:
+            return False
+        cfg = getattr(self, "config", None)
+        words = (getattr(cfg, "exit_words", []) if cfg is not None else []) or []
+        for w in words:
+            if not w:
+                continue
+            wn = w.strip().lower()
+            if not wn:
+                continue
+            is_ascii = wn.isascii()
+            if not is_ascii:
+                if norm == wn:
+                    return True
+            else:
+                if norm == wn:
+                    return True
+                if len(wn) >= 2 and (
+                    norm.startswith(wn + " ")
+                    or norm.startswith(wn + ",")
+                    or norm.startswith(wn + "!")
+                    or norm.startswith(wn + "?")
+                    or norm.startswith(wn + ".")
+                ):
+                    tail = norm[len(wn):].replace(",", " ").replace(".", " ")
+                    tail = tail.replace("!", " ").replace("?", " ").split()
+                    if len(tail) <= self._STOP_PREFIX_MAX_TAIL_WORDS:
+                        return True
+        return False
+
+    def _get_wake_reply_text(self) -> str:
+        """Resolve configured wake reply text, or empty string if disabled."""
+        raw = getattr(getattr(self, "config", None), "wake_reply_text", "") or ""
+        if not raw:
+            meta = getattr(getattr(self, "config", None), "metadata", {}) or {}
+            raw = meta.get("wake_reply_text") or meta.get("wakeword", {}).get("reply_text", "")
+        if isinstance(raw, list):
+            import random
+            choices = [str(x).strip() for x in raw if str(x).strip()]
+            return random.choice(choices) if choices else ""
+        if isinstance(raw, str):
+            return raw.strip()
+        return ""
+
+    async def _speak_wake_reply(self) -> None:
+        """Speak configured wake reply text (e.g. '在呢' / '我在') after waking up."""
+        text = self._get_wake_reply_text()
+        if not text:
+            return
+        speak_fn = getattr(getattr(self, "slv", None), "speak", None)
+        if not callable(speak_fn):
+            return
+        try:
+            logger.info("wake reply: %s", text)
+            self._in_wake_greeting = True
+            await self._broadcast("on_wake_reply", text)
+            await speak_fn(text, conversation="none")
+        except Exception:
+            self._in_wake_greeting = False
+            logger.exception("wake reply failed")
+
+    def _get_exit_reply_text(self) -> str:
+        """Resolve configured exit reply text, or empty string if disabled."""
+        raw = getattr(getattr(self, "config", None), "exit_reply_text", "") or ""
+        if not raw:
+            meta = getattr(getattr(self, "config", None), "metadata", {}) or {}
+            raw = meta.get("exit_reply_text", "")
+        if isinstance(raw, list):
+            import random
+            choices = [str(x).strip() for x in raw if str(x).strip()]
+            return random.choice(choices) if choices else ""
+        if isinstance(raw, str):
+            return raw.strip()
+        return ""
 
     # ── pipeline_mode: wake / sleep / sleep-timer ──────────────────
 
@@ -778,6 +871,7 @@ class BaseApp:
         self._reset_sleep_timer()
         self._arm_wake_command_timeout()
         self._play_wake_tone()
+        await self._speak_wake_reply()
 
     def _play_wake_tone(self) -> None:
         """Play a short notification tone so the user knows the wake word landed."""
@@ -1019,6 +1113,20 @@ class BaseApp:
             self._arm_wake_command_timeout()
 
     async def _complete_assistant_turn(self) -> None:
+        if getattr(self, "_sleep_after_assistant_turn", False):
+            self._sleep_after_assistant_turn = False
+            await self.sleep()
+            await self._broadcast("on_assistant_done")
+            return
+        if getattr(self, "_in_wake_greeting", False):
+            self._in_wake_greeting = False
+            if self._state != ConvState.BARGED_IN:
+                self._set_state(ConvState.IDLE)
+                self._reset_sleep_timer()
+                if self._wake_command_single_turn_enabled():
+                    self._arm_wake_command_timeout()
+            await self._broadcast("on_assistant_done")
+            return
         if (
             self._state != ConvState.BARGED_IN
             and self._wake_command_single_turn_enabled()
@@ -2629,6 +2737,8 @@ class BaseApp:
         self._eos_sent_this_turn = False
         self._cancel_asr_watchdog()
         self._first_tts_seen = False
+        self._sleep_after_assistant_turn = False
+        self._in_wake_greeting = False
         # NOT cleared here: the pending buffer holds mid-utterance segments of
         # the barge-in utterance itself (the RK Qwen3-ASR backend emits an
         # internal final after ~400 ms of silence, well before our asr_eos).
@@ -3380,7 +3490,8 @@ class BaseApp:
             # (the RK backend commonly returns empty text for the
             # post-EOS final when it already finalized the audio on its
             # own internal endpoint).
-            if _is_low_signal and not (
+            _is_stop_or_exit = self._is_stop_intent(evt.text or "") or self._is_exit_intent(evt.text or "")
+            if _is_low_signal and not _is_stop_or_exit and not (
                 _had_pending_eos
                 and getattr(self, "_pending_asr_utterance_text", "")
             ):
@@ -3560,11 +3671,18 @@ class BaseApp:
                     pass
             await self._broadcast("on_user_utterance", full_text)
             # (reconnect already happened above, before the empty-text guard)
-            # Stop-intent: user said "停下" / "stop" — cancel everything,
-            # do NOT route to LLM and do NOT extend session.history (the
-            # user asked for quiet, not for more conversation).
-            if self._is_stop_intent(full_text):
-                logger.info("stop intent matched: %r", full_text)
+            # Exit-intent ("退下", "退出", "再见", "bye") and Stop-intent ("停下", "stop", etc.)
+            is_exit = self._is_exit_intent(full_text)
+            is_stop = self._is_stop_intent(full_text)
+            if is_exit or is_stop:
+                self._awaiting_new_reply = False
+                should_sleep = is_exit or bool(getattr(getattr(self, "config", None), "stop_to_sleep", False))
+                logger.info(
+                    "%s intent matched: %r (should_sleep=%s)",
+                    "exit" if is_exit else "stop",
+                    full_text,
+                    should_sleep,
+                )
                 if self._llm_turn_task is not None and not self._llm_turn_task.done():
                     self._llm_turn_task.cancel()
                     try:
@@ -3579,9 +3697,36 @@ class BaseApp:
                     await self.audio.stop_playback()
                 except Exception:  # pragma: no cover - best effort
                     pass
+
+                if is_exit:
+                    await self._broadcast("on_user_exit_intent", full_text)
+                if is_stop:
+                    await self._broadcast("on_user_stop_intent", full_text)
+
+                if should_sleep:
+                    exit_reply = self._get_exit_reply_text()
+                    speak_fn = getattr(getattr(self, "slv", None), "speak", None)
+                    if exit_reply and callable(speak_fn):
+                        try:
+                            logger.info("exit reply: %s", exit_reply)
+                            self._sleep_after_assistant_turn = True
+                            # Re-arm playback latch so farewell audio is not dropped by prior stop_playback
+                            arm = getattr(self.audio, "arm_for_next_turn", None)
+                            if callable(arm):
+                                arm()
+                            if self._state == ConvState.BARGED_IN:
+                                self._set_state(ConvState.IDLE)
+                            await self._broadcast("on_assistant_sentence_start", exit_reply)
+                            await speak_fn(exit_reply, conversation="none")
+                            return
+                        except Exception:
+                            self._sleep_after_assistant_turn = False
+                            logger.exception("exit reply failed")
+                    await self.sleep()
+                    return
+
                 self._set_state(ConvState.IDLE)
                 self._reset_sleep_timer()
-                await self._broadcast("on_user_stop_intent", full_text)
                 return
             # Spawn the LLM turn as a tracked task so the dispatch loop
             # stays free to handle queued TTSAudio (playback) and
