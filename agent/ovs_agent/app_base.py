@@ -3430,6 +3430,7 @@ class BaseApp:
             is_exit = self._is_exit_intent(full_text)
             is_stop = self._is_stop_intent(full_text)
             if is_exit or is_stop:
+                self._awaiting_new_reply = False
                 should_sleep = is_exit or bool(getattr(getattr(self, "config", None), "stop_to_sleep", False))
                 logger.info(
                     "%s intent matched: %r (should_sleep=%s)",
