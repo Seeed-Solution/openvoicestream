@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("mcp")
+
 from ovs_agent.mcp.client import McpConnection
 from ovs_agent.mcp.plugin import McpBridgePlugin
 from ovs_agent.tools.registry import ToolRegistry

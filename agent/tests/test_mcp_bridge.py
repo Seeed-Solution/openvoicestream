@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytest.importorskip("mcp")
+
 from ovs_agent.config import Config
 from ovs_agent.mcp.client import McpConnection
 from ovs_agent.mcp.plugin import McpBridgePlugin
