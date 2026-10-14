@@ -43,6 +43,14 @@ class MultiModeApp(BaseApp):
         self.register(DebugDashboardPlugin(self))
         self.register(LLMAvailabilityPlugin(self))
 
+        # Register MCP bridge if mcp_servers are configured
+        if getattr(config, "mcp_servers", None):
+            try:
+                from ovs_agent.mcp.plugin import McpBridgePlugin
+                self.register(McpBridgePlugin(self))
+            except Exception:
+                logger.exception("failed to initialize McpBridgePlugin")
+
         # Register WakeSources for non-always_on pipeline modes.
         if getattr(config, "pipeline_mode", "always_on") != "always_on":
             for ws_name in getattr(config, "wake_sources", ["http"]) or []:

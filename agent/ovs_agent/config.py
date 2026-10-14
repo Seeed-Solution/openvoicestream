@@ -339,6 +339,20 @@ class Config:
     # fixed literal trigger vocabulary (e.g. grasp_object maps any spoken object
     # to a catalog label). Guarding them would wrongly block valid intent.
     tool_trigger_guard_exempt: list[str] = field(default_factory=lambda: ["grasp_object"])
+    # ── Model Context Protocol (MCP) tool integration ─────────────
+    # Optional list of MCP server definitions. Each entry is a mapping:
+    #   name: str               - identifier for the MCP server
+    #   transport: str          - "stdio" (default) or "sse"
+    #   command: str            - executable for stdio (e.g. "uvx", "python3")
+    #   args: list[str]         - arguments for stdio command
+    #   env: dict[str, str]     - extra environment variables for stdio
+    #   url: str                - endpoint URL for sse transport
+    #   headers: dict[str, str] - HTTP headers for sse transport
+    #   timeout_s: float        - invocation timeout in seconds (default 10.0)
+    #   preamble_text: str      - spoken acknowledgement on invocation (e.g. "好的，正在查询。")
+    #   completion_text: str    - fixed completion acknowledgement (optional)
+    #   response_mode: str      - "await" | "parallel" | "template" (default "await")
+    mcp_servers: list[dict[str, Any]] = field(default_factory=list)
     # ── Server-loop client mode (#37 Phase 2-product, spec §5/§6) ──
     # When False (default), the agent runs the LLM + tool loop locally
     # (current behaviour, byte-for-byte unchanged). When True, the agent

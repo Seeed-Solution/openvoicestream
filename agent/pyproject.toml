@@ -23,6 +23,10 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
 ]
+# Model Context Protocol (MCP) tool integration.
+mcp = [
+    "mcp>=1.2.0",
+]
 silero = [
     "silero-vad>=5.1",
     "torch>=2.0",
