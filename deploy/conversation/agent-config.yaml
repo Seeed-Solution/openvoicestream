@@ -68,9 +68,16 @@ wake_sources: []
 wake_mic_skip_ms: "${WAKEWORD_MIC_SKIP_MS:-120}"
 wake_phrases:
   - "${WAKEWORD_PHRASE:-你好小智}"
+# Spoken greeting after wake-word detection (e.g. "在呢" / "我在"). If empty, only wake_tone plays.
+wake_reply_text: "${WAKE_REPLY_TEXT:-}"
+# Spoken farewell on exit-intent (e.g. "那我先退下了"). If empty, transitions to SLEEPING silently.
+exit_reply_text: "${EXIT_REPLY_TEXT:-}"
+# If true, stop words ("停下", "别说了") also transition to SLEEPING instead of staying in IDLE.
+stop_to_sleep: "${STOP_TO_SLEEP:-false}"
 default_mode: "${DEFAULT_MODE:-chat}"
 realtime_protocol_version: 1
 log_level: INFO
+
 
 metadata:
   dashboard_port: 18000

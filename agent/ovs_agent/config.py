@@ -168,15 +168,39 @@ class Config:
     # action ("say the wake word again") actually fetch a healthy worker.
     reconnect_on_wake: bool = False
 
+    # Wake reply: spoken greeting after wake-word detection (e.g. "在呢" / "我在").
+    # If non-empty, the assistant speaks this deterministic reply on wake.
+    # Can also be set in metadata (wake_reply_text or wakeword.reply_text).
+    wake_reply_text: str = ""
+
     # Stop-intent recognition: when the ASR final exactly matches one of
     # these (after normalisation), abort current TTS, drop the turn, and
     # transition state→IDLE without consulting the LLM. Chinese strings
     # match the whole utterance; English strings match case-insensitive
     # whole-utterance or word-boundary prefix.
     stop_words: list[str] = field(default_factory=lambda: [
-        "停", "停下", "停下来", "别说了", "闭嘴", "安静",
+        "停", "停下", "停下来", "别说了", "闭嘴", "安静", "不用说了", "别讲了", "停止",
         "stop", "shut up", "be quiet", "silence",
     ])
+    # Exit-intent recognition: when the ASR final matches one of these
+    # (after normalisation), abort current playback/turn and transition
+    # to SLEEPING state (or speak exit_reply_text before sleeping).
+    exit_words: list[str] = field(default_factory=lambda: [
+        "退下", "退下吧", "退出", "退去", "请退下", "你退下", "你退下吧", "退下去",
+        "休眠", "进入休眠", "去休眠", "睡觉吧", "去睡觉", "休息吧", "去休息",
+        "结束对话", "结束",
+        "再见", "拜拜", "回头见", "下次聊", "拜",
+        "exit", "quit", "goodbye", "bye", "sleep",
+    ])
+    # Exit reply: optional spoken farewell when user triggers an exit intent
+    # (e.g. "那我先退下了", "好的，有事随时叫我"). If empty, transitions to
+    # SLEEPING immediately and quietly.
+    exit_reply_text: str = ""
+    # When True, stop_words ("停下", "别说了", etc.) also transition to SLEEPING
+    # instead of staying in IDLE. Useful in wake_word mode when user wants "停下"
+    # to stop listening entirely until the next wake word.
+    stop_to_sleep: bool = False
+
     # AppMode framework: which mode the app boots into, plus per-mode
     # overrides keyed by mode name, e.g.
     #   mode_overrides: {chat: {system_prompt: "..."}, interpreter: {...}}
@@ -434,6 +458,20 @@ class Config:
                 f"translator_tgt_lang must match NLLB format (e.g. 'eng_Latn'); "
                 f"got {self.translator_tgt_lang!r}"
             )
+        if isinstance(self.stop_to_sleep, str):
+            v = _normalize_env_flag(self.stop_to_sleep)
+            self.stop_to_sleep = v in ("1", "true", "yes", "on")
+        else:
+            self.stop_to_sleep = bool(self.stop_to_sleep)
+        if self.wake_reply_text is None:
+            self.wake_reply_text = ""
+        if self.exit_reply_text is None:
+            self.exit_reply_text = ""
+        if isinstance(self.exit_words, str):
+            self.exit_words = [w.strip() for w in self.exit_words.split(",") if w.strip()]
+        if isinstance(self.stop_words, str):
+            self.stop_words = [w.strip() for w in self.stop_words.split(",") if w.strip()]
+
 
     def server_loop_enabled(self) -> bool:
         """Resolve the server-loop flag: ``OVS_AGENT_SERVER_LOOP`` env wins,
