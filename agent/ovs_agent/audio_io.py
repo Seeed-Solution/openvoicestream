@@ -98,6 +98,11 @@ class AudioIO:
         self._source_sr = output_sr
         self.chunk_ms = chunk_ms
         self._chunk_frames = int(input_sr * chunk_ms / 1000)
+        # Rate the input stream is actually opened at. Stays ``input_sr``
+        # unless the device rejected it and we fell back to the device's own
+        # native rate; the capture callback resamples back to ``input_sr``
+        # either way, so downstream framing never sees the device rate.
+        self._input_device_sr = input_sr
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._in_queue: asyncio.Queue[bytes] | None = None
@@ -241,52 +246,100 @@ class AudioIO:
     def _make_input_stream_callback(self):
         """Return the sounddevice callback for the input stream.
 
-        Mono devices get ``self._input_callback`` unchanged. Multi-channel
-        devices get it wrapped in a downmix so the rest of the pipeline is
-        channel-count agnostic.
+        Mono devices opened at the configured rate get ``self._input_callback``
+        unchanged. Otherwise the raw device frames are adapted before they
+        reach the pipeline: multi-channel input is downmixed to mono, and a
+        device opened at its own native rate is resampled back to ``input_sr``.
+        Every downstream consumer therefore keeps seeing the same 16 kHz mono
+        int16 contract regardless of what the hardware offers.
         """
-        if self._mic_channels == 1:
-            return self._input_callback
-
         upstream_cb = self._input_callback
         ch = self._mic_channels
         sel = self._mic_channel_select
+        device_sr = self._input_device_sr
+        cfg_sr = self.input_sr
+        downmix = ch != 1
+        resample = device_sr != cfg_sr
 
-        def _downmix_cb(indata, frames, time_info, status):
+        if not downmix and not resample:
+            return upstream_cb
+
+        if downmix:
+            if sel is not None:
+                logger.info(
+                    "Opening mic with %d channels → select ch %d as mono", ch, sel
+                )
+            else:
+                logger.info("Opening mic with %d channels → mean downmix to mono", ch)
+
+        def _adapt_cb(indata, frames, time_info, status):
             try:
-                arr = np.frombuffer(indata, dtype=np.int16).reshape(-1, ch)
-                if sel is not None and 0 <= sel < ch:
-                    mono_arr = arr[:, sel]
+                if downmix:
+                    arr = np.frombuffer(indata, dtype=np.int16).reshape(-1, ch)
+                    if sel is not None and 0 <= sel < ch:
+                        mono_arr = arr[:, sel]
+                    else:
+                        # Symmetric-array fallback: mean across channels. On
+                        # reSpeaker XVF3800 this mixes the AEC reference channel
+                        # into the voice — pin mic_channel_select instead.
+                        mono_arr = np.mean(arr, axis=1).astype(np.int16)
+                    mono = mono_arr.astype(np.int16).tobytes()
                 else:
-                    # Symmetric-array fallback: mean across channels. On
-                    # reSpeaker XVF3800 this mixes the AEC reference channel
-                    # into the voice — pin mic_channel_select instead.
-                    mono_arr = np.mean(arr, axis=1).astype(np.int16)
-                mono = mono_arr.astype(np.int16).tobytes()
+                    mono = bytes(indata)
+                if resample:
+                    mono = self._resample_int16(mono, device_sr, cfg_sr)
+                    frames = len(mono) // 2
             except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("downmix failed (%s) — passing raw", exc)
+                logger.warning("input adapt failed (%s) — passing raw", exc)
                 mono = bytes(indata)
             upstream_cb(mono, frames, time_info, status)
 
-        if sel is not None:
-            logger.info("Opening mic with %d channels → select ch %d as mono", ch, sel)
-        else:
-            logger.info("Opening mic with %d channels → mean downmix to mono", ch)
-        return _downmix_cb
+        return _adapt_cb
 
     def _build_and_start_input_stream(self):
-        """Construct + start a fresh RawInputStream. Closes the stream
-        handle on start() failure to avoid leaks (Codex review #2).
+        """Construct + start a fresh RawInputStream.
 
         When ``mic_channels`` > 1 the stream is opened at that native count
         and the callback downmixes to mono before any byte reaches the
         asyncio queue.
+
+        The configured ``input_sr`` is tried first so devices that accept it
+        keep their existing behaviour. Some USB arrays only accept a single
+        native rate — the reSpeaker XVF3800 4-Mic 44mm exposes 48000 Hz
+        capture and PortAudio refuses a 16 kHz request with PaErrorCode -9978
+        rather than letting ALSA convert — so a rejected open is retried once
+        at the rate the device declares, and the callback resamples back to
+        ``input_sr``.
         """
         device = self._resolve_input_device()
         self._refresh_input_profile(device)
+        try:
+            return self._start_input_stream(device, self.input_sr)
+        except Exception as exc:
+            device_sr = self._resolve_input_sample_rate(device)
+            if device_sr == self.input_sr:
+                raise
+            logger.info(
+                "input stream open at %d Hz failed (%s); retrying at %d Hz "
+                "(device-preferred)",
+                self.input_sr, exc, device_sr,
+            )
+            return self._start_input_stream(device, device_sr)
+
+    def _start_input_stream(self, device, device_sr: int):
+        """Open + start a RawInputStream at ``device_sr``.
+
+        Closes the stream handle on start() failure to avoid leaks
+        (Codex review #2).
+        """
+        self._input_device_sr = device_sr
         stream = sd.RawInputStream(
-            samplerate=self.input_sr,
-            blocksize=self._chunk_frames,
+            samplerate=device_sr,
+            # Keep one configured chunk of audio per callback despite the
+            # higher device rate: the callback resamples each block back to
+            # input_sr, and the scaled blocksize is what preserves the
+            # downstream frame count.
+            blocksize=self._input_blocksize(device_sr),
             device=device,
             channels=self._mic_channels,
             dtype="int16",
@@ -301,6 +354,34 @@ class AudioIO:
                 pass
             raise
         return stream
+
+    def _input_blocksize(self, device_sr: int) -> int:
+        """Callback frame count at ``device_sr`` covering one ``chunk_ms``.
+
+        ``_chunk_frames`` is expressed at ``input_sr``; opening the stream
+        faster than that would otherwise shrink every callback below the
+        chunk downstream framing expects.
+        """
+        if device_sr == self.input_sr:
+            return self._chunk_frames
+        return max(1, int(round(self._chunk_frames * device_sr / self.input_sr)))
+
+    def _resolve_input_sample_rate(self, device) -> int:
+        """Pick a sample rate the resolved input device accepts.
+
+        Query the device and prefer its declared ``default_samplerate``,
+        which is the rate PortAudio is guaranteed to open. Falls back to the
+        configured rate when the query fails or returns something outside a
+        plausible capture range.
+        """
+        try:
+            info = sd.query_devices(device, kind="input")
+            sr = int(info.get("default_samplerate") or 0)
+            if 8000 <= sr <= 192000:
+                return sr
+        except Exception:
+            pass
+        return self.input_sr
 
     def _resolve_input_device(self):
         if not self._input_device_auto:
@@ -427,7 +508,7 @@ class AudioIO:
             name = sd.query_devices(dev_idx)["name"] if dev_idx is not None else "(default)"
             logger.info(
                 "input stream open: device=%s sr=%d chunk=%d",
-                name, self.input_sr, self._chunk_frames,
+                name, self._input_device_sr, self._chunk_frames,
             )
         except Exception:  # pragma: no cover - defensive
             pass

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from ovs_agent import app_base
@@ -369,3 +370,126 @@ def test_resolver_returns_same_product_token_after_alsa_card_index_drift(monkeyp
     ]
     second = devices.resolve_input_index("auto", wait_s=0.0, require_device=True)
     assert first == second == "XVF3800"
+
+
+# ── device-native capture rate ──────────────────────────────────────────
+# The reSpeaker XVF3800 4-Mic 44mm exposes 48000 Hz capture only. A 16 kHz
+# RawInputStream request is refused with PaErrorCode -9978 rather than
+# converted by ALSA, which used to leave the agent silently reading the
+# onboard codec instead of the mic array.
+
+
+class _RateRejectingSD(_FakeSD):
+    """PortAudio stand-in for a device that accepts its native rate only."""
+
+    def __init__(self, accepted_rates):
+        super().__init__()
+        self.accepted_rates = set(accepted_rates)
+        self.input_open_rates: list[int] = []
+
+    def RawInputStream(self, **kwargs):
+        self.input_open_rates.append(kwargs["samplerate"])
+        if kwargs["samplerate"] not in self.accepted_rates:
+            raise RuntimeError(
+                "Error opening RawInputStream: Invalid sample rate "
+                "[PaErrorCode -9978]"
+            )
+        return super().RawInputStream(**kwargs)
+
+
+def _xvf3800_44mm_sd(accepted_rates) -> _RateRejectingSD:
+    sd = _RateRejectingSD(accepted_rates)
+    sd.input_devices["xvf44"] = {
+        "name": "reSpeaker XVF3800 4-Mic 44mm: USB Audio (hw:3,0)",
+        "max_input_channels": 2,
+        "max_output_channels": 0,
+        "default_samplerate": 48000,
+    }
+    sd.output_devices["xvf44"] = {
+        "name": "reSpeaker XVF3800 4-Mic 44mm: USB Audio (hw:3,0)",
+        "max_input_channels": 2,
+        "max_output_channels": 2,
+        "default_samplerate": 48000,
+    }
+    return sd
+
+
+def _audio_on_xvf44(monkeypatch, fake_sd) -> AudioIO:
+    _wire_fake_audio(
+        monkeypatch,
+        fake_sd,
+        lambda value, *, wait_s=None, require_device=False: "XVF3800",
+    )
+    audio = AudioIO(
+        input_device="auto",
+        output_device="auto",
+        mic_channels=2,
+        mic_channels_cfg=2,
+        mic_channel_select=0,
+        mic_channel_select_cfg=0,
+    )
+    audio._input_callback = lambda *args: None
+    audio._input_capture_active = True
+    return audio
+
+
+def test_input_retries_at_device_native_rate_when_16k_is_rejected(monkeypatch):
+    fake_sd = _xvf3800_44mm_sd({48000})
+    audio = _audio_on_xvf44(monkeypatch, fake_sd)
+
+    audio._open_input_stream()
+
+    assert fake_sd.input_open_rates == [16000, 48000]
+    assert audio._input_device_sr == 48000
+    # 100 ms of audio per callback is preserved despite the 3x device rate.
+    assert audio._input_stream.kwargs["blocksize"] == 4800
+
+
+def test_input_keeps_16k_when_the_device_accepts_it(monkeypatch):
+    """Devices that opened at the configured rate must not be disturbed."""
+    fake_sd = _xvf3800_44mm_sd({16000, 48000})
+    audio = _audio_on_xvf44(monkeypatch, fake_sd)
+
+    audio._open_input_stream()
+
+    assert fake_sd.input_open_rates == [16000]
+    assert audio._input_device_sr == 16000
+    assert audio._input_stream.kwargs["blocksize"] == 1600
+
+
+def test_input_resamples_device_rate_back_to_16k_mono(monkeypatch):
+    fake_sd = _xvf3800_44mm_sd({48000})
+    audio = _audio_on_xvf44(monkeypatch, fake_sd)
+
+    seen: list[tuple[bytes, int]] = []
+    # The adapter binds the downstream callback when the stream is built,
+    # so replace it before opening.
+    audio._input_callback = lambda mono, frames, t, s: seen.append((mono, frames))
+    audio._open_input_stream()
+    cb = audio._input_stream.callback
+
+    # 100 ms at 48 kHz, two channels. ch0 carries a 1 kHz tone and ch1 its
+    # inverse, so channel selection stays observable *and* the result can be
+    # checked as a waveform. A DC block would survive any length-preserving
+    # mangling — including one that never resamples at all.
+    t = np.arange(4800, dtype=np.float64) / 48000.0
+    tone = np.round(20000.0 * np.sin(2 * np.pi * 1000.0 * t)).astype(np.int16)
+    block = np.empty(4800 * 2, dtype=np.int16)
+    block[0::2] = tone
+    block[1::2] = -tone
+    cb(block.tobytes(), 4800, None, None)
+
+    mono, frames = seen[-1]
+    samples = np.frombuffer(mono, dtype=np.int16)
+    assert frames == 1600
+    assert samples.size == 1600
+
+    # 1 kHz over 100 ms is 100 periods, so a 3:1 decimation that actually
+    # resamples must still carry ~200 sign changes. Length alone would not
+    # catch a stream that kept the 48 kHz samples and relabelled them.
+    sign_changes = int(np.count_nonzero(np.diff(np.sign(samples)) != 0))
+    assert 190 <= sign_changes <= 210, sign_changes
+    # Any 16 kHz sampling of a 1 kHz sine lands within a few percent of its
+    # peak, so a collapsed or chunk-repeated buffer shows up here.
+    assert samples.max() > 18000
+    assert samples.min() < -18000
