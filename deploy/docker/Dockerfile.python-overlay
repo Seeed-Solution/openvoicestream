@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+#
+# Generic Python thin-overlay. Replaces a whitelist of .py files in an
+# existing image, at the path the daemon actually imports from.
+#
+# Do not build this by hand — the destination path has to be discovered from
+# the base image before the build starts, and the payload has to be staged
+# from a reviewed commit rather than the working tree. Both are the driver
+# script's job:
+#
+#   deploy/docker/build-python-overlay.sh \
+#       --base  <image:tag> \
+#       --start <dir> \
+#       --file  audio_io.py \
+#       --tag   <image:new-tag> \
+#       [--smoke "<python one-liner>"]
+#
+# docker build -f <this file> <staged context>
+ARG BASE
+FROM ${BASE}
+
+# BASE is re-declared so it is available for the LABEL below (ARGs do not
+# survive FROM otherwise).
+ARG BASE
+ARG OVERLAY_DEST
+ARG OVERLAY_SMOKE=""
+
+COPY apply.sh /tmp/overlay-apply.sh
+COPY payload/ /tmp/overlay-payload/
+COPY payload.manifest /tmp/overlay-payload.manifest
+
+RUN OVERLAY_DEST="${OVERLAY_DEST}" OVERLAY_SMOKE="${OVERLAY_SMOKE}" \
+    sh /tmp/overlay-apply.sh \
+ && rm -rf /tmp/overlay-payload /tmp/overlay-apply.sh /tmp/overlay-payload.manifest
+
+LABEL build.overlay="python-overlay" \
+      build.base="${BASE}" \
+      build.dest="${OVERLAY_DEST}"
