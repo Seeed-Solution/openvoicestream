@@ -468,14 +468,28 @@ def test_input_resamples_device_rate_back_to_16k_mono(monkeypatch):
     audio._open_input_stream()
     cb = audio._input_stream.callback
 
-    # 100 ms at 48 kHz, two channels: ch0 carries a DC level, ch1 its inverse.
+    # 100 ms at 48 kHz, two channels. ch0 carries a 1 kHz tone and ch1 its
+    # inverse, so channel selection stays observable *and* the result can be
+    # checked as a waveform. A DC block would survive any length-preserving
+    # mangling — including one that never resamples at all.
+    t = np.arange(4800, dtype=np.float64) / 48000.0
+    tone = np.round(20000.0 * np.sin(2 * np.pi * 1000.0 * t)).astype(np.int16)
     block = np.empty(4800 * 2, dtype=np.int16)
-    block[0::2] = 1000
-    block[1::2] = -1000
+    block[0::2] = tone
+    block[1::2] = -tone
     cb(block.tobytes(), 4800, None, None)
 
     mono, frames = seen[-1]
     samples = np.frombuffer(mono, dtype=np.int16)
     assert frames == 1600
     assert samples.size == 1600
-    assert set(samples.tolist()) == {1000}
+
+    # 1 kHz over 100 ms is 100 periods, so a 3:1 decimation that actually
+    # resamples must still carry ~200 sign changes. Length alone would not
+    # catch a stream that kept the 48 kHz samples and relabelled them.
+    sign_changes = int(np.count_nonzero(np.diff(np.sign(samples)) != 0))
+    assert 190 <= sign_changes <= 210, sign_changes
+    # Any 16 kHz sampling of a 1 kHz sine lands within a few percent of its
+    # peak, so a collapsed or chunk-repeated buffer shows up here.
+    assert samples.max() > 18000
+    assert samples.min() < -18000
