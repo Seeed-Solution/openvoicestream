@@ -1,0 +1,43 @@
+# ==============================================================================
+# Matcha-TTS 专属音色定制通用配置文件模板
+# ==============================================================================
+
+project:
+  voice_name: "zhangguoli"
+  description: "张国立沉稳成熟男声"
+  output_dir: "./voices/custom_voice"
+
+# 1. 教师大模型数据扩充配置 (Teacher Model)
+teacher:
+  provider: "dashscope"                 # 可选: dashscope | minimax | local_wavs
+  api_key_env: "DASHSCOPE_API_KEY"       # 环境变量名称
+  base_url: "https://dashscope.aliyuncs.com/api/v1" # 支持公有云端点或专属百炼空间
+  model: "cosyvoice-v3.5-flash"
+
+  # 音色注册方式:
+  # - design: 使用 voice_prompt 自然语言创建音色
+  # - clone: 使用 reference_audio 真实录音创建音色
+  mode: "design"
+  voice_prompt: "五十多岁成熟男性，音质浑厚带颗粒感、北方京腔京韵，沉稳大气。"
+  reference_audio: ""                   # 当 mode 为 clone 时生效
+
+# 2. 语料与质检配置
+corpus:
+  text_file: "./configs/texts_balanced.txt"
+  workers: 3                            # 并发生成进程数
+  sample_rate: 24000
+  split_ratio: [0.9, 0.1]               # [train, val] 比例
+
+# 3. 训练与算力后端配置
+training:
+  backend: "colab"                      # 可选: colab | local_gpu | remote_ssh
+  gpu_type: "T4"
+  epochs: 20
+  batch_size: 4
+  learning_rate: 0.0001
+  freeze_text_encoder: true
+
+# 4. 导出配置
+export:
+  num_ode_steps: 3                      # Flow Matching 解算步数 (生产标配 3 步)
+  opset_version: 17
