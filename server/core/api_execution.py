@@ -97,6 +97,14 @@ class _TransportDisconnected(BaseException):
     """Internal control flow for a client that closed a finite HTTP request."""
 
 
+KOKORO_BACKEND_NAMES: frozenset[str] = frozenset({
+    "rk:kokoro_convonly",
+    "kokoro_convonly",
+    "rk:kokoro_dualbucket",
+    "kokoro_dualbucket",
+})
+
+
 def _is_kokoro_convonly_cancelled(exc: BaseException) -> bool:
     """Match the backend cooperative-cancel sentinel by exact class identity."""
     module_name = "rkvoice_stream.backends.tts.kokoro_convonly"
@@ -231,7 +239,7 @@ async def execute_tts(
 
     async def _call(backend: Any, synthesize) -> TTSExecutionResult:
         kwargs = dict(prepare(backend) if prepare is not None else voice_kwargs)
-        is_kokoro = _backend_name(backend) in {"rk:kokoro_convonly", "kokoro_convonly"}
+        is_kokoro = _backend_name(backend) in KOKORO_BACKEND_NAMES
         active_cancel_event = cancel_event
         if is_kokoro and active_cancel_event is None:
             active_cancel_event = threading.Event()
