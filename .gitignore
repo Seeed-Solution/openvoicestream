@@ -119,3 +119,16 @@ validation/
 # devices. Their immutable hashes belong in release locks; payload bytes are
 # published to the artifact registry and must never enter git.
 artifacts-local/
+
+# Voice pipeline binary artifacts (weights, wavs, checkpoints)
+voices/*/*.onnx
+voices/*/*.pt
+voices/*/*.bin
+!voices/af_cute.bin
+voices/*/*.wav
+voices/*/*.tar.gz
+voices/*/checkpoints/
+voices/*/wavs/
+voices/*/eval_wavs/
+test_u5_step3_ls*.wav
+

@@ -1,0 +1,47 @@
+# ==============================================================================
+# Matcha-TTS 专属音色定制与端侧微调通用配置文件模板
+# ==============================================================================
+
+project:
+  voice_name: "longxiaochun_v2"
+  description: "知性亲和女性中英双语发音人"
+  output_dir: "./voices/longxiaochun_v2"
+
+# 1. 教师大模型数据扩充配置 (Teacher Model)
+teacher:
+  provider: "dashscope"                  # 可选: dashscope | minimax | local_wavs
+  api_key_env: "Aliyun_General"          # 优先使用环境变量名称（如 Aliyun_General 或 Aliyun_apikey）
+  base_url: ""                           # 默认留空使用公网端点；若使用专有 Maas 空间则填写对应 URL
+  model: "cosyvoice-v2"                  # 标配模型: cosyvoice-v2
+  voice: "longxiaochun_v2"               # 推荐音色: longxiaochun_v2 (亲和小淳) | longwan_v2 (温柔龙婉)
+
+  # 音色注册方式 (当使用自定义 Prompt 设计音色时生效):
+  # - preset: 使用官方预置高亲和力音色 (如 longxiaochun_v2)
+  # - design: 使用 voice_prompt 自然语言创建音色
+  # - clone: 使用 reference_audio 真实录音创建音色
+  mode: "preset"
+  voice_prompt: "一位二十五至三十岁左右、温柔知性、极具亲和力与微笑感的年轻女性声音。音色清澈柔和、音调适中，语速轻快从容。中英双语发音纯正地道，英语带自然的美式发音韵律，中文吐字清晰温婉。"
+  reference_audio: ""
+
+# 2. 语料与质检配置
+corpus:
+  text_file: "./tools/voice_pipeline/corpus/texts_bilingual_balanced.txt"
+  workers: 4                             # 并发生成进程数
+  sample_rate: 24000                     # 统一标准 24kHz
+  split_ratio: [0.9, 0.1]                # [train, val] 比例
+  min_duration_sec: 0.5                  # 过滤无效杂音最短时长
+
+# 3. 训练与算力后端配置
+training:
+  backend: "colab"                       # 可选: colab | local_gpu | remote_ssh
+  gpu_type: "T4"                         # T4 / L4 / A100
+  epochs: 20                             # 微调 epoch 数 (通常 15~25 步充分收敛)
+  batch_size: 4
+  learning_rate: 0.0001
+  freeze_text_encoder: true              # 冻结 31MB Text Encoder 与 Duration，仅微调 Estimator UNet
+  base_checkpoint: "matcha-icefall-zh-en"# 基础预训练模型
+
+# 4. 导出配置
+export:
+  num_ode_steps: 3                       # Flow Matching 解算步数 (生产标配 3 步)
+  opset_version: 17

@@ -1,0 +1,258 @@
+{
+  "timestamp": "2026-11-03 13:04:55",
+  "checkpoint": {
+    "path": "voices/minimax_shaonv/checkpoints/best_model.pt",
+    "sha256": "18cd6e09ed05f6d8f53c3a745a50a94091b21324b73656f929c51171ba6459c2",
+    "winning_phase": "Phase 2",
+    "val_l1": 0.16424294357950037
+  },
+  "models": {
+    "step3_production": {
+      "path": "voices/minimax_shaonv/matcha_shaonv_step3.onnx",
+      "sha256": "c133a04b67afb1e4716a03aaf764750135c62a0749c125cfd9b5e71c92aecc35",
+      "size_mb": 72.20943641662598
+    },
+    "step6_production": {
+      "path": "voices/minimax_shaonv/matcha_shaonv_step6.onnx",
+      "sha256": "bd47ccbc2c460ac321734c8a62de0d39310461d81e633832685f3be8dcfbc082",
+      "size_mb": 72.8466739654541
+    },
+    "step3_diagnostic": {
+      "path": "voices/minimax_shaonv/checkpoints/test_matcha_noise_input_step3.onnx",
+      "sha256": "eaff02a20786580f212fdd7adc0e41acce9da323147754e2f11e634e93471b05",
+      "equiv_with_step3": true
+    },
+    "step6_diagnostic": {
+      "path": "voices/minimax_shaonv/checkpoints/test_matcha_noise_input_step6.onnx",
+      "sha256": "6c7372a7cedf668ee0767dfad58e80586525da65130c09ff29016cfc257beac8",
+      "equiv_with_step6": true
+    }
+  },
+  "gate_a_records": [
+    {
+      "model": "3-Step Production",
+      "case": "Short",
+      "tokens": 10,
+      "mel_shape": [
+        1,
+        80,
+        159
+      ],
+      "valid_length": 159,
+      "proj_m_err": 0.0,
+      "max_abs_err": 3.0517578125e-05,
+      "mean_abs_err": 2.7804067030956503e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 59.59129333496094,
+      "pytorch_ms": 418.79940032958984,
+      "passed": true
+    },
+    {
+      "model": "3-Step Production",
+      "case": "Medium",
+      "tokens": 35,
+      "mel_shape": [
+        1,
+        80,
+        289
+      ],
+      "valid_length": 289,
+      "proj_m_err": 0.0,
+      "max_abs_err": 7.104873657226562e-05,
+      "mean_abs_err": 3.28387568515609e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 92.53931045532227,
+      "pytorch_ms": 404.8340320587158,
+      "passed": true
+    },
+    {
+      "model": "3-Step Production",
+      "case": "Long",
+      "tokens": 80,
+      "mel_shape": [
+        1,
+        80,
+        434
+      ],
+      "valid_length": 434,
+      "proj_m_err": 1.430511474609375e-06,
+      "max_abs_err": 4.8995018005371094e-05,
+      "mean_abs_err": 2.355633341721841e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 128.59082221984863,
+      "pytorch_ms": 478.47580909729004,
+      "passed": true
+    },
+    {
+      "model": "6-Step Production",
+      "case": "Short",
+      "tokens": 10,
+      "mel_shape": [
+        1,
+        80,
+        159
+      ],
+      "valid_length": 159,
+      "proj_m_err": 0.0,
+      "max_abs_err": 2.09808349609375e-05,
+      "mean_abs_err": 1.934536157932598e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 113.64555358886719,
+      "pytorch_ms": 554.2266368865967,
+      "passed": true
+    },
+    {
+      "model": "6-Step Production",
+      "case": "Medium",
+      "tokens": 35,
+      "mel_shape": [
+        1,
+        80,
+        289
+      ],
+      "valid_length": 289,
+      "proj_m_err": 0.0,
+      "max_abs_err": 7.390975952148438e-05,
+      "mean_abs_err": 3.2151033337868284e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 209.04159545898438,
+      "pytorch_ms": 916.7954921722412,
+      "passed": true
+    },
+    {
+      "model": "6-Step Production",
+      "case": "Long",
+      "tokens": 80,
+      "mel_shape": [
+        1,
+        80,
+        434
+      ],
+      "valid_length": 434,
+      "proj_m_err": 1.430511474609375e-06,
+      "max_abs_err": 9.34600830078125e-05,
+      "mean_abs_err": 2.0766037778230384e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 235.49962043762207,
+      "pytorch_ms": 781.2302112579346,
+      "passed": true
+    }
+  ],
+  "gate_b_records": [
+    {
+      "model": "3-Step Diagnostic",
+      "case": "Short",
+      "tokens": 10,
+      "mel_shape": [
+        1,
+        80,
+        159
+      ],
+      "valid_length": 159,
+      "max_abs_err": 4.029273986816406e-05,
+      "mean_abs_err": 3.1667966595705366e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 83.20164680480957,
+      "pytorch_ms": 214.04004096984863,
+      "passed": true
+    },
+    {
+      "model": "3-Step Diagnostic",
+      "case": "Medium",
+      "tokens": 35,
+      "mel_shape": [
+        1,
+        80,
+        289
+      ],
+      "valid_length": 289,
+      "max_abs_err": 3.24249267578125e-05,
+      "mean_abs_err": 2.750728526734747e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 124.0684986114502,
+      "pytorch_ms": 383.59689712524414,
+      "passed": true
+    },
+    {
+      "model": "3-Step Diagnostic",
+      "case": "Long",
+      "tokens": 80,
+      "mel_shape": [
+        1,
+        80,
+        434
+      ],
+      "valid_length": 434,
+      "max_abs_err": 4.38690185546875e-05,
+      "mean_abs_err": 2.4684907202754403e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 145.35069465637207,
+      "pytorch_ms": 256.12688064575195,
+      "passed": true
+    },
+    {
+      "model": "6-Step Diagnostic",
+      "case": "Short",
+      "tokens": 10,
+      "mel_shape": [
+        1,
+        80,
+        159
+      ],
+      "valid_length": 159,
+      "max_abs_err": 4.553794860839844e-05,
+      "mean_abs_err": 2.8488677799032303e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 85.1285457611084,
+      "pytorch_ms": 274.19400215148926,
+      "passed": true
+    },
+    {
+      "model": "6-Step Diagnostic",
+      "case": "Medium",
+      "tokens": 35,
+      "mel_shape": [
+        1,
+        80,
+        289
+      ],
+      "valid_length": 289,
+      "max_abs_err": 1.9073486328125e-05,
+      "mean_abs_err": 1.7228938986590947e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 138.86427879333496,
+      "pytorch_ms": 334.5837593078613,
+      "passed": true
+    },
+    {
+      "model": "6-Step Diagnostic",
+      "case": "Long",
+      "tokens": 80,
+      "mel_shape": [
+        1,
+        80,
+        434
+      ],
+      "valid_length": 434,
+      "max_abs_err": 4.38690185546875e-05,
+      "mean_abs_err": 1.726807681734499e-06,
+      "has_nan": false,
+      "has_inf": false,
+      "onnx_ms": 164.85071182250977,
+      "pytorch_ms": 419.15154457092285,
+      "passed": true
+    }
+  ],
+  "all_gates_passed": true
+}

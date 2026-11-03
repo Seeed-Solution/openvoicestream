@@ -1,0 +1,49 @@
+{
+  "sample_wav": "/home/harvest/project/seeed-local-voice/voices/minimax_shaonv/wavs/sample_0001.wav",
+  "reference_text": "您好！我是您的智能语音助手。Welcome to Seeed Studio! 今天有什么可以帮您的？",
+  "original_metrics": {
+    "peak": 0.2977801263332367,
+    "total_rms": 0.06759528815746307,
+    "speech_rms": 0.07613794505596161,
+    "silence_rms": 0.0006973111885599792,
+    "silence_dbfs": -63.13146731471237
+  },
+  "original_asr": "您好，我是您的智能语音助手，Welcome to Sea Studio今天有什么可以帮您的？",
+  "frozen_eps": 1e-10,
+  "reconstructions": {
+    "1e-10": {
+      "out_wav": "/home/harvest/project/seeed-local-voice/voices/minimax_shaonv/step0_recon_eps_1e-10.wav",
+      "log_mel_min": -23.025850296020508,
+      "log_mel_max": 0.9939345717430115,
+      "theoretical_floor": -23.025850929940457,
+      "metrics": {
+        "peak": 0.010487701743841171,
+        "total_rms": 0.0015202107606455684,
+        "speech_rms": 0.0017107926541939378,
+        "silence_rms": 1.3067965483060107e-05,
+        "silence_dbfs": -97.67583976161905
+      },
+      "silence_gate_pass": true,
+      "peak_gate_pass": true,
+      "asr_text": "您好，我是您的智能语音助手。Welcome to C的Studio，今天有什么可以帮帮您的。",
+      "asr_latency": 0.124
+    },
+    "1e-05": {
+      "out_wav": "/home/harvest/project/seeed-local-voice/voices/minimax_shaonv/step0_recon_eps_1e-05.wav",
+      "log_mel_min": -11.512925148010254,
+      "log_mel_max": 0.9939345717430115,
+      "theoretical_floor": -11.512925464970229,
+      "metrics": {
+        "peak": 0.010487701743841171,
+        "total_rms": 0.0015202194917947054,
+        "speech_rms": 0.0017108035972341895,
+        "silence_rms": 1.253470327355899e-05,
+        "silence_dbfs": -98.0377181545405
+      },
+      "silence_gate_pass": true,
+      "peak_gate_pass": true,
+      "asr_text": "您好，我是您的智能语音助手今天有什么可以帮您的？",
+      "asr_latency": 0.097
+    }
+  }
+}

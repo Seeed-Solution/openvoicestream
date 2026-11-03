@@ -1,0 +1,11 @@
+wavs/sample_0070.wav|The connection has timed out. Please check your network settings and try again.
+wavs/sample_0087.wav|纸上得来终觉浅，绝知此事要躬行。
+wavs/sample_0014.wav|Please make sure the power cable is securely connected before starting the device.
+wavs/sample_0018.wav|The battery level is currently at eighty-five percent, which can last for about six hours.
+wavs/sample_0029.wav|现在开始为您播报今日早间新闻要点。
+wavs/sample_0032.wav|The download has finished. The file is saved to your local storage.
+wavs/sample_0036.wav|Please verify your identity using fingerprint or voice recognition.
+wavs/sample_0095.wav|不积小流，无以成江海。
+wavs/sample_0004.wav|The front door is locked now. All smart home sensors are working properly.
+wavs/sample_0015.wav|好的，已经为您切换到静音模式，所有通知声音已关闭。
+wavs/sample_0082.wav|Practice makes perfect, and persistence is the key to success.

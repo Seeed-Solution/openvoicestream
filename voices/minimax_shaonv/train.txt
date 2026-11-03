@@ -1,0 +1,91 @@
+wavs/sample_0042.wav|The current exchange rate of US Dollar to RMB is seven point two.
+wavs/sample_0079.wav|天生我材必有用，千金散尽还复来。
+wavs/sample_0083.wav|大道至简，实干为要。
+wavs/sample_0010.wav|Could you please tell me how to get to the nearest metro station?
+wavs/sample_0068.wav|It is raining outside right now. Remember to bring an umbrella when you leave.
+wavs/sample_0048.wav|A new firmware release is available for your smart speaker. Would you like to update now?
+wavs/sample_0002.wav|Good morning! The weather today is sunny and pleasant, perfect for outdoor activities.
+wavs/sample_0073.wav|正在为您规划避开拥堵的最佳导航路线。
+wavs/sample_0016.wav|Thank you very much for your feedback. We will resolve this issue as soon as possible.
+wavs/sample_0081.wav|工欲善其事，必先利其器。
+wavs/sample_0059.wav|车辆胎压检测正常，电池续航里程预计还剩三百二十公里。
+wavs/sample_0011.wav|收到，正在为您打开会议室的投影仪和主照明灯。
+wavs/sample_0046.wav|Looking forward to seeing you again. Goodbye and take care!
+wavs/sample_0034.wav|Would you like me to reserve a table for two at seven tonight?
+wavs/sample_0057.wav|已为您将显示器亮度调至百分之七十，以保护视力。
+wavs/sample_0038.wav|The device is ready for pairing. Please follow the instructions on your phone.
+wavs/sample_0051.wav|智慧农业监测站显示土壤湿度适中，喷灌系统已自动暂停。
+wavs/sample_0033.wav|请注意，前方两公里路段车流量较大，建议减速慢行。
+wavs/sample_0067.wav|收到指令，正在关闭所有未使用的办公区域照明。
+wavs/sample_0045.wav|好的，已为您记录这笔支出：午餐三十五元。
+wavs/sample_0031.wav|正在为您搜索周边的精品咖啡馆，距离您最近的大约有两百米。
+wavs/sample_0066.wav|Please hold on, fetching real-time market data from the server.
+wavs/sample_0009.wav|这台边缘计算网关支持 TensorRT 与 RKNN 硬件加速，推理延迟非常低。
+wavs/sample_0022.wav|System update completed successfully. Welcome to version two point zero.
+wavs/sample_0056.wav|Please keep the microphone clear and speak at a normal conversational volume.
+wavs/sample_0097.wav|宝剑锋从磨砺出，梅花香自苦寒来。
+wavs/sample_0090.wav|Knowledge is power, and continuous learning keeps your mind sharp.
+wavs/sample_0043.wav|根据您的偏好设置，已将默认搜索语言调整为中英双语模式。
+wavs/sample_0064.wav|All tests passed with zero errors. The edge deployment is fully qualified.
+wavs/sample_0027.wav|祝您今天工作顺利，有任何需要随时叫我。
+wavs/sample_0080.wav|To be or not to be, that is the question.
+wavs/sample_0053.wav|请帮我把明天的日程提醒推迟到上午十点。
+wavs/sample_0099.wav|路漫漫其修远兮，吾将上下而求索。
+wavs/sample_0050.wav|Good night, sleep tight and sweet dreams!
+wavs/sample_0062.wav|The ambient noise level in the room is forty-five decibels, which is very quiet.
+wavs/sample_0075.wav|请帮我把这段中文翻译成流畅地道的英文表达。
+wavs/sample_0049.wav|正在为您开启白噪音助眠模式，定时四十五分钟后自动关闭。
+wavs/sample_0077.wav|千里之行始于足下，不积跬步无以至千里。
+wavs/sample_0101.wav|知己知彼，百战不殆。
+wavs/sample_0060.wav|Would you like to listen to the latest tech podcast or some relaxing jazz?
+wavs/sample_0088.wav|Actions speak louder than words.
+wavs/sample_0013.wav|今天下午三点有一个重要会议：Q3 Product Roadmap Review。
+wavs/sample_0037.wav|您有一条来自团队的未读 Feishu 消息，是否需要我为您朗读？
+wavs/sample_0024.wav|Don't worry, take your time. I am always here to assist you.
+wavs/sample_0040.wav|It's time to take a break and drink some water after working for two hours.
+wavs/sample_0041.wav|正在为您连接 Bluetooth 耳机，连接成功。
+wavs/sample_0019.wav|请帮我查询一下从深圳到北京的最早一班航班。
+wavs/sample_0069.wav|恭喜您完成了今天的运动健身目标，共消耗四百五十千卡热量。
+wavs/sample_0006.wav|Connecting to the local WiFi network, please wait a moment.
+wavs/sample_0063.wav|请注意，您的云存储空间使用率已达到百分之九十，建议及时清理。
+wavs/sample_0008.wav|Playing your favorite music playlist on Spotify.
+wavs/sample_0035.wav|已经为您将空调温度调低了一度，并开启了空气净化功能。
+wavs/sample_0084.wav|Simplicity is the ultimate sophistication.
+wavs/sample_0047.wav|今天的紫外线指数偏高，外出请做好防晒准备。
+wavs/sample_0003.wav|请帮我把客厅的 air conditioner 调到二十六度，风速设为中档。
+wavs/sample_0052.wav|The neural network model is loaded into memory and ready for real-time inference.
+wavs/sample_0017.wav|空气质量监测显示当前 PM2.5 指数为十二，优于国家标准。
+wavs/sample_0039.wav|室外光线较强，已自动为您关闭了百叶窗。
+wavs/sample_0061.wav|好的，正在为您查找关于深度学习模型量化压缩的相关论文。
+wavs/sample_0071.wav|好的，已为您保存当前编辑的工作草稿。
+wavs/sample_0023.wav|今天的工作日程已经为您整理好了，共有四个待办事项。
+wavs/sample_0007.wav|我已经为您设置好了明天早上八点钟的 alarm clock。
+wavs/sample_0025.wav|已经为您把智能台灯调至阅读模式，色温调整为四千开尔文。
+wavs/sample_0086.wav|A friend in need is a friend indeed.
+wavs/sample_0094.wav|Stay hungry, stay foolish.
+wavs/sample_0102.wav|Opportunity favors the prepared mind.
+wavs/sample_0085.wav|海内存知己，天涯若比邻。
+wavs/sample_0020.wav|Your flight CA1302 is on schedule, departing at nine thirty tomorrow morning.
+wavs/sample_0074.wav|The temperature sensor reading is within the normal operating threshold.
+wavs/sample_0044.wav|Speech recognition accuracy has been improved by twenty percent with the new model.
+wavs/sample_0089.wav|读书破万卷，下笔如有神。
+wavs/sample_0021.wav|厨房的燃气传感器未发现任何异常泄露，请放心使用。
+wavs/sample_0001.wav|您好！我是您的智能语音助手。Welcome to Seeed Studio! 今天有什么可以帮您的？
+wavs/sample_0098.wav|No pain, no gain. Hard work always pays off in the long run.
+wavs/sample_0058.wav|We have successfully processed your request. The transaction receipt has been sent to your email.
+wavs/sample_0096.wav|Great things are done by a series of small things brought together.
+wavs/sample_0054.wav|The delivery package has arrived at the smart locker downstairs.
+wavs/sample_0092.wav|Where there is a will, there is a way.
+wavs/sample_0026.wav|The smart camera has detected someone approaching the entrance.
+wavs/sample_0072.wav|Thank you for calling customer service. Have a great day ahead!
+wavs/sample_0093.wav|问渠那得清如许？为有源头活水来。
+wavs/sample_0078.wav|A journey of a thousand miles begins with a single step.
+wavs/sample_0065.wav|已为您将下周一的闹钟设置为早上七点半。
+wavs/sample_0030.wav|Artificial intelligence and edge computing are transforming our daily lives.
+wavs/sample_0028.wav|Have a wonderful day! Let me know if there is anything else you need.
+wavs/sample_0091.wav|长风破浪会有时，直挂云帆济沧海。
+wavs/sample_0100.wav|Every accomplishment starts with the decision to try.
+wavs/sample_0005.wav|当前系统的 CPU 占用率为百分之三十五，内存剩余还有八个 G。
+wavs/sample_0055.wav|当前会议室已被预订，下一次可用时间为下午四点整。
+wavs/sample_0076.wav|The quick brown fox jumps over the lazy dog.
+wavs/sample_0012.wav|Everything is under control. The temperature inside the greenhouse is twenty-two degrees.

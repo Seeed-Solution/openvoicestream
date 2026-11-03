@@ -1,0 +1,29 @@
+project:
+  voice_name: "minimax_shaonv"
+  description: "MiniMax 少女亲和中英双语发音人"
+  output_dir: "./voices/minimax_shaonv"
+
+teacher:
+  provider: "minimax"
+  api_key_env: "minimax_API"
+  model: "speech-01-turbo"
+  voice: "female-shaonv"
+
+corpus:
+  text_file: "./tools/voice_pipeline/corpus/texts_bilingual_balanced.txt"
+  workers: 2
+  sample_rate: 24000
+  split_ratio: [0.9, 0.1]
+  min_duration_sec: 0.5
+
+training:
+  backend: "colab"
+  gpu_type: "T4"
+  epochs: 20
+  batch_size: 4
+  learning_rate: 0.0001
+  freeze_text_encoder: true
+
+export:
+  num_ode_steps: 3
+  opset_version: 17
