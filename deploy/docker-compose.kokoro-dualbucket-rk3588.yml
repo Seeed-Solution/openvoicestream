@@ -1,0 +1,23 @@
+# Explicit RK3588 production overlay. Compose with docker-compose.radxa.yml.
+services:
+  speech:
+    image: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260903.10
+    environment:
+      OVS_PROFILE: rk3588-kokoro-dualbucket
+      ASR_BACKEND: disabled
+      TTS_BACKEND: kokoro_dualbucket
+      RK_PLATFORM: rk3588
+      KOKORO_DUALBUCKET_ROOT: /opt/kokoro-dualbucket/rk3588
+      KOKORO_CONVONLY_ROOT: /opt/kokoro-dualbucket/rk3588
+      KOKORO_DUALBUCKET_MANIFEST_SHA256: cfc6aa8d485415884e4cf5eac47b0a786889ed02d9556a1051ed66685927083d
+      KOKORO_CONVONLY_MANIFEST_SHA256: cfc6aa8d485415884e4cf5eac47b0a786889ed02d9556a1051ed66685927083d
+      KOKORO_FRONTEND_INTRA_OP_THREADS: "4"
+      KOKORO_FRONTEND_INTER_OP_THREADS: "1"
+      KOKORO_DEFAULT_VOICE: af_heart
+      KOKORO_VOICE: af_heart
+      KOKORO_JA_DICDIR: /opt/resources/ja/unidic-lite-1.0.8
+      OVS_TTS_MODEL_ID: kokoro-convonly-v1_0-rk3588
+      RK_ARTIFACT_AUTO_DOWNLOAD: "0"
+    volumes:
+      - ${KOKORO_DUALBUCKET_HOST_ROOT:-/opt/kokoro-dualbucket}:/opt/kokoro-dualbucket:ro
+      - ${KOKORO_JA_HOST_ROOT:-/opt/resources/ja/unidic-lite-1.0.8}:/opt/resources/ja/unidic-lite-1.0.8:ro
