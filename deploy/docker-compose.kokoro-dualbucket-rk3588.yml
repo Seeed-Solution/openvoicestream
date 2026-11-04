@@ -1,7 +1,7 @@
 # Explicit RK3588 production overlay. Compose with docker-compose.radxa.yml.
 services:
   speech:
-    image: sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260903.10
+    image: ${OVS_SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261104-kokoro-dualbucket}
     environment:
       OVS_PROFILE: rk3588-kokoro-dualbucket
       ASR_BACKEND: disabled
