@@ -1,0 +1,210 @@
+{
+  "schema": "kokoro.dualbucket.bundle.v1",
+  "platform": "rk3588",
+  "precision": "FP16",
+  "compiler": "2.3.2",
+  "full_source_sha256": "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb",
+  "generator_source_sha256": "301fc9d3fa7db258028ce895230b6f1782662bd0bdc8bd7dcdf5a9808bcf193c",
+  "frontend": "frontend",
+  "models": {
+    "T50": {
+      "path": "models/generator_T50.rknn",
+      "sha256": "b0f0be7d104742e5e3aeddd23d03510fe9f30f83d1b288996bce4f5ef1f8bfab",
+      "size": 48539438,
+      "T": 50,
+      "D_target": 25,
+      "platform": "rk3588",
+      "toolkit": "2.3.2",
+      "inputs": [
+        [
+          1,
+          512,
+          50
+        ],
+        [
+          1,
+          128
+        ],
+        [
+          1,
+          22,
+          3001
+        ]
+      ],
+      "outputs": [
+        [
+          1,
+          22,
+          3001
+        ]
+      ]
+    },
+    "T240": {
+      "path": "models/generator_T240.rknn",
+      "sha256": "9dfcd79af14b6ba9231b8bfddd0ec1ebbb71ad00ed32056f18dfa3f8eacb3f4d",
+      "size": 55291633,
+      "T": 240,
+      "D_target": 120,
+      "platform": "rk3588",
+      "toolkit": "2.3.2",
+      "inputs": [
+        [
+          1,
+          512,
+          240
+        ],
+        [
+          1,
+          128
+        ],
+        [
+          1,
+          22,
+          14401
+        ]
+      ],
+      "outputs": [
+        [
+          1,
+          22,
+          14401
+        ]
+      ]
+    },
+    "T480": {
+      "path": "models/generator_T480.rknn",
+      "sha256": "8aab16563c9d606b8335adc83bed8c1cc882ba32879a46187bc4d901047434ce",
+      "size": 64250161,
+      "T": 480,
+      "D_target": 240,
+      "platform": "rk3588",
+      "toolkit": "2.3.2",
+      "inputs": [
+        [
+          1,
+          512,
+          480
+        ],
+        [
+          1,
+          128
+        ],
+        [
+          1,
+          22,
+          28801
+        ]
+      ],
+      "outputs": [
+        [
+          1,
+          22,
+          28801
+        ]
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "frontend/af_heart.bin",
+      "sha256": "d583ccff3cdca2f7fae535cb998ac07e9fcb90f09737b9a41fa2734ec44a8f0b",
+      "size": 522240
+    },
+    {
+      "path": "frontend/bf_emma.bin",
+      "sha256": "669fe0647f9dd04fcab92f1439a40eeb4c8b4ab1f82e4996fe3d918ce4a63b73",
+      "size": 522240
+    },
+    {
+      "path": "frontend/config.json",
+      "sha256": "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
+      "size": 2351
+    },
+    {
+      "path": "frontend/duration_head.onnx",
+      "sha256": "f6c30e763a0edb9f80c2cd960ab62524c37b7241a085cbff4a6a8b68503e1d8f",
+      "size": 7464661
+    },
+    {
+      "path": "frontend/ef_dora.bin",
+      "sha256": "f66ec66bd295acb18372e37008533a9a3228483ccd294e7538d5d9294ac9a532",
+      "size": 522240
+    },
+    {
+      "path": "frontend/ff_siwis.bin",
+      "sha256": "a35f5675ad08948e326ae75fd0ea16ba5d0042e4f76b5f3d1df77d0a48c54861",
+      "size": 522240
+    },
+    {
+      "path": "frontend/frontend.manifest.json",
+      "sha256": "a9021aab67a648b5a426c0c06cdd34a4958e5e766e2c1d30c24291ce2116a859",
+      "size": 4024
+    },
+    {
+      "path": "frontend/frontend_stem.onnx",
+      "sha256": "c711faf1b99dbcde40b4a51ac6b8d52edc11475b0a2494cda75ddd71b03345af",
+      "size": 48466368
+    },
+    {
+      "path": "frontend/generator-export.manifest.json",
+      "sha256": "65529f553aea2ea8129ad733fa8a41fa218b97ccffe7500ce88b5c017e6de2d7",
+      "size": 3932
+    },
+    {
+      "path": "frontend/hf_alpha.bin",
+      "sha256": "040be6a4425411cc01fda5fd06693c76bfa78572632852bc8cda9c99232ffb56",
+      "size": 522240
+    },
+    {
+      "path": "frontend/if_sara.bin",
+      "sha256": "409b69248798fcdc2542330c76953d230710f19b057e59cb82fdc3c4cf71265c",
+      "size": 522240
+    },
+    {
+      "path": "frontend/jf_alpha.bin",
+      "sha256": "56b479360aad9f367aeb8cef908f9201cf48b4555e488c5f4590c9dfcd978bb6",
+      "size": 522240
+    },
+    {
+      "path": "frontend/pf_dora.bin",
+      "sha256": "3da7b5b2d91847ebf5646f57631af6ececae3c29a89cd300f06edf9aa6cfe9ee",
+      "size": 522240
+    },
+    {
+      "path": "frontend/target_tail.onnx",
+      "sha256": "8767fee83f6be0c718cb2c93b275353362e3e1a2f97302fe7b00b8d6b5afc08f",
+      "size": 190582454
+    },
+    {
+      "path": "frontend/zf_xiaobei.bin",
+      "sha256": "5dde6e1c9c4f12c8b327bc29c0cee361a23b52b952c04636858ba637ec66e640",
+      "size": 522240
+    },
+    {
+      "path": "generate_manifest.py",
+      "sha256": "27e84b6c5f018819ea074c0677092a425358f3ab2162ead706e15b78142f9cbb",
+      "size": 3983
+    },
+    {
+      "path": "generator.onnx",
+      "sha256": "301fc9d3fa7db258028ce895230b6f1782662bd0bdc8bd7dcdf5a9808bcf193c",
+      "size": 78971566
+    },
+    {
+      "path": "models/generator_T240.rknn",
+      "sha256": "9dfcd79af14b6ba9231b8bfddd0ec1ebbb71ad00ed32056f18dfa3f8eacb3f4d",
+      "size": 55291633
+    },
+    {
+      "path": "models/generator_T480.rknn",
+      "sha256": "8aab16563c9d606b8335adc83bed8c1cc882ba32879a46187bc4d901047434ce",
+      "size": 64250161
+    },
+    {
+      "path": "models/generator_T50.rknn",
+      "sha256": "b0f0be7d104742e5e3aeddd23d03510fe9f30f83d1b288996bce4f5ef1f8bfab",
+      "size": 48539438
+    }
+  ],
+  "cpu_generator": "generator.onnx"
+}

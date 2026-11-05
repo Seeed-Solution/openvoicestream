@@ -208,6 +208,10 @@ docker compose -f deploy/docker-compose.radxa.yml up -d
 # Rockchip — Qwen3 ASR + Kokoro RKNN TTS (multilingual, NPU-accelerated).
 OVS_PROFILE=rk3588-kokoro-rknn \
 docker compose -f deploy/docker-compose.radxa.yml up -d
+
+# Rockchip — Kokoro Dual-Bucket TTS (CPU frontend + NPU T50 streaming window, RK3588).
+OVS_PROFILE=rk3588-kokoro-dualbucket \
+docker compose -f deploy/docker-compose.radxa.yml -f deploy/docker-compose.kokoro-dualbucket-rk3588.yml up -d
 ```
 
 `deploy/install.sh --pull --verify` auto-detects Jetson/RK/RPi on the target
@@ -594,6 +598,7 @@ research models are kept as historical context.
 | **Qwen3-TTS** | Multilingual voice clone | 0.417 on Orin NX, 0.470 on Orin Nano | 4.4-7.3 ms | Higher quality/features, much heavier than Matcha. x-vector clone, or `customvoice` variant (9 instruction-controlled presets). |
 | **SparkTTS** | Controllable + voice clone (Jetson) | **0.50 (v0.9.0 W4A16)**, 0.74 on v0.8.0 | **0.41–0.46 s (v0.9.0 W4A16)**, ~0.25 s clone / ~0.9 s controllable on v0.8.0 | Qwen2.5-0.5B + BiCodec single-codebook. **50 controllable timbres** (gender × 5 pitch × 5 speed, no reference audio) **and** zero-shot voice clone (cos ~0.90). On **v0.9.0 W4A16 is the all-round pick** — faster and lighter with zero quality loss; bf16 also ships. W4A16 INT4-AWQ engine 645 MB (−58%), bf16/fp16 mixed-precision (Qwen2.5 fp16-overflow fix). ZH CER 0 / EN WER ≤0.02; N=2 byte-identical. |
 | **MOSS-TTS-Nano** | Multilingual TTS-only (Jetson) | — | ~157 ms TTFA on Orin NX | 0.1B model, 48kHz stereo via C++ TRT (19× faster than ORT CPU fallback). No voice clone. |
+| **Kokoro Dual-Bucket** | English & multilingual streaming TTS (RK3588) | **0.380~0.424** (streaming) | **383~414 ms TTFT** | CPU ONNXRuntime frontend (4-thread text stem + duration head + target tail) + NPU T50 sliding-window streaming generator. Profile: `rk3588-kokoro-dualbucket`. |
 | **Kokoro v1.0** | English-only TTS | Not in this benchmark run | Historical ~130 ms TTFT | Kept for English-only deployments. On RK3588 a hybrid CPU+NPU RKNN path serves multilingual TTS (`rk3588-kokoro-rknn`). |
 | CosyVoice3 | Research only | Not shipped | Historical ~800 ms TTFT | Higher quality, too heavy for this release. |
 | F5-TTS | Research only | Not shipped | Historical ~2.5 s TTFT | Not suitable for low-latency edge dialogue. |
@@ -645,6 +650,17 @@ and the reproduction guide
 [`docs/kokoro-trt-reproduction.md`](docs/kokoro-trt-reproduction.md).
 Use `scripts/verify_tts_asr_roundtrip.py` when Kokoro TTS and the local ASR
 service are exposed on separate ports.
+
+### Rockchip Kokoro Dual-Bucket Profile
+
+`OVS_PROFILE=rk3588-kokoro-dualbucket` enables the production-solidified Kokoro Dual-Bucket runtime on RK3588 (Radxa ROCK 5B / 5ITX).
+
+- **Architecture**: Decoupled hybrid pipeline combining a CPU ONNXRuntime text frontend (`frontend_stem`, `duration_head`, `target_tail` at 4 intra-op threads) with an NPU RKNN T50 sliding-window streaming vocoder/generator (50 frames per chunk, 25-frame stride, 3001-sample overlap-discard).
+- **On-Device Latency & Throughput (RK3588)**:
+  - First-packet latency (**TTFT**): **383~414 ms** (measured on Radxa ROCK 5B).
+  - Real-Time Factor (**RTF**): **0.380~0.424** across 50-token streaming chunks.
+- **Voices & Languages**: 53 voices pre-packaged (`af_heart` default, British/American English, Chinese, Japanese, European accents).
+- **Deployment**: Zero-dependency offline bundle mounted at `/opt/kokoro-dualbucket/rk3588` with integrity verified by fixed SHA256 manifest. See [`docs/runbooks/kokoro-dualbucket-deploy.md`](docs/runbooks/kokoro-dualbucket-deploy.md).
 
 ## Models
 
@@ -794,7 +810,9 @@ If you're working on a larger change, open an issue first to align on the approa
 - [next-gen Kaldi](https://github.com/k2-fsa) — research foundation behind sherpa-onnx
 - [Paraformer](https://github.com/modelscope/FunASR) — streaming bilingual ASR model
 - [Matcha-TTS](https://github.com/shivammehta25/Matcha-TTS) — fast flow-matching TTS (zh+en mode)
-- [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) — high-quality English TTS with 53 speakers (en mode)
+- [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) — high-quality, lightweight 82M TTS model powering English and multilingual paths (Apache 2.0 by @hexgrad)
+- [Misaki](https://github.com/hexgrad/misaki) — G2P grapheme-to-phoneme engine for phonemization across languages (Apache 2.0 by @hexgrad)
+- [StyleTTS 2](https://github.com/yl4579/StyleTTS2) — architectural foundation and acoustic modeling upon which Kokoro is built (MIT License for code; see upstream repository for pretrained weights and voice ethical use terms)
 - [Zipformer](https://github.com/k2-fsa/icefall) — efficient transducer ASR (en mode)
 - [SenseVoice](https://github.com/FunAudioLLM/SenseVoice) — multilingual offline ASR
 - [Qwen3](https://huggingface.co/Qwen) — multilingual ASR + TTS foundation model (52-language path)

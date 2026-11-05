@@ -1,0 +1,25 @@
+{
+  "name": "rk3588-kokoro-dualbucket",
+  "description": "Production RK3588 Kokoro Dual-Bucket profile. The model bundle is mounted read-only at /opt/kokoro-dualbucket/rk3588 and selected by its fixed manifest.",
+  "asr_backend": null,
+  "tts_backend": "rk.tts",
+  "execution_policy": {"mode": "serialized", "shared_resource": "npu"},
+  "env": {
+    "LANGUAGE_MODE": "rk",
+    "RK_ENSURE_MATCHA_RESOURCES": "0",
+    "RK_PLATFORM": "rk3588",
+    "ASR_BACKEND": "disabled",
+    "TTS_BACKEND": "kokoro_dualbucket",
+    "KOKORO_DUALBUCKET_ROOT": "/opt/kokoro-dualbucket/rk3588",
+    "KOKORO_CONVONLY_ROOT": "/opt/kokoro-dualbucket/rk3588",
+    "KOKORO_DUALBUCKET_MANIFEST_SHA256": "cfc6aa8d485415884e4cf5eac47b0a786889ed02d9556a1051ed66685927083d",
+    "KOKORO_CONVONLY_MANIFEST_SHA256": "cfc6aa8d485415884e4cf5eac47b0a786889ed02d9556a1051ed66685927083d",
+    "KOKORO_JA_DICDIR": "/opt/resources/ja/unidic-lite-1.0.8",
+    "KOKORO_DEFAULT_VOICE": "af_heart",
+    "KOKORO_VOICE": "af_heart",
+    "KOKORO_FRONTEND_INTRA_OP_THREADS": "4",
+    "KOKORO_FRONTEND_INTER_OP_THREADS": "1",
+    "RK_ARTIFACT_AUTO_DOWNLOAD": "0"
+  },
+  "tts_model_id": "kokoro-convonly-v1_0-rk3588"
+}

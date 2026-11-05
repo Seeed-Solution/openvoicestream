@@ -190,6 +190,10 @@ OVS_PROFILE=rk3588-whisper-10s \
 docker compose -f deploy/docker-compose.radxa.yml up -d
 OVS_PROFILE=rk3588-kokoro-rknn \
 docker compose -f deploy/docker-compose.radxa.yml up -d
+
+# Rockchip —— Kokoro Dual-Bucket TTS（CPU 文本前端 + NPU T50 窗口流式生成，RK3588）。
+OVS_PROFILE=rk3588-kokoro-dualbucket \
+docker compose -f deploy/docker-compose.radxa.yml -f deploy/docker-compose.kokoro-dualbucket-rk3588.yml up -d
 ```
 
 `deploy/install.sh --pull --verify` 在目标设备上自动检测 Jetson/RK/RPi。以上所有 profile 共享同一客户端 API —— 切换 profile 只是重启，不是重写。
@@ -515,6 +519,7 @@ Paraformer+Matcha、RK3588、RK3576 和 Raspberry Pi 5 上均通过。Jetson p=2
 | **Qwen3-TTS** | 多语言声音克隆 | Orin NX 上 0.417，Orin Nano 上 0.470 | 4.4-7.3 ms | 质量/特性更高，但比 Matcha 重得多。x-vector 克隆，或 `customvoice` 变体（9 个指令控制的预设）。 |
 | **SparkTTS** | 可控音色 + 声音克隆（Jetson） | **0.50（v0.9.0 W4A16）**，v0.8.0 上 0.74 | **0.41–0.46 s（v0.9.0 W4A16）**，v0.8.0 上克隆约 0.25 s / 可控约 0.9 s | Qwen2.5-0.5B + BiCodec 单码本。**50 种可控音色**（性别 × 5 音高 × 5 语速，无需参考音频）**且**支持 zero-shot 声音克隆（音色 cos ~0.90）。在 **v0.9.0 上 W4A16 成为全面优选** —— 更快更轻且质量零损；bf16 也发布。W4A16 INT4-AWQ 引擎 645 MB（−58%），bf16/fp16 混合精度（修复 Qwen2.5 fp16 溢出）。中文 CER 0 / 英文 WER ≤0.02；N=2 字节级一致。 |
 | **MOSS-TTS-Nano** | 多语言纯 TTS（Jetson） | — | Orin NX 上约 157 ms TTFA | 0.1B 模型，通过 C++ TRT 输出 48kHz 立体声（比 ORT CPU 兜底快 19×）。无声音克隆。 |
+| **Kokoro Dual-Bucket** | 英文与多语言流式 TTS（RK3588） | **0.380~0.424**（流式） | **383~414 ms TTFT** | CPU ONNXRuntime 文本前端（4 线程 text stem + duration head + target tail）+ NPU T50 滑动窗口流式生成器。Profile: `rk3588-kokoro-dualbucket`。 |
 | **Kokoro v1.0** | 仅英文 TTS | 不在本次基准运行中 | 历史值约 130 ms TTFT | 为仅英文部署保留。在 RK3588 上，hybrid CPU+NPU RKNN 路径提供多语言 TTS（`rk3588-kokoro-rknn`）。 |
 | CosyVoice3 | 仅研究 | 未发布 | 历史值约 800 ms TTFT | 质量更高，但对本次发布过重。 |
 | F5-TTS | 仅研究 | 未发布 | 历史值约 2.5 s TTFT | 不适合低延迟边缘对话。 |
@@ -564,6 +569,17 @@ split-generator 运行时（仅 TTS，英文，53 预置音色）。三个同源
 [`docs/kokoro-trt-reproduction.md`](docs/kokoro-trt-reproduction.md)。
 当 Kokoro TTS 和本地 ASR 服务暴露在不同端口上时，使用
 `scripts/verify_tts_asr_roundtrip.py`。
+
+### Rockchip Kokoro Dual-Bucket Profile
+
+`OVS_PROFILE=rk3588-kokoro-dualbucket` 在 RK3588（Radxa ROCK 5B / 5ITX）上启用经过固化的 Kokoro Dual-Bucket 运行时。
+
+- **架构设计**：解耦的混合流水线，结合了 CPU ONNXRuntime 文本前端（`frontend_stem`、`duration_head`、`target_tail`，使用 4 个 intra-op 线程）与 NPU RKNN T50 滑动窗口流式生成器/vocoder（每块 50 帧，步长 25 帧，3001 样本重叠舍弃）。
+- **设备端实测延迟与吞吐（RK3588）**：
+  - 首包延迟（**TTFT**）：**383~414 ms**（在 Radxa ROCK 5B 实测）。
+  - 实时率（**RTF**）：**0.380~0.424**（50-token 流式分块）。
+- **音色与多语言**：预置打包 53 种音色（默认 `af_heart`，覆盖英美英音、中文、日语、欧洲口音）。
+- **部署方式**：零外部依赖离线产物包挂载至 `/opt/kokoro-dualbucket/rk3588`，并通过固定 SHA256 清单做完整性校验。详见 [`docs/runbooks/kokoro-dualbucket-deploy.md`](docs/runbooks/kokoro-dualbucket-deploy.md)。
 
 ## Models
 
@@ -689,7 +705,9 @@ Jetson、RK 和 RPi 是 **一等同侪** —— 没有哪个是“主”后端�
 - [next-gen Kaldi](https://github.com/k2-fsa) —— sherpa-onnx 背后的研究基础
 - [Paraformer](https://github.com/modelscope/FunASR) —— 流式双语 ASR 模型
 - [Matcha-TTS](https://github.com/shivammehta25/Matcha-TTS) —— 快速的 flow-matching TTS（zh+en 模式）
-- [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) —— 高质量英文 TTS，带 53 个说话人（en 模式）
+- [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) —— 高质量、轻量级 82M TTS 模型，驱动英文与多语言流式路径（Apache 2.0，作者 @hexgrad）
+- [Misaki](https://github.com/hexgrad/misaki) —— 面向多语言注音的 G2P 字素到音素引擎（Apache 2.0，作者 @hexgrad）
+- [StyleTTS 2](https://github.com/yl4579/StyleTTS2) —— Kokoro 构建所基于的架构基础与声学建模（代码为 MIT License；预训练权重和发音人遵循上游仓库道德使用条款）
 - [Zipformer](https://github.com/k2-fsa/icefall) —— 高效的 transducer ASR（en 模式）
 - [SenseVoice](https://github.com/FunAudioLLM/SenseVoice) —— 多语言离线 ASR
 - [Qwen3](https://huggingface.co/Qwen) —— 多语言 ASR + TTS 基础模型（52 语言路径）
