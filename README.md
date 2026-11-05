@@ -78,12 +78,36 @@ deploy/install.sh --pull --verify   # auto-detects Jetson, Rockchip, or Raspberr
 Choose the target explicitly when auto-detect is not enough:
 
 ```bash
-deploy/install.sh --target orin-nx --pull --verify  # v0.9.1: Qwen3-ASR + Matcha + local LLM
+deploy/install.sh --target orin-nx --pull --verify  # v0.11 combined voice default
 deploy/install.sh --target jetson --pull --verify
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
+
+### v0.11 Jetson candidate
+
+The Jetson voice default now uses the v0.11 combined Qwen3-ASR IFB B2 + Qwen3-TTS CustomVoice R16 candidate profile. It remains candidate-unqualified; the separate v0.11 LLM service is explicit opt-in. Use `deploy/install.sh --target orin-nx --legacy --pull --verify` for the v0.9.1 rollback, or `deploy/install.sh --target jetson --legacy --pull --verify` for the previous v0.9.0 path. RK and Raspberry Pi defaults are unchanged.
+
+The v0.11 voice image is a Linux/ARM64 JetPack 6.2 / TensorRT 10.3 candidate image. Pull it by its immutable digest and select the reviewed CustomVoice profile:
+
+```bash
+export SPEECH_IMAGE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
+export OVS_PROFILE=jetson-edgellm-v011-default-voice
+export HF_ENDPOINT=https://hf-mirror.com
+docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
+```
+
+The voice profile pulls the ASR and CustomVoice R16 artifacts from immutable Hugging Face revisions (`862ae0db85703e894ed9ae7448ae1ce11a79cda3` and `009cd08677ec0f42378060f99c99a0a409e5ca70`). It uses the memory-saving ASR recipe at B2 and the selected CustomVoice worker at concurrency 1.
+
+The v0.11 Orin NX LLM image is a separate IFB B2 candidate. Its multi-platform index is `sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868` and its Linux/ARM64 leaf is `sha256:f882ff1daf2acb6cbf544d660f9e8763121a26fc3cfffacd0e4cd79aa9ebf4fc`. Prepare the locally staged checkpoint with the candidate guard:
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com   deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
+# after preparation, use --v011-llm-candidate without --prepare-only for the explicit LLM service
+```
+
+After preparation, start the LLM with the same explicit candidate flag; the installer launches only the separate LLM service and then exits. The service uses the public model name `qwen3.5-4b` and requires the read-only reviewed launcher bind together with the staged checkpoint and host CUDA/TensorRT mounts. The LLM engine bundle is pinned separately to `41fb732368307f2a6a6ef3ba67d35aef027845b4a`, while the checkpoint source is `harvestsu/Qwen3.5-4B-AWQ` at revision `7551dd662b7f7b140aaa9958ac62ac9317be1b5`. The candidate remains separate from the default voice service and is not an official JetPack or production qualification.
 
 ### Recommended models
 
@@ -794,3 +818,7 @@ If you're working on a larger change, open an issue first to align on the approa
 - [Qwen3](https://huggingface.co/Qwen) — multilingual ASR + TTS foundation model (52-language path)
 - [TensorRT-EdgeLLM](https://github.com/NVIDIA/TensorRT-LLM) — Jetson inference runtime for the Qwen3 path
 - [RKNN Toolkit](https://github.com/rockchip-linux/rknn-toolkit2) — Rockchip NPU runtime for the RK3576/RK3588 path
+
+## Jetson v0.11 default voice
+
+The default Jetson voice entry now uses `deploy/docker-compose.edgellm-v011-candidate-voice.yml` with the digest-pinned v0.11 voice image and the combined `jetson-edgellm-v011-default-voice` profile. The profile keeps ASR and CustomVoice caches and plugins separate. It remains candidate-unqualified. Use `deploy/install.sh --target orin-nx --legacy --pull --verify` for the v0.9.1 rollback.

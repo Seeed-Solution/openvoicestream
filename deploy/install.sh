@@ -26,7 +26,7 @@ Environment overrides:
   SLV_LLM_CACHE_ROOT, SLV_LLM_PAYLOAD_ROOT, SLV_LLM_CHECKPOINT_ROOT,
   SLV_LLM_CHECKPOINT_INVENTORY, SLV_LLM_CONSUMER_OVERRIDE,
   EDGELLM_V011_LAUNCHER_HOST, EDGELLM_V011_SERVED_MODEL_NAME,
-  SLV_LLM_EFFECTIVE_OVERLAY
+  SLV_LLM_EFFECTIVE_OVERLAY, KOKORO_DUALBUCKET_HOST_ROOT
 EOF
 }
 
@@ -737,9 +737,18 @@ case "$canonical_target" in
     echo "RK artifact set: ${RK_ARTIFACT_SET:-compose default}"
     if [[ "$canonical_target" == "rk3588" && "${profile:-}" == "rk3588-kokoro-dualbucket" ]]; then
       echo "RK profile: rk3588-kokoro-dualbucket"
-      manifest_host_path="/opt/kokoro-dualbucket/rk3588/kokoro_dualbucket.manifest.json"
+      host_root="${KOKORO_DUALBUCKET_HOST_ROOT:-/opt/kokoro-dualbucket}"
+      manifest_host_path="${host_root}/rk3588/kokoro_dualbucket.manifest.json"
+      expected_manifest_sha="cfc6aa8d485415884e4cf5eac47b0a786889ed02d9556a1051ed66685927083d"
       if [[ ! -f "$manifest_host_path" ]]; then
-        die "Missing Kokoro Dual-Bucket bundle at /opt/kokoro-dualbucket/rk3588 (manifest not found: $manifest_host_path). Prepare offline bundle: unpack artifacts into /opt/kokoro-dualbucket/rk3588 or follow docs/runbooks/kokoro-dualbucket-deploy.md"
+        die "Missing Kokoro Dual-Bucket bundle at ${host_root}/rk3588 (manifest not found: $manifest_host_path). Prepare offline bundle: unpack artifacts into ${host_root}/rk3588 or follow docs/runbooks/kokoro-dualbucket-deploy.md"
+      fi
+      if command -v sha256sum >/dev/null 2>&1; then
+        actual_manifest_sha="$(sha256sum "$manifest_host_path" | awk '{print $1}')"
+        if [[ "$actual_manifest_sha" != "$expected_manifest_sha" ]]; then
+          die "Kokoro Dual-Bucket manifest SHA256 mismatch: expected $expected_manifest_sha, got $actual_manifest_sha in $manifest_host_path"
+        fi
+        echo "Kokoro Dual-Bucket manifest verified (SHA256: $expected_manifest_sha)"
       fi
     fi
     ;;

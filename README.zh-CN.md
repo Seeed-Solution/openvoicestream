@@ -70,12 +70,36 @@ deploy/install.sh --pull --verify   # 自动识别 Jetson / Rockchip / Raspberry
 自动检测不适用时显式指定：
 
 ```bash
-deploy/install.sh --target orin-nx --pull --verify  # v0.9.1：Qwen3-ASR + Matcha + 本地 LLM
+deploy/install.sh --target orin-nx --pull --verify  # v0.11 合并语音默认入口
 deploy/install.sh --target jetson --pull --verify
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
+
+### v0.11 Jetson 候选版本
+
+Jetson 语音默认入口现在使用 v0.11 合并语音候选 profile（Qwen3-ASR IFB B2 + Qwen3-TTS CustomVoice R16）。它仍保留 candidate-unqualified 标记；v0.11 LLM 仍需显式 opt-in。回滚 Orin NX 使用 `deploy/install.sh --target orin-nx --legacy --pull --verify`，回滚通用 Jetson 使用 `deploy/install.sh --target jetson --legacy --pull --verify`。RK 和 Raspberry Pi 默认保持不变。
+
+v0.11 语音镜像面向 Linux/ARM64、JetPack 6.2 / TensorRT 10.3，按不可变 digest 拉取并选择已审查的 CustomVoice profile：
+
+```bash
+export SPEECH_IMAGE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
+export OVS_PROFILE=jetson-edgellm-v011-default-voice
+export HF_ENDPOINT=https://hf-mirror.com
+docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
+```
+
+语音 profile 会从不可变 Hugging Face revision 拉取 ASR 和 CustomVoice R16 产物（分别为 `862ae0db85703e894ed9ae7448ae1ce11a79cda3` 和 `009cd08677ec0f42378060f99c99a0a409e5ca70`）。ASR 使用省内存的 B2 配方，CustomVoice worker 并发为 1。
+
+v0.11 Orin NX LLM 是独立的 IFB B2 候选镜像。多平台 index 为 `sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868`，Linux/ARM64 leaf 为 `sha256:f882ff1daf2acb6cbf544d660f9e8763121a26fc3cfffacd0e4cd79aa9ebf4fc`。先用候选门禁准备本地 staging checkpoint：
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com   deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
+# 准备完成后，使用 --v011-llm-candidate（不带 --prepare-only）启动独立 LLM
+```
+
+准备完成后，使用 `deploy/install.sh --target orin-nx --v011-llm-candidate` 启动独立 LLM；安装器只启动该服务并退出。服务需要显式 candidate opt-in、本地 checkpoint、宿主 CUDA/TensorRT 挂载和 launcher 只读 bind，公开 model name 固定为 `qwen3.5-4b`；`--verify` 不适用于该 candidate 入口。LLM engine bundle 独立锁定在 `41fb732368307f2a6a6ef3ba67d35aef027845b4a`；checkpoint 来源是 `harvestsu/Qwen3.5-4B-AWQ` 的 `7551dd662b7f7b140aaa99558ac62ac9317be1b5` revision。该候选版本保持未合格标记，不代表官方 JetPack 或生产资格；需要回滚时使用 `deploy/install.sh --target orin-nx --legacy --pull --verify`。
 
 ### 推荐模型
 
@@ -167,7 +191,7 @@ docker compose -f deploy/docker-compose.radxa.yml up -d
 OVS_PROFILE=rk3588-kokoro-rknn \
 docker compose -f deploy/docker-compose.radxa.yml up -d
 
-# Rockchip —— Kokoro Dual-Bucket 流式 TTS（CPU 前端 + NPU T50 滑窗流式，RK3588）：
+# Rockchip —— Kokoro Dual-Bucket TTS（CPU 文本前端 + NPU T50 窗口流式生成，RK3588）。
 OVS_PROFILE=rk3588-kokoro-dualbucket \
 docker compose -f deploy/docker-compose.radxa.yml -f deploy/docker-compose.kokoro-dualbucket-rk3588.yml up -d
 ```
@@ -495,7 +519,7 @@ Paraformer+Matcha、RK3588、RK3576 和 Raspberry Pi 5 上均通过。Jetson p=2
 | **Qwen3-TTS** | 多语言声音克隆 | Orin NX 上 0.417，Orin Nano 上 0.470 | 4.4-7.3 ms | 质量/特性更高，但比 Matcha 重得多。x-vector 克隆，或 `customvoice` 变体（9 个指令控制的预设）。 |
 | **SparkTTS** | 可控音色 + 声音克隆（Jetson） | **0.50（v0.9.0 W4A16）**，v0.8.0 上 0.74 | **0.41–0.46 s（v0.9.0 W4A16）**，v0.8.0 上克隆约 0.25 s / 可控约 0.9 s | Qwen2.5-0.5B + BiCodec 单码本。**50 种可控音色**（性别 × 5 音高 × 5 语速，无需参考音频）**且**支持 zero-shot 声音克隆（音色 cos ~0.90）。在 **v0.9.0 上 W4A16 成为全面优选** —— 更快更轻且质量零损；bf16 也发布。W4A16 INT4-AWQ 引擎 645 MB（−58%），bf16/fp16 混合精度（修复 Qwen2.5 fp16 溢出）。中文 CER 0 / 英文 WER ≤0.02；N=2 字节级一致。 |
 | **MOSS-TTS-Nano** | 多语言纯 TTS（Jetson） | — | Orin NX 上约 157 ms TTFA | 0.1B 模型，通过 C++ TRT 输出 48kHz 立体声（比 ORT CPU 兜底快 19×）。无声音克隆。 |
-| **Kokoro Dual-Bucket** | 英文与多语言流式 TTS（RK3588） | **0.380~0.424**（流式） | **383~414 ms TTFT** | CPU ONNXRuntime 前端（4 线程文本 stem + duration head + target tail）+ NPU T50 滑窗流式生成器。Profile: `rk3588-kokoro-dualbucket`。 |
+| **Kokoro Dual-Bucket** | 英文与多语言流式 TTS（RK3588） | **0.380~0.424**（流式） | **383~414 ms TTFT** | CPU ONNXRuntime 文本前端（4 线程 text stem + duration head + target tail）+ NPU T50 滑动窗口流式生成器。Profile: `rk3588-kokoro-dualbucket`。 |
 | **Kokoro v1.0** | 仅英文 TTS | 不在本次基准运行中 | 历史值约 130 ms TTFT | 为仅英文部署保留。在 RK3588 上，hybrid CPU+NPU RKNN 路径提供多语言 TTS（`rk3588-kokoro-rknn`）。 |
 | CosyVoice3 | 仅研究 | 未发布 | 历史值约 800 ms TTFT | 质量更高，但对本次发布过重。 |
 | F5-TTS | 仅研究 | 未发布 | 历史值约 2.5 s TTFT | 不适合低延迟边缘对话。 |
@@ -548,14 +572,14 @@ split-generator 运行时（仅 TTS，英文，53 预置音色）。三个同源
 
 ### Rockchip Kokoro Dual-Bucket Profile
 
-`OVS_PROFILE=rk3588-kokoro-dualbucket` 在 RK3588（Radxa ROCK 5B / 5ITX）上启用生产固化的 Kokoro Dual-Bucket 运行时。
+`OVS_PROFILE=rk3588-kokoro-dualbucket` 在 RK3588（Radxa ROCK 5B / 5ITX）上启用经过固化的 Kokoro Dual-Bucket 运行时。
 
-- **架构设计**：采用解耦式混合流水线，前端由 CPU ONNXRuntime 执行（4 线程 `frontend_stem` + `duration_head` + `target_tail`），声学解码与声码器由 NPU RKNN T50 滑窗流式生成器执行（50 帧窗口，25 帧步长，3001 采样点重叠丢弃）。
-- **真机实测性能（RK3588）**：
-  - 首包延迟（**TTFT**）：**383~414 ms**（Radxa ROCK 5B 实测）。
-  - 实时率（**RTF**）：**0.380~0.424**（50 token 滑窗流式）。
-- **音色与多语言支持**：内置 53 种预置音色（默认 `af_heart`，覆盖英音、美音、中文、日文及欧洲多国口音）。
-- **部署方式**：零网络依赖离线模型包挂载至 `/opt/kokoro-dualbucket/rk3588`，并通过固定 SHA256 清单做完整性校验。参见操作手册 [`docs/runbooks/kokoro-dualbucket-deploy.md`](docs/runbooks/kokoro-dualbucket-deploy.md)。
+- **架构设计**：解耦的混合流水线，结合了 CPU ONNXRuntime 文本前端（`frontend_stem`、`duration_head`、`target_tail`，使用 4 个 intra-op 线程）与 NPU RKNN T50 滑动窗口流式生成器/vocoder（每块 50 帧，步长 25 帧，3001 样本重叠舍弃）。
+- **设备端实测延迟与吞吐（RK3588）**：
+  - 首包延迟（**TTFT**）：**383~414 ms**（在 Radxa ROCK 5B 实测）。
+  - 实时率（**RTF**）：**0.380~0.424**（50-token 流式分块）。
+- **音色与多语言**：预置打包 53 种音色（默认 `af_heart`，覆盖英美英音、中文、日语、欧洲口音）。
+- **部署方式**：零外部依赖离线产物包挂载至 `/opt/kokoro-dualbucket/rk3588`，并通过固定 SHA256 清单做完整性校验。详见 [`docs/runbooks/kokoro-dualbucket-deploy.md`](docs/runbooks/kokoro-dualbucket-deploy.md)。
 
 ## Models
 
@@ -681,11 +705,15 @@ Jetson、RK 和 RPi 是 **一等同侪** —— 没有哪个是“主”后端�
 - [next-gen Kaldi](https://github.com/k2-fsa) —— sherpa-onnx 背后的研究基础
 - [Paraformer](https://github.com/modelscope/FunASR) —— 流式双语 ASR 模型
 - [Matcha-TTS](https://github.com/shivammehta25/Matcha-TTS) —— 快速的 flow-matching TTS（zh+en 模式）
-- [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) —— 高质量、轻量级 82M TTS 模型，驱动英文与多语言语音流水线（Apache 2.0 by @hexgrad）
-- [Misaki](https://github.com/hexgrad/misaki) —— G2P 音素转换引擎，支持英文、中文与日文音素化（Apache 2.0 by @hexgrad）
-- [StyleTTS 2](https://github.com/yl4579/StyleTTS2) —— Kokoro 声学模型架构与核心算法基础（代码采用 MIT 许可证；预训练权重遵循上游伦理条款）
+- [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) —— 高质量、轻量级 82M TTS 模型，驱动英文与多语言流式路径（Apache 2.0，作者 @hexgrad）
+- [Misaki](https://github.com/hexgrad/misaki) —— 面向多语言注音的 G2P 字素到音素引擎（Apache 2.0，作者 @hexgrad）
+- [StyleTTS 2](https://github.com/yl4579/StyleTTS2) —— Kokoro 构建所基于的架构基础与声学建模（代码为 MIT License；预训练权重和发音人遵循上游仓库道德使用条款）
 - [Zipformer](https://github.com/k2-fsa/icefall) —— 高效的 transducer ASR（en 模式）
 - [SenseVoice](https://github.com/FunAudioLLM/SenseVoice) —— 多语言离线 ASR
 - [Qwen3](https://huggingface.co/Qwen) —— 多语言 ASR + TTS 基础模型（52 语言路径）
 - [TensorRT-EdgeLLM](https://github.com/NVIDIA/TensorRT-LLM) —— Qwen3 路径的 Jetson 推理运行时
 - [RKNN Toolkit](https://github.com/rockchip-linux/rknn-toolkit2) —— RK3576/RK3588 路径的 Rockchip NPU 运行时
+
+## Jetson v0.11 默认语音
+
+Jetson 默认语音入口现在使用 `deploy/docker-compose.edgellm-v011-candidate-voice.yml`、固定 digest 的 v0.11 语音镜像和合并 profile `jetson-edgellm-v011-default-voice`。ASR 与 CustomVoice 的缓存和插件路径保持隔离，候选未合格标记保持不变。回滚 Orin NX 使用 `deploy/install.sh --target orin-nx --legacy --pull --verify`。

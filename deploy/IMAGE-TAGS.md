@@ -28,7 +28,11 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
   ```
 - **Deployment Profile**: `rk3588-kokoro-dualbucket`
   - Compose overlay: `deploy/docker-compose.kokoro-dualbucket-rk3588.yml`
-  - Offline model path: `/opt/kokoro-dualbucket/rk3588` (21 verified files)
+  - Offline model path: `/opt/kokoro-dualbucket/rk3588` (21 files total on disk: 20 payload files + 1 manifest)
+- **Lifecycle & Registry Push**:
+  - The image tag specification and Dockerfile recipe are frozen and validated on Radxa RK3588.
+  - Remote registry push to `sensecraft-missionpack.seeed.cn` occurs via post-merge release CI or official registry publisher.
+  - For local execution prior to public registry push, operators can build the image locally with the build command above or use `deploy/install.sh --build`, and compose will resolve the local tag.
 
 | Tag | Seeed commit | voxedge commit | Date | Build host | Registry digest |
 |-----|-------------|----------------|------|-----------|-----------------|

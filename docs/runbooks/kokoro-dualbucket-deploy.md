@@ -74,14 +74,14 @@ sudo tar -zxvf kokoro_dualbucket_rk3588.tar.gz -C /opt/kokoro-dualbucket/rk3588/
 sha256sum /opt/kokoro-dualbucket/rk3588/kokoro_dualbucket.manifest.json
 # Expected: cfc6aa8d485415884e4cf5eac47b0a786889ed02d9556a1051ed66685927083d
 
-# 4. Verify all 21 files against manifest
+# 4. Verify all 20 payload files against manifest (21 files total on disk)
 python3 -c '
 import json, hashlib, sys, pathlib
 root = pathlib.Path("/opt/kokoro-dualbucket/rk3588")
 manifest = json.loads((root / "kokoro_dualbucket.manifest.json").read_text())
 rows = manifest.get("files", [])
-if len(rows) != 21:
-    sys.exit(f"Expected 21 files, got {len(rows)}")
+if len(rows) != 20:
+    sys.exit(f"Expected 20 payload files in manifest, got {len(rows)}")
 for row in rows:
     p = root / row["path"]
     if not p.is_file():
@@ -89,7 +89,7 @@ for row in rows:
     h = hashlib.sha256(p.read_bytes()).hexdigest()
     if h != row["sha256"]:
         sys.exit(f"SHA mismatch for {row['path']}")
-print("All 21 bundle files verified successfully.")
+print(f"All {len(rows)} payload bundle files verified successfully (21 files total on disk).")
 '
 ```
 
