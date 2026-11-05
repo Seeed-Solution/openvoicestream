@@ -745,11 +745,18 @@ case "$canonical_target" in
       fi
       if command -v sha256sum >/dev/null 2>&1; then
         actual_manifest_sha="$(sha256sum "$manifest_host_path" | awk '{print $1}')"
-        if [[ "$actual_manifest_sha" != "$expected_manifest_sha" ]]; then
-          die "Kokoro Dual-Bucket manifest SHA256 mismatch: expected $expected_manifest_sha, got $actual_manifest_sha in $manifest_host_path"
-        fi
-        echo "Kokoro Dual-Bucket manifest verified (SHA256: $expected_manifest_sha)"
+      elif command -v shasum >/dev/null 2>&1; then
+        actual_manifest_sha="$(shasum -a 256 "$manifest_host_path" | awk '{print $1}')"
+      elif command -v python3 >/dev/null 2>&1; then
+        actual_manifest_sha="$(python3 -c "import hashlib, pathlib, sys; sys.stdout.write(hashlib.sha256(pathlib.Path('$manifest_host_path').read_bytes()).hexdigest())")"
+      else
+        die "A SHA256 tool (sha256sum, shasum, or python3) is required to verify the Kokoro Dual-Bucket manifest at $manifest_host_path"
       fi
+
+      if [[ "$actual_manifest_sha" != "$expected_manifest_sha" ]]; then
+        die "Kokoro Dual-Bucket manifest SHA256 mismatch: expected $expected_manifest_sha, got $actual_manifest_sha in $manifest_host_path"
+      fi
+      echo "Kokoro Dual-Bucket manifest verified (SHA256: $expected_manifest_sha)"
     fi
     ;;
   rpi)
