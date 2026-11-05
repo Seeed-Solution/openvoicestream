@@ -11,7 +11,7 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 
 - **Image Tag**: `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261104-kokoro-dualbucket` (aliased as `openvoicestream:rk-20261104-kokoro-dualbucket`)
 - **Target Hardware**: Radxa RK3588 (ROCK 5B / 5ITX) & RK3576
-- **Baseline Git Commit**: `a23a1b16a2dee9154e8580f0c6deadb3248a08f4`
+- **Baseline Git Commit**: `74568a23` (main PR #134)
 - **Core Runtime & Dependencies**:
   - `rkvoice-stream`: commit `f605c6f` (NPU T50 sliding-window streaming vocoder integration)
   - `onnxruntime`: `1.26.0` (4-thread CPU text stem, duration head, and target tail)
@@ -30,13 +30,13 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
   - Compose overlay: `deploy/docker-compose.kokoro-dualbucket-rk3588.yml`
   - Offline model path: `/opt/kokoro-dualbucket/rk3588` (21 files total on disk: 20 payload files + 1 manifest)
 - **Lifecycle & Registry Push**:
-  - The image tag specification and Dockerfile recipe are frozen and validated on Radxa RK3588.
-  - Remote registry push to `sensecraft-missionpack.seeed.cn` occurs via post-merge release CI or official registry publisher.
-  - For local execution prior to public registry push, operators can build the image locally with the build command above or use `deploy/install.sh --build`, and compose will resolve the local tag.
+  - The image was natively built on `spark` (ARM64) from commit `74568a23`.
+  - Pushed to `sensecraft-missionpack.seeed.cn` under both `solution/seeed-local-voice:rk-20261104-kokoro-dualbucket` and `solution/openvoicestream:rk-20261104-kokoro-dualbucket`.
+  - Pull and digest verified on Radxa RK3588 (`sha256:d49378672a71f7809dee5595731c79b429418c3775f310cb3bf2ca5a6174183a`).
 
 | Tag | Seeed commit | voxedge commit | Date | Build host | Registry digest |
 |-----|-------------|----------------|------|-----------|-----------------|
-| `openvoicestream:rk-20261104-kokoro-dualbucket` | `a23a1b16a2dee9154e8580f0c6deadb3248a08f4` | rkvoice-stream `f605c6f` | 2026-11-04 | Radxa RK3588 | `UNVERIFIED (Pending build & registry push)` |
+| `openvoicestream:rk-20261104-kokoro-dualbucket` | `74568a23` (main PR #134) | rkvoice-stream `f605c6f` | 2026-11-06 | spark (aarch64) | `sha256:d49378672a71f7809dee5595731c79b429418c3775f310cb3bf2ca5a6174183a` (993 MB) |
 | `rk-20261024-ttsnum` (speech, `openvoicestream:`, Linux/ARM64) | `8271afba` (main PR #130) | `voxedge==0.0.15a4` (`cda39e3`) | 2026-10-24 | macbook | index `sha256:0030846210c84cfef112c13966370f962d150942f099263977cf7737ba5f3d50` (leaf `sha256:4629a129edb7bd8d505c4773ad9e6e577e45f991694e0fe46d70af5db4a41d5c`) |
 | `v0.11.0-candidate-voice-dfd6aae` (`seeed-local-voice`, Linux/ARM64) | `dfd6aae3c8d287fbba564c691e650ef5bf739d27` / closure `0a815fdda79411377a7e92ff952888437054b15a` | `voxedge==0.0.15a3` (`fd96f0a793873c080b88e13cabc1ab265b9c2901`) | 2026-10-12 | macbook | `sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a` |
 | `edgellm-v011-cp312-ifb-b2-20261012-candidate` (`edge-llm-chat-service`, index) | v0.11 candidate closure `0a815fdda79411377a7e92ff952888437054b15a` | engine bundle `41fb732368307f2a6a6ef3ba67d35aef027845b4a`; VoxEdge pin is separate | 2026-10-12 | macbook | `sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868` (Linux/ARM64 leaf `sha256:f882ff1daf2acb6cbf544d660f9e8763121a26fc3cfffacd0e4cd79aa9ebf4fc`) |
