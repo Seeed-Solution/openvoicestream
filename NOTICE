@@ -1,0 +1,50 @@
+OpenVoiceStream
+Copyright (c) 2025-2026 Seeed Studio & Harvest Su
+
+This product includes software and models developed by the open source community:
+
+1. Kokoro-82M
+   - Source: https://github.com/hexgrad/kokoro
+   - License: Apache License 2.0
+   - Copyright (c) 2024 hexgrad
+
+2. Misaki G2P
+   - Source: https://github.com/hexgrad/misaki
+   - License: Apache License 2.0
+   - Copyright (c) 2024 hexgrad
+
+3. StyleTTS 2
+   - Source: https://github.com/yl4579/StyleTTS2
+   - License: MIT License (Code)
+   - Copyright (c) 2023 Yinghao Li, Cong Han, Vinay S. Raghavan, Gavin Dooley, Nima Mesgarani
+   - Note: Pretrained model weights and audio datasets follow ethical use terms (https://github.com/yl4579/StyleTTS2#license).
+
+4. Matcha-TTS
+   - Source: https://github.com/shivammehta25/Matcha-TTS
+   - License: Apache License 2.0
+   - Copyright (c) 2023 Shivam Mehta
+
+5. Sherpa-onnx
+   - Source: https://github.com/k2-fsa/sherpa-onnx
+   - License: Apache License 2.0
+   - Copyright (c) 2022-2024 Xiaomi Corporation / Next-gen Kaldi Authors
+
+6. Paraformer & FunASR
+   - Source: https://github.com/modelscope/FunASR
+   - License: Apache License 2.0
+   - Copyright (c) 2022-2024 Alibaba Group
+
+7. Vocos
+   - Source: https://github.com/gemelo-ai/vocos
+   - License: MIT License
+   - Copyright (c) 2023 Gemelo Inc.
+
+8. Silero VAD
+   - Source: https://github.com/snakers4/silero-vad
+   - License: MIT License
+   - Copyright (c) 2020-2024 Silero Team
+
+9. Qwen
+   - Source: https://github.com/QwenLM/Qwen
+   - License: Apache License 2.0
+   - Copyright (c) 2023-2024 Alibaba Cloud

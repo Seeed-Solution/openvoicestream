@@ -78,36 +78,12 @@ deploy/install.sh --pull --verify   # auto-detects Jetson, Rockchip, or Raspberr
 Choose the target explicitly when auto-detect is not enough:
 
 ```bash
-deploy/install.sh --target orin-nx --pull --verify  # v0.11 combined voice default
+deploy/install.sh --target orin-nx --pull --verify  # v0.9.1: Qwen3-ASR + Matcha + local LLM
 deploy/install.sh --target jetson --pull --verify
 deploy/install.sh --target rk3588 --pull --verify
 deploy/install.sh --target rk3576 --pull --verify
 deploy/install.sh --target rpi --pull --verify
 ```
-
-### v0.11 Jetson candidate
-
-The Jetson voice default now uses the v0.11 combined Qwen3-ASR IFB B2 + Qwen3-TTS CustomVoice R16 candidate profile. It remains candidate-unqualified; the separate v0.11 LLM service is explicit opt-in. Use `deploy/install.sh --target orin-nx --legacy --pull --verify` for the v0.9.1 rollback, or `deploy/install.sh --target jetson --legacy --pull --verify` for the previous v0.9.0 path. RK and Raspberry Pi defaults are unchanged.
-
-The v0.11 voice image is a Linux/ARM64 JetPack 6.2 / TensorRT 10.3 candidate image. Pull it by its immutable digest and select the reviewed CustomVoice profile:
-
-```bash
-export SPEECH_IMAGE=sensecraft-missionpack.seeed.cn/solution/seeed-local-voice@sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a
-export OVS_PROFILE=jetson-edgellm-v011-default-voice
-export HF_ENDPOINT=https://hf-mirror.com
-docker compose -f deploy/docker-compose.edgellm-v011-candidate-voice.yml up -d
-```
-
-The voice profile pulls the ASR and CustomVoice R16 artifacts from immutable Hugging Face revisions (`862ae0db85703e894ed9ae7448ae1ce11a79cda3` and `009cd08677ec0f42378060f99c99a0a409e5ca70`). It uses the memory-saving ASR recipe at B2 and the selected CustomVoice worker at concurrency 1.
-
-The v0.11 Orin NX LLM image is a separate IFB B2 candidate. Its multi-platform index is `sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868` and its Linux/ARM64 leaf is `sha256:f882ff1daf2acb6cbf544d660f9e8763121a26fc3cfffacd0e4cd79aa9ebf4fc`. Prepare the locally staged checkpoint with the candidate guard:
-
-```bash
-HF_ENDPOINT=https://hf-mirror.com   deploy/install.sh --target orin-nx --v011-llm-candidate --prepare-only
-# after preparation, use --v011-llm-candidate without --prepare-only for the explicit LLM service
-```
-
-After preparation, start the LLM with the same explicit candidate flag; the installer launches only the separate LLM service and then exits. The service uses the public model name `qwen3.5-4b` and requires the read-only reviewed launcher bind together with the staged checkpoint and host CUDA/TensorRT mounts. The LLM engine bundle is pinned separately to `41fb732368307f2a6a6ef3ba67d35aef027845b4a`, while the checkpoint source is `harvestsu/Qwen3.5-4B-AWQ` at revision `7551dd662b7f7b140aaa9958ac62ac9317be1b5`. The candidate remains separate from the default voice service and is not an official JetPack or production qualification.
 
 ### Recommended models
 
@@ -208,6 +184,10 @@ docker compose -f deploy/docker-compose.radxa.yml up -d
 # Rockchip — Qwen3 ASR + Kokoro RKNN TTS (multilingual, NPU-accelerated).
 OVS_PROFILE=rk3588-kokoro-rknn \
 docker compose -f deploy/docker-compose.radxa.yml up -d
+
+# Rockchip — Kokoro Dual-Bucket TTS (CPU frontend + NPU T50 streaming window, RK3588).
+OVS_PROFILE=rk3588-kokoro-dualbucket \
+docker compose -f deploy/docker-compose.radxa.yml -f deploy/docker-compose.kokoro-dualbucket-rk3588.yml up -d
 ```
 
 `deploy/install.sh --pull --verify` auto-detects Jetson/RK/RPi on the target
@@ -594,6 +574,7 @@ research models are kept as historical context.
 | **Qwen3-TTS** | Multilingual voice clone | 0.417 on Orin NX, 0.470 on Orin Nano | 4.4-7.3 ms | Higher quality/features, much heavier than Matcha. x-vector clone, or `customvoice` variant (9 instruction-controlled presets). |
 | **SparkTTS** | Controllable + voice clone (Jetson) | **0.50 (v0.9.0 W4A16)**, 0.74 on v0.8.0 | **0.41–0.46 s (v0.9.0 W4A16)**, ~0.25 s clone / ~0.9 s controllable on v0.8.0 | Qwen2.5-0.5B + BiCodec single-codebook. **50 controllable timbres** (gender × 5 pitch × 5 speed, no reference audio) **and** zero-shot voice clone (cos ~0.90). On **v0.9.0 W4A16 is the all-round pick** — faster and lighter with zero quality loss; bf16 also ships. W4A16 INT4-AWQ engine 645 MB (−58%), bf16/fp16 mixed-precision (Qwen2.5 fp16-overflow fix). ZH CER 0 / EN WER ≤0.02; N=2 byte-identical. |
 | **MOSS-TTS-Nano** | Multilingual TTS-only (Jetson) | — | ~157 ms TTFA on Orin NX | 0.1B model, 48kHz stereo via C++ TRT (19× faster than ORT CPU fallback). No voice clone. |
+| **Kokoro Dual-Bucket** | English & multilingual streaming TTS (RK3588) | **0.380~0.424** (streaming) | **383~414 ms TTFT** | CPU ONNXRuntime frontend (4-thread text stem + duration head + target tail) + NPU T50 sliding-window streaming generator. Profile: `rk3588-kokoro-dualbucket`. |
 | **Kokoro v1.0** | English-only TTS | Not in this benchmark run | Historical ~130 ms TTFT | Kept for English-only deployments. On RK3588 a hybrid CPU+NPU RKNN path serves multilingual TTS (`rk3588-kokoro-rknn`). |
 | CosyVoice3 | Research only | Not shipped | Historical ~800 ms TTFT | Higher quality, too heavy for this release. |
 | F5-TTS | Research only | Not shipped | Historical ~2.5 s TTFT | Not suitable for low-latency edge dialogue. |
@@ -645,6 +626,17 @@ and the reproduction guide
 [`docs/kokoro-trt-reproduction.md`](docs/kokoro-trt-reproduction.md).
 Use `scripts/verify_tts_asr_roundtrip.py` when Kokoro TTS and the local ASR
 service are exposed on separate ports.
+
+### Rockchip Kokoro Dual-Bucket Profile
+
+`OVS_PROFILE=rk3588-kokoro-dualbucket` enables the production-solidified Kokoro Dual-Bucket runtime on RK3588 (Radxa ROCK 5B / 5ITX).
+
+- **Architecture**: Decoupled hybrid pipeline combining a CPU ONNXRuntime text frontend (`frontend_stem`, `duration_head`, `target_tail` at 4 intra-op threads) with an NPU RKNN T50 sliding-window streaming vocoder/generator (50 frames per chunk, 25-frame stride, 3001-sample overlap-discard).
+- **On-Device Latency & Throughput (RK3588)**:
+  - First-packet latency (**TTFT**): **383~414 ms** (measured on Radxa ROCK 5B).
+  - Real-Time Factor (**RTF**): **0.380~0.424** across 50-token streaming chunks.
+- **Voices & Languages**: 53 voices pre-packaged (`af_heart` default, British/American English, Chinese, Japanese, European accents).
+- **Deployment**: Zero-dependency offline bundle mounted at `/opt/kokoro-dualbucket/rk3588` with integrity verified by fixed SHA256 manifest. See [`docs/runbooks/kokoro-dualbucket-deploy.md`](docs/runbooks/kokoro-dualbucket-deploy.md).
 
 ## Models
 
@@ -794,13 +786,11 @@ If you're working on a larger change, open an issue first to align on the approa
 - [next-gen Kaldi](https://github.com/k2-fsa) — research foundation behind sherpa-onnx
 - [Paraformer](https://github.com/modelscope/FunASR) — streaming bilingual ASR model
 - [Matcha-TTS](https://github.com/shivammehta25/Matcha-TTS) — fast flow-matching TTS (zh+en mode)
-- [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) — high-quality English TTS with 53 speakers (en mode)
+- [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) — high-quality, lightweight 82M TTS model powering English and multilingual paths (Apache 2.0 by @hexgrad)
+- [Misaki](https://github.com/hexgrad/misaki) — G2P grapheme-to-phoneme engine for phonemization across languages (Apache 2.0 by @hexgrad)
+- [StyleTTS 2](https://github.com/yl4579/StyleTTS2) — architectural foundation and acoustic modeling upon which Kokoro is built (MIT License for code; see upstream repository for pretrained weights and voice ethical use terms)
 - [Zipformer](https://github.com/k2-fsa/icefall) — efficient transducer ASR (en mode)
 - [SenseVoice](https://github.com/FunAudioLLM/SenseVoice) — multilingual offline ASR
 - [Qwen3](https://huggingface.co/Qwen) — multilingual ASR + TTS foundation model (52-language path)
 - [TensorRT-EdgeLLM](https://github.com/NVIDIA/TensorRT-LLM) — Jetson inference runtime for the Qwen3 path
 - [RKNN Toolkit](https://github.com/rockchip-linux/rknn-toolkit2) — Rockchip NPU runtime for the RK3576/RK3588 path
-
-## Jetson v0.11 default voice
-
-The default Jetson voice entry now uses `deploy/docker-compose.edgellm-v011-candidate-voice.yml` with the digest-pinned v0.11 voice image and the combined `jetson-edgellm-v011-default-voice` profile. The profile keeps ASR and CustomVoice caches and plugins separate. It remains candidate-unqualified. Use `deploy/install.sh --target orin-nx --legacy --pull --verify` for the v0.9.1 rollback.

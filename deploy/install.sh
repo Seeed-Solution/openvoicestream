@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  deploy/install.sh [--target auto|jetson|orin-nx|rk3576|rk3588|rpi] [--pull] [--build] [--verify]
+  deploy/install.sh [--target auto|jetson|orin-nx|rk3576|rk3588|rpi] [--profile <name>] [--pull] [--build] [--verify]
   deploy/install.sh --target orin-nx --v011-llm-candidate [--prepare-only] [--pull]
   deploy/install.sh --target orin-nx --legacy --pull --verify
 
@@ -13,6 +13,7 @@ Examples:
   deploy/install.sh --target jetson --pull --verify
   deploy/install.sh --target orin-nx --pull --verify
   deploy/install.sh --target rk3588 --pull --verify
+  deploy/install.sh --target rk3588 --profile rk3588-kokoro-dualbucket --pull --verify
   deploy/install.sh --target rpi --pull --verify
 
 Environment overrides:
@@ -69,6 +70,7 @@ detect_target() {
 }
 
 target="auto"
+profile="${OVS_PROFILE:-}"
 pull=0
 build=0
 verify=0
@@ -81,6 +83,18 @@ while [[ $# -gt 0 ]]; do
     --target)
       target="${2:-}"
       shift 2
+      ;;
+    --target=*)
+      target="${1#*=}"
+      shift
+      ;;
+    --profile)
+      profile="${2:-}"
+      shift 2
+      ;;
+    --profile=*)
+      profile="${1#*=}"
+      shift
       ;;
     --pull)
       pull=1
@@ -117,6 +131,10 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -n "$profile" ]]; then
+  export OVS_PROFILE="$profile"
+fi
 
 if [[ "$v011_llm_candidate" -eq 1 ]]; then
   [[ "$verify" -eq 0 ]] || die "--verify is not supported for --v011-llm-candidate; use the candidate runtime gate and its explicit chat smoke"
@@ -625,11 +643,17 @@ case "$target" in
     ;;
   rk3576|rk)
     canonical_target="rk3576"
+    if [[ "${profile:-}" == "rk3588-kokoro-dualbucket" ]]; then
+      die "profile rk3588-kokoro-dualbucket is only supported on target rk3588 (current target: $canonical_target)"
+    fi
     compose_files=("deploy/docker-compose.rk.yml")
     ;;
   rk3588|radxa)
     canonical_target="rk3588"
     compose_files=("deploy/docker-compose.radxa.yml")
+    if [[ "${profile:-}" == "rk3588-kokoro-dualbucket" ]]; then
+      compose_files+=("deploy/docker-compose.kokoro-dualbucket-rk3588.yml")
+    fi
     ;;
   rpi|rpi4|rpi5|cm4|cm5)
     canonical_target="rpi"
@@ -704,10 +728,20 @@ case "$canonical_target" in
     ;;
   rk3576|rk3588)
     if [[ ! -e /dev/rknpu ]]; then
+      if [[ "$canonical_target" == "rk3588" && "${profile:-}" == "rk3588-kokoro-dualbucket" ]]; then
+        die "/dev/rknpu is missing. The Rockchip NPU driver is required for profile rk3588-kokoro-dualbucket (NPU T50 generator)."
+      fi
       warn "/dev/rknpu is missing. Load the Rockchip NPU driver or use a kernel image with rknpu support."
     fi
     echo "RK artifact manifest: ${RK_ARTIFACT_MANIFEST:-deploy/artifacts/rk_manifest.json}"
     echo "RK artifact set: ${RK_ARTIFACT_SET:-compose default}"
+    if [[ "$canonical_target" == "rk3588" && "${profile:-}" == "rk3588-kokoro-dualbucket" ]]; then
+      echo "RK profile: rk3588-kokoro-dualbucket"
+      manifest_host_path="/opt/kokoro-dualbucket/rk3588/kokoro_dualbucket.manifest.json"
+      if [[ ! -f "$manifest_host_path" ]]; then
+        die "Missing Kokoro Dual-Bucket bundle at /opt/kokoro-dualbucket/rk3588 (manifest not found: $manifest_host_path). Prepare offline bundle: unpack artifacts into /opt/kokoro-dualbucket/rk3588 or follow docs/runbooks/kokoro-dualbucket-deploy.md"
+      fi
+    fi
     ;;
   rpi)
     arch="$(uname -m)"
