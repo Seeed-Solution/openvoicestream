@@ -185,7 +185,7 @@ leaves:
   # RKNNs (encoder.{40,80,160,400}.fp16.rknn). Kept here ONLY as a documented
   # dead-end; use asr.paraformer_rknn.rk3576.hybrid for production (it works).
   #
-  # ⛔ CONCLUSIVE FINDING (2026-06-16, cat-remote, exhaustive): the full encoder
+  # ⛔ CONCLUSIVE FINDING (2026-06-16, reComputer RK3576, exhaustive): the full encoder
   # CANNOT run finite on the RK3576 NPU, and it is NOT fixable by RKNN conversion
   # settings — only by model-side surgery. Root cause = intrinsic fp16 dynamic-
   # range overflow in the deep encoder residual stream:

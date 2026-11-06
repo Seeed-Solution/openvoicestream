@@ -73,7 +73,7 @@ def _infer_target(profile: Mapping[str, object] | None) -> str:
         return "orin-nx"
     if "orin-nano" in name or "orin_nano" in name:
         return "orin-nano"
-    if "rk" in name or "rockchip" in name or "radxa" in name:
+    if "rk" in name or "rockchip" in name or "recomputer" in name:
         return "rk"
     if "desktop" in name or "ci" in name:
         return "desktop"

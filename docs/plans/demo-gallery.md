@@ -125,9 +125,9 @@ V2 备选（不在本计划内）：同传/双语字幕（依赖 NLLB 容器）�
 
 **验收基准设备（已确认）**：
 - `orin-nx`（Jetson Orin NX 开发机，fleet 在线）——主验收平台，六项能力全量；**不碰 seeed-orin-nx 生产栈**；
-- `radxa`（ROCK5T，RK3588，fleet 在线）——次验收平台，asr-caption / tts-playground / v2v-chat / 模型切换四项全通；voice-clone 预期置灰（SparkTTS 为 Jetson 路径）；diarization 视 RK 上 CAM++ (sherpa-onnx CPU) 能力实测决定支持或置灰。
+- `rk3588`（Seeed reComputer RK3588，fleet 在线）——次验收平台，asr-caption / tts-playground / v2v-chat / 模型切换四项全通；voice-clone 预期置灰（SparkTTS 为 Jetson 路径）；diarization 视 RK 上 CAM++ (sherpa-onnx CPU) 能力实测决定支持或置灰。
 - 每张卡的完成定义 = 双设备实测通过（或按能力矩阵正确置灰），不以本地 mock 为准。
-- 已知风险：radxa 现有部署镜像可能不含 `/admin/backend/reload`，验证前需确认/更新镜像版本。
+- 已知风险：RK3588 现有部署镜像可能不含 `/admin/backend/reload`，验证前需确认/更新镜像版本。
 
 每阶段独立可交付、真机验收。
 
@@ -139,9 +139,9 @@ V2 备选（不在本计划内）：同传/双语字幕（依赖 NLLB 容器）�
 - **P2 — diarization + voice-clone 卡**
   验收：双人对话字幕两色区分；enroll→clone 闭环出声，克隆相似度主观可辨。
   依赖：`feat/diarization` 合并。
-- **P3 补充事项（radxa 构建实战发现）**：
+- **P3 补充事项（RK3588 构建实战发现）**：
   - demo-gallery worktree 独立构建 RK 镜像缺两个输入：`third_party/rkvoice-stream` submodule 需 `git submodule update --init`；`deploy/rk-runtime/`（librknnrt.so 2.3.2 + librkllmrt.so 1.2.3）是 git 未跟踪的staging 产物，只在主仓工作树——需在 BUILD_IMAGES.md 写明来源/获取方式；
-  - radxa 磁盘治理：docker builder cache 是大头（~16GB），`docker builder prune` 已批准；无引用 volumes（9.17GB）可能含模型数据，未经逐个 inspect 禁止删。
+  - RK3588 磁盘治理：docker builder cache 是大头（~16GB），`docker builder prune` 已批准；无引用 volumes（9.17GB）可能含模型数据，未经逐个 inspect 禁止删。
 - **P3 — 镜像化 + kiosk + 文档收口**
   产出：五个 demo 镜像推 registry、kiosk 模式、`docs/DEMOS.md` 索引、README 双语加 gallery 入口与截图、`examples/agent/`（最小 app + @tool 两个代码级示例，面向要写代码的开发者，与 gallery 互补）。
   验收：全新设备 `install.sh --pull` + `compose --profile all up` 两步起完整 gallery。

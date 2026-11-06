@@ -9,7 +9,7 @@ Phase 1+2: submit A and B back-to-back (no wait), demux chunks by id, record
 Phase 4:   single-turn C wall-clock baseline for ratio.
 Phase 3:   saturate (submit 3 concurrent while 2 slots busy) -> expect pool_saturated/4429.
 
-WAVs written to /tmp/tts_n2_{A,B}.wav for downstream radxa SenseVoice ASR loopback.
+WAVs written to /tmp/tts_n2_{A,B}.wav for downstream RK3588 SenseVoice ASR loopback.
 """
 import subprocess, json, base64, sys, struct, time, os, threading
 

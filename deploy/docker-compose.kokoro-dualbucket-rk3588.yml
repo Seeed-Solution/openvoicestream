@@ -1,4 +1,4 @@
-# Explicit RK3588 production overlay. Compose with docker-compose.radxa.yml.
+# Explicit RK3588 production overlay. Compose with docker-compose.rk3588.yml.
 services:
   speech:
     image: ${OVS_SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261104-kokoro-dualbucket}

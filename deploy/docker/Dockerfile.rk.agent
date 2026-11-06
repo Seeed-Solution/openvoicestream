@@ -18,7 +18,7 @@
 # Build (context = repo root):
 #   docker build -f deploy/docker/Dockerfile.rk.agent -t ovs-agent:rk-$(date +%Y%m%d) .
 #
-# Run: needs /dev/snd for the mic and speaker. See deploy/docker-compose.radxa.yml.
+# Run: needs /dev/snd for the mic and speaker. See deploy/docker-compose.rk3588.yml.
 
 FROM debian:12-slim
 

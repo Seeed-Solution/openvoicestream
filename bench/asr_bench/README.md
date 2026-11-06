@@ -100,7 +100,7 @@ smaller, faster smoke run.
 
 ```bash
 uv run bench.py \
-  --url ws://cat-remote:8621 \
+  --url ws://<rk3576-host>:8621 \
   --model sensevoice --lang zh \
   --segments corpus \
   --concurrency 1,2,4,8 \

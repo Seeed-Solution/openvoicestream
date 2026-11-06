@@ -61,7 +61,7 @@ After today's sweep:
 | Device | Container | Image | Port | Preset | /health |
 |---|---|---|---|---|---|
 | orin-nano | `seeed-local-voice` | jetson-v1.12-highperf | 8621 (host net) | jetson-multilang-highperf | ✅ both ready in latest product gate |
-| radxa | `seeed-local-voice` | rk-qwen3asr-opt-20260610 | 8621 (host net) | rk3588-default / multilang | ✅ both ready in latest product gate |
+| rk3588 | `seeed-local-voice` | rk-qwen3asr-opt-20260610 | 8621 (host net) | rk3588-default / multilang | ✅ both ready in latest product gate |
 | harvest-pi | `seeed-local-voice` | rpi-v1.0-onnx | 8000 | rpi5-default | ✅ both ready in latest product gate |
 
 `docker ps` on each device confirms current state.
@@ -122,7 +122,7 @@ docker run -d --name seeed-jetson-lite --runtime nvidia --network host \
 First start downloads sherpa Matcha (~120 MB) + Paraformer (~900 MB) ONNX
 to volume; engine_resolver compiles or pulls TRT engines.
 
-### RK3576 / RK3588 (radxa)
+### RK3576 / RK3588
 
 Requires:
 - Host has NPU kernel driver/devices.
@@ -316,7 +316,7 @@ Corpus: 20 FLEURS files (10 zh + 10 en, 3-15s, sha256-locked). CER is character-
 
 ### Resolved bugs (2026-05-13)
 
-- **Radxa rk:matcha_rknn TTS `'tuple'.encode` crash** — adapter `app/backends/rk/tts.py::generate_streaming` now unwraps `(audio, meta)` tuples to PCM bytes. Fixed in commit `1aa7976`.
+- **RK3588 rk:matcha_rknn TTS `'tuple'.encode` crash** — adapter `app/backends/rk/tts.py::generate_streaming` now unwraps `(audio, meta)` tuples to PCM bytes. Fixed in commit `1aa7976`.
 - **RK3576 TTS `RKNN_ERR_PARAM_INVALID` vocos crash** — `rk3576-multilang.json` profile had `VOCOS_FRAMES=256` but the deployed vocos engine is `vocos-16khz-600.rknn` (expects 600 mel frames). Profile updated to `VOCOS_FRAMES=600`. Required `MATCHA_USE_ORT=1` to route matcha encoder/estimator/decoder through ORT-CPU (reduces RKNN model count on NPU domain 0). With both fixes: RTF 0.14-0.22 on RK3576. Initial misdiagnosis as "NPU IOMMU conflict" was wrong — actual root cause was a shape-mismatch + Matcha component count.
 
 ## Measured V2V perf (local mode, 2026-05-13)
@@ -350,8 +350,8 @@ EOS → first TTS audio chunk, `--llm-delay=0` (forced EOS):
 | Jetson Orin Nano | sm87 8GB | voice_clone | 0.42 | **0.084** | **0.063** | 5.3% | **0.0%** | 3.14 GB (v1.11/v1.12) |
 | Jetson Orin Nano | sm87 8GB | multilang | TBD | TBD | TBD | TBD | TBD | 3.14 GB |
 | Jetson Orin NX | sm87 16GB | voice_clone | **0.400** | **0.079** | **0.066** | 5.3% | **0.0%** | 3.14 GB (v1.12 + hot-mount workers)¹ |
-| RK3588 (Radxa ROCK 5T) | rk3588 16GB | multilang | **0.071** | 0.220 | **0.030** | **2.6%** | 10.0% | 1.38 GB (rk-v1.2) |
-| RK3576 (cat-remote) | rk3576 8GB | multilang | **0.163** | 0.397 | 0.538 | 5.3% | 13.1% | 1.38 GB (rk-v1.2) |
+| RK3588 (Seeed reComputer RK3588) | rk3588 16GB | multilang | **0.071** | 0.220 | **0.030** | **2.6%** | 10.0% | 1.38 GB (rk-v1.2) |
+| RK3576 (Seeed reComputer RK3576) | rk3576 8GB | multilang | **0.163** | 0.397 | 0.538 | 5.3% | 13.1% | 1.38 GB (rk-v1.2) |
 | RPi5 | BCM2712 8GB | lite_zh_en | **0.078** | **0.000** | **0.000** | 10.5% | 35.7% | 560 MB (rpi-v1.1) |
 | RPi5 | BCM2712 8GB | asr_zh_en | — | TBD | TBD | TBD | TBD | 560 MB |
 | RPi4 / CM4 | BCM2711 4GB | asr_zh_en | — | TBD | TBD | TBD | TBD | 560 MB |

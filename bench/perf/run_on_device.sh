@@ -8,7 +8,7 @@
 #
 # Examples:
 #   bench/perf/run_on_device.sh orin-nano -- asr --warmup 2 --runs 10
-#   bench/perf/run_on_device.sh radxa     -- v2v --llm-delay 0
+#   bench/perf/run_on_device.sh rk3588    -- v2v --llm-delay 0
 #   bench/perf/run_on_device.sh orin-nano -- matrix
 
 set -euo pipefail

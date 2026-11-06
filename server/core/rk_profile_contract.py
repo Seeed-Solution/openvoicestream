@@ -36,7 +36,7 @@ _COMMON_EXPECTED: dict[str, str] = {
     # Measured 2026-09-21 on both platforms (W8A8; bench/perf/corpus short + long
     # plus four two-sentence clips, the same audio decoded with the stop on and
     # off in one process):
-    #                            RK3588 (radxa)        RK3576 (cat-remote)
+    #                            RK3588                RK3576
     #   two English sentences    71.4/60.0 -> 14.3/0.0  57.1/60.0 -> 0.0/0.0  % WER
     #   10 single sentences      17.9 -> 17.2           14.0 -> 14.0          % err
     #   10 long clips            16.7 -> 16.6           16.5 -> 15.9          % err

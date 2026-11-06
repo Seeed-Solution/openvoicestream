@@ -24,9 +24,9 @@ engine's own endpoint, not the shim. See docs/reports/retail-voice-asr-bench-mat
 for the full trace (file:line citations for both services).
 
 Usage:
-    uv run bench.py --url ws://cat-remote:8621 --model sensevoice --lang zh \
+    uv run bench.py --url ws://<rk3576-host>:8621 --model sensevoice --lang zh \
         --segments ../perf/corpus --concurrency 1
-    uv run bench.py --url ws://cat-remote:8621 --model sensevoice --lang zh \
+    uv run bench.py --url ws://<rk3576-host>:8621 --model sensevoice --lang zh \
         --segments ../perf/corpus --concurrency 1,2,4,8 --out results/rk3576-sensevoice-zh.json
 """
 from __future__ import annotations

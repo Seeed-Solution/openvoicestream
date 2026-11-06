@@ -214,19 +214,26 @@ fi
 
 step "9. EP not already occupied by another large model"
 # The card has ONE ~5 GB context. Qwen3-4B at 8192 tokens uses an estimated
-# ~3.6 GB, so a second large model cannot be resident. tts-radxa is the usual
-# culprit on our own boards.
-if systemctl is-active --quiet tts-radxa.service 2>/dev/null; then
-  warn "tts-radxa.service is ACTIVE and holds the EP with an RK1828 TTS model."
+# ~3.6 GB, so a second large model cannot be resident. Check both current
+# and legacy service names.
+active_ep_svc=""
+if systemctl is-active --quiet tts-rk3588.service 2>/dev/null; then
+  active_ep_svc="tts-rk3588.service"
+elif systemctl is-active --quiet tts-radxa.service 2>/dev/null; then
+  active_ep_svc="tts-radxa.service"
+fi
+
+if [ -n "$active_ep_svc" ]; then
+  warn "$active_ep_svc is ACTIVE and holds the EP with an RK1828 TTS model."
   echo "       It cannot co-reside with the LLM. Stop it before starting the LLM:"
-  echo "         systemctl stop tts-radxa"
+  echo "         systemctl stop ${active_ep_svc%.service}"
   echo "       (In this delivery TTS runs on the RK3588's own NPU, so it is not needed.)"
 else
   ok "no known EP-holding service active"
 fi
 
 step "10. observability (depends on the runtime generation)"
-# Measured, not assumed: rknn-smi is broken on the V1.0.4 runtime (radxa,
+# Measured, not assumed: rknn-smi is broken on the V1.0.4 runtime (RK3588,
 # 2026-07-31: fails for info / info -t memory / info -l, as root, with the EP
 # idle — suspected host/EP skew, rc_cc_version=30301 vs ep_cc_version=30201)
 # and WORKS on the 1.1.0 package (recomputer-rk3588-devkit, 2026-09-18: board,

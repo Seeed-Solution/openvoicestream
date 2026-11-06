@@ -1,8 +1,14 @@
 """Dependency-free standalone smoke of the rknn_qwen3_demo server mode."""
 import os, struct, subprocess, sys, threading, time
 
-BIN = "/home/radxa/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/rknn_Qwen3_demo/rknn_qwen3_demo"
-MODEL = "/home/radxa/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/rknn_Qwen3_demo/model"
+BIN = os.environ.get(
+    "RK1828_BIN",
+    "/opt/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/rknn_Qwen3_demo/rknn_qwen3_demo",
+)
+MODEL = os.environ.get(
+    "RK1828_MODEL",
+    "/opt/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/rknn_Qwen3_demo/model",
+)
 EOS = 0xFFFFFFFE
 
 env = dict(os.environ)

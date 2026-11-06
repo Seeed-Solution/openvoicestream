@@ -175,7 +175,7 @@ POST /diarize
 | RPi 4(A72) | CPU sherpa-onnx | numpy | ✅ 实测低并发(≤~3 流) | ✅ |
 
 - **聚类对所有设备一致**(numpy,~µs 级,与设备无关)。瓶颈只在每段一次 CAM++ 前向。
-- **RK3576 实测**(cat-remote,2026-06-26):CAM++ sherpa CPU RTF≈0.09–0.13(1s→125ms/3s→255ms/5s→428ms,2 线程),聚类 N=10 仅 1.45ms。每句一次 embedding 在 VAD finalize 后算、不阻塞音频流 → **online 低并发(≤~3 流)实时可行**,offline 无条件可行;NPU 留给 ASR,不需要 TRT。多并发 finalize 时 CPU 竞争近线性(~RTF 0.1×N)。
+- **RK3576 实测**(reComputer RK3576,2026-06-26):CAM++ sherpa CPU RTF≈0.09–0.13(1s→125ms/3s→255ms/5s→428ms,2 线程),聚类 N=10 仅 1.45ms。每句一次 embedding 在 VAD finalize 后算、不阻塞音频流 → **online 低并发(≤~3 流)实时可行**,offline 无条件可行;NPU 留给 ASR,不需要 TRT。多并发 finalize 时 CPU 竞争近线性(~RTF 0.1×N)。
 - **RPi 5 实测**(harvest-pi,A76 4 核,2026-06-26):比 RK3576 快 ~3.7×。RTF≈0.03(1s→34ms/3s→90ms/5s→158ms),冷加载 0.6s,聚类 N=10 仅 0.45ms。**online 实时可行、并发上限 ~6 流**,offline 无条件;CAM++ 走 CPU,不需要 Hailo NPU。
 - **RPi 4 实测**(seeed-pi,A72 4 核,2026-06-26):RTF≈0.10(1s→114ms/3s→303ms/5s→508ms),冷加载 1.66s。**online 低并发(≤~3 流)可行**,offline 无条件 —— 与 RK3576 同档,约为 Pi 5 的 1/3.5 速度。三方对照:Pi5(A76)≫ RK3576 ≈ Pi4(A72)。盲分标签三机字节一致(同模型)。
 - 通过 `ConcurrencyCapability` 声明 diarization 的 `vram_mb_per_slot` / `max_concurrent`,纳入 `capability_resolver` 的 session ceiling,与 ASR/TTS 错峰共享资源。

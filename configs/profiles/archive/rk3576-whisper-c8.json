@@ -1,6 +1,6 @@
 {
   "name": "rk3576-whisper-c8",
-  "description": "Copy of rk3576-whisper requesting an admission ceiling of 8, for the cat-remote (RK3576) Whisper concurrency-ceiling sweep with a voxedge main-branch wheel that adds max_concurrent to WhisperASRConfig (PyPI voxedge==0.0.13a0 lacks the field and clamps rk.whisper to 1 regardless of this value, per concurrency-cat-remote-ceiling.md). Same backend/build as rk3576-whisper (base, RKNN encoder at a 10s window, CPU ONNX KV-cache decoder).",
+  "description": "Copy of rk3576-whisper requesting an admission ceiling of 8, for the reComputer RK3576 Whisper concurrency-ceiling sweep with a voxedge main-branch wheel that adds max_concurrent to WhisperASRConfig (PyPI voxedge==0.0.13a0 lacks the field and clamps rk.whisper to 1 regardless of this value, per concurrency-cat-remote-ceiling.md). Same backend/build as rk3576-whisper (base, RKNN encoder at a 10s window, CPU ONNX KV-cache decoder).",
   "asr_backend": "rk.whisper",
   "execution_policy": {
     "mode": "concurrent"

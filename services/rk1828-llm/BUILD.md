@@ -169,7 +169,7 @@ file the host does not have makes docker **create a directory** at that host pat
 
 ### The failure this prevents (2026-09-17, recomputer-rk3588-devkit)
 
-| | radxa (works) | devkit (hung) |
+| | RK3588 (works) | devkit (hung) |
 |---|---|---|
 | host proxy | `Transfer version 1.0.4 (8ab764c@2026-05-13)` | `1.1.0 (13b774e@2026-08-13)` |
 | host `librknn3_api_rkcp.so` | 8990352 B, md5 `79dad96c…` — **byte-identical to the image's bundled copy** | 9078912 B |
@@ -292,7 +292,7 @@ plus KV 8192 × 144 KB = 1,208 MB). Consequences:
 * An RK1828-hosted TTS cannot run at the same time as this. That is why the voice
   image runs TTS on the RK3588's own NPU.
 * EP memory observability **depends on the runtime generation**: `rknn-smi` is
-  non-functional on V1.0.4 (radxa: fails as root, fails when the EP is idle —
+  non-functional on V1.0.4 (RK3588: fails as root, fails when the EP is idle —
   suspected host/EP firmware skew, `rc_cc_version=30301` vs `ep_cc_version=30201`)
   but works on the 1.1.0 package (devkit, 2026-09-18: `info -t memory` reports
   `Total DDR 5120.00 MB / Free 5087.34`, confirming the ~5 GB figure above).

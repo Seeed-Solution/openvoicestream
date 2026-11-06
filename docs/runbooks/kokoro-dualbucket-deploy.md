@@ -1,6 +1,6 @@
 # Kokoro Dual-Bucket Deployment Runbook (RK3588)
 
-Production operation runbook for deploying Kokoro Dual-Bucket TTS (CPU ONNXRuntime text frontend + Rockchip NPU RKNN T50 sliding-window streaming generator) on Rockchip RK3588 hardware (Radxa ROCK 5B / 5ITX).
+Production operation runbook for deploying Kokoro Dual-Bucket TTS (CPU ONNXRuntime text frontend + Rockchip NPU RKNN T50 sliding-window streaming generator) on Rockchip RK3588 hardware (Seeed reComputer (RK3588)).
 
 ---
 
@@ -19,7 +19,7 @@ Kokoro Dual-Bucket decouples TTS synthesis into two specialized stages:
 
 ## 2. Hardware & Host Prerequisites
 
-- **Host Board**: Radxa ROCK 5B / 5B+ / 5ITX (SoC: Rockchip RK3588, 4x Cortex-A76 + 4x Cortex-A55, NPU 6 TOPS).
+- **Host Board**: Seeed reComputer (RK3588) (SoC: Rockchip RK3588, 4x Cortex-A76 + 4x Cortex-A55, NPU 6 TOPS).
 - **Kernel & Drivers**:
   - `/dev/rknpu` driver present with read/write access.
   - Userspace runtime: RKNPU 2.3.2 / RKNN-Toolkit2 Lite 2.3.2.
@@ -107,7 +107,7 @@ deploy/install.sh --target rk3588 --profile rk3588-kokoro-dualbucket --pull --ve
 The script automatically:
 1. Validates host `/dev/rknpu` device availability.
 2. Checks that `/opt/kokoro-dualbucket/rk3588/kokoro_dualbucket.manifest.json` exists.
-3. Automatically appends the overlay `deploy/docker-compose.kokoro-dualbucket-rk3588.yml` to the base Radxa configuration.
+3. Automatically appends the overlay `deploy/docker-compose.kokoro-dualbucket-rk3588.yml` to the base RK3588 configuration.
 4. Starts containers and runs health smoke tests on port 8621.
 
 ---
@@ -119,7 +119,7 @@ If running Docker Compose manually:
 ```bash
 export OVS_PROFILE=rk3588-kokoro-dualbucket
 docker compose \
-  -f deploy/docker-compose.radxa.yml \
+  -f deploy/docker-compose.rk3588.yml \
   -f deploy/docker-compose.kokoro-dualbucket-rk3588.yml \
   up -d
 ```
@@ -167,9 +167,9 @@ services:
 
 ---
 
-## 7. Performance Benchmarks (Radxa RK3588)
+## 7. Performance Benchmarks (Seeed reComputer RK3588)
 
-Measured on Radxa ROCK 5B (4x A76 @ 2.4GHz + 4x A55 @ 1.8GHz, NPU 6 TOPS):
+Measured on Seeed reComputer (RK3588) (4x A76 @ 2.4GHz + 4x A55 @ 1.8GHz, NPU 6 TOPS):
 
 | Metric | Measured Value | Standard / Condition |
 |--------|----------------|----------------------|
@@ -228,8 +228,8 @@ curl -X POST http://127.0.0.1:8621/tts/stream \
   dmesg | grep -i rknpu
   ls -l /dev/rknpu
   ```
-- **Rollback to Default Radxa Profile**:
+- **Rollback to Default RK3588 Profile**:
   ```bash
-  docker compose -f deploy/docker-compose.radxa.yml down
-  docker compose -f deploy/docker-compose.radxa.yml up -d
+  docker compose -f deploy/docker-compose.rk3588.yml down
+  docker compose -f deploy/docker-compose.rk3588.yml up -d
   ```

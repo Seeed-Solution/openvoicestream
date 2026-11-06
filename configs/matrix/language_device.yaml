@@ -262,7 +262,7 @@ cells:
     env: {}
     evidence:
 
-      - 'run on cat-remote 2026-09-20 with OVS_PROFILE=rk3576-piper: a 3.84 s corpus recording (bench/perf/corpus/short/en_short_01.wav) transcribed word for word by the in-service ASR, answered by a cloud LLM, and spoken back by Piper; the reply audio transcribed back word for word through the spark trt_edgellm ASR'
+      - 'run on reComputer RK3576 2026-09-20 with OVS_PROFILE=rk3576-piper: a 3.84 s corpus recording (bench/perf/corpus/short/en_short_01.wav) transcribed word for word by the in-service ASR, answered by a cloud LLM, and spoken back by Piper; the reply audio transcribed back word for word through the spark trt_edgellm ASR'
 
       - TTS first frame within 10 ms of the reply text; one decode of a full sentence is 291 ms for 5.2 s of audio (RTF 0.056), measured on the same board
 
@@ -319,7 +319,7 @@ cells:
     env: {}
     evidence:
 
-      - 'run on radxa 2026-09-20 with OVS_PROFILE=rk3588-piper: a 3.84 s corpus recording (bench/perf/corpus/short/en_short_01.wav) transcribed word for word by the in-service ASR, answered by a cloud LLM, and spoken back by Piper; the reply audio transcribed back word for word through the spark trt_edgellm ASR'
+      - 'run on reComputer RK3588 2026-09-20 with OVS_PROFILE=rk3588-piper: a 3.84 s corpus recording (bench/perf/corpus/short/en_short_01.wav) transcribed word for word by the in-service ASR, answered by a cloud LLM, and spoken back by Piper; the reply audio transcribed back word for word through the spark trt_edgellm ASR'
 
       - TTS first frame within 10 ms of the reply text; one decode of a full sentence is 190 ms for 5.2 s of audio (RTF 0.036), measured on the same board
 

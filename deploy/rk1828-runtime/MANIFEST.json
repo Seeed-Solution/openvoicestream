@@ -5,7 +5,7 @@
   "target_chip": "rk1828",
   "host_soc": "rk3588",
   "arch": "aarch64",
-  "built_on_device": "radxa (Radxa ROCK 5T)",
+  "built_on_device": "Seeed reComputer (RK3588)",
   "build_command": "./build-linux.sh -t rk3588 -a aarch64 -d Qwen3",
   "note": "Layout is load-bearing: the binary's rpath is $ORIGIN/lib, so librknn3_api.so must stay in lib/ next to it. CRITICAL: librknn3_api.so is only a 55 KB dispatch shim that dlopen()s librknn3_api_rkcp.so (search order: ./, ./lib/, /usr/local/lib, /usr/lib, /usr/lib64). Because that is a dlopen and not a link-time dependency, `ldd` on the binary looks perfectly clean when the backend is absent, and the failure surfaces only as `rknn_init fail ret=-1` at model load. The whole lib/ directory must be staged, not just librknn3_api.so.",
   "worker_source": {

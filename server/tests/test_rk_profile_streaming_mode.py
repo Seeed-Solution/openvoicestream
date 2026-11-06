@@ -122,7 +122,7 @@ def test_rk_compose_does_not_shadow_profile_defaults():
     """
     compose_files = (
         ROOT / "deploy" / "docker-compose.rk.yml",
-        ROOT / "deploy" / "docker-compose.radxa.yml",
+        ROOT / "deploy" / "docker-compose.rk3588.yml",
         ROOT / "deploy" / "docker-compose.rk3588-ha.yml",
     )
     for path in compose_files:

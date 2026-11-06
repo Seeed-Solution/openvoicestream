@@ -25,7 +25,7 @@ no network noise.
 |---|---|
 | Highest accuracy on English + multilingual | **Jetson Orin Nano** |
 | Same as Nano but 2-3 concurrent users | **Jetson Orin NX 16GB** |
-| Best Chinese accuracy, mid-tier latency | **Radxa ROCK 5T (RK3588)** |
+| Best Chinese accuracy, mid-tier latency | **Seeed reComputer (RK3588)** |
 | Lowest cost, decent zh+en for voice commands | **Raspberry Pi 5** |
 | Multilingual on a tight budget (ja/ko/es/de/fr) | **RK3576** |
 | Voice cloning (your own voice synthesised) | **Jetson Orin Nano** (the only platform that supports it today) |
@@ -162,7 +162,7 @@ where Nano would visibly degrade.
 
 ### "Multilingual customer service (Chinese + Japanese + Spanish + ...)"
 
-→ **Radxa ROCK 5T (RK3588)** with `multilang` preset. ~$200, best CER
+→ **Seeed reComputer (RK3588)** with `multilang` preset. ~$200, best CER
 on Chinese short sentences (2.6 %), supports 50+ languages via Qwen3.
 TTS is on par with RPi5 (Matcha 0.07 RTF). Mature, well-tested.
 

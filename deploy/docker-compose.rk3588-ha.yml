@@ -43,7 +43,7 @@
 # ── SINGLE-EP EXCLUSIVITY ─────────────────────────────────────────────────
 # The RK1828 card has ONE ~5 GB context, so large models on it are mutually
 # exclusive. Qwen3-4B at 8192 tokens uses an estimated ~3.6 GB of it. If the host
-# also runs an RK1828-hosted TTS (tts-radxa.service), STOP that first — they
+# also runs an RK1828-hosted TTS (tts-rk3588.service), STOP that first — they
 # cannot co-reside. TTS here runs on the RK3588's own NPU instead.
 
 services:

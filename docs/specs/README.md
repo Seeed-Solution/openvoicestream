@@ -6,7 +6,7 @@ links below point there. Skim the per-area index below for the right entry
 point; the reproduction guides ("start here" rows) are the recommended
 on-ramps.
 
-## Kokoro RK (Radxa / RK3588) — TTS NPU optimization
+## Kokoro RK (Seeed reComputer / RK3588) — TTS NPU optimization
 
 Workstream goal: get the Kokoro v1.0 TTS to a viable RTF and TTFA on
 RK3588 NPU. Final shipped state (2026-05-23): 34 % NPU residency
