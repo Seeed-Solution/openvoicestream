@@ -2085,7 +2085,6 @@
   const MCP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
   // stdio whitelist hints (backend validate_stdio_args is authoritative).
   const MCP_PY_CMD_RE = /^(?:.*\/)?python(?:3(?:\.\d+)?)?$/;
-  const MCP_SCRIPT_RE = /(?:^|\/)(?:mcp_servers|opt\/voice)\/[^\/]+\.py$/;
   // Client copy per DashboardApiError code. Unknown codes fall back to the
   // server's SAFE_CLIENT_MESSAGES text, which is already sanitised.
   const MCP_ERROR_TEXT = {
@@ -2115,6 +2114,13 @@
     READ_FAILED: "读取配置文件失败，请检查文件是否存在及权限",
     BAD_REQUEST: "请求格式错误，请刷新页面后重试",
     INTERNAL_ERROR: "服务端内部错误，请查看 Agent 日志",
+    MISSING_ARGUMENT: "参数缺失，stdio 模式需要提供非空 args 列表",
+    INVALID_MODULE_NAME: "Python 模块名格式不正确，必须为合法的模块标识符",
+    INVALID_SCRIPT_PATH: "Python 脚本路径不合法，必须以 .py 结尾且不能以选项参数开头",
+    SCRIPT_NOT_FOUND: "指定的 Python 脚本文件不存在，请检查路径是否正确",
+    SCRIPT_NOT_READABLE: "Python 脚本文件无读取权限，请检查文件权限",
+    ILLEGAL_ARGUMENT: "包含不支持的参数格式，严禁使用 -c 参数",
+    FORBIDDEN_ENV: "禁止设置动态链接器相关环境变量",
   };
 
   function adminToken() {
@@ -2494,9 +2500,12 @@
       if (command) p.command = command;
       p.args = mcpArgs.value.split("\n").map((x) => x.trim()).filter(Boolean);
       const a0 = p.args[0] || "";
-      const argsOk = a0 === "-m" ? p.args.length >= 2 : MCP_SCRIPT_RE.test(a0);
+      const a1 = p.args[1] || "";
+      const argsOk = a0 === "-m"
+        ? (p.args.length >= 2 && /^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$/.test(a1))
+        : (/\.py$/i.test(a0) && !a0.startsWith("-"));
       if (!argsOk) {
-        return { error: "args 第一行需为 -m（第二行写模块名），或 mcp_servers / /opt/voice 下的 .py 脚本路径", field: mcpArgs };
+        return { error: "args 第一行需为 -m（第二行写合法的模块名），或以 .py 结尾的 Python 脚本路径", field: mcpArgs };
       }
       const env = parseKvText(mcpEnv.value, "=", "env");
       if (env.error) return { error: env.error, field: mcpEnv };

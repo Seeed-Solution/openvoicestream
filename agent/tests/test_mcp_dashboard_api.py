@@ -52,6 +52,7 @@ from ovs_agent.plugins.mcp_manager import (
     PinnedResolver,
     RestartWatchdog,
     SecurityError,
+    _cleanup_process,
     _mask_sensitive_dict,
     _open_atomic_tmp,
     _read_all_bounded,
@@ -60,7 +61,10 @@ from ovs_agent.plugins.mcp_manager import (
     _safe_fsync_file,
     _safe_open_readonly,
     _safe_replace,
+    _supervise_pending_reap,
     _write_all,
+    _PENDING_CLEANUP_TASKS,
+    _PENDING_REAP_TASKS,
     check_persistent_recovery_marker,
     cleanup_orphaned_tmp_files,
     fatal_config_recovery_exit,
@@ -68,6 +72,8 @@ from ovs_agent.plugins.mcp_manager import (
     launch_stdio_mcp_subprocess,
     mcp_api_boundary,
     merge_server_secrets,
+    normalize_stdio_mcp_config,
+    redact_sensitive_text,
     sanitize_server_config,
     test_sse_mcp_server as run_sse_test,
     test_stdio_mcp_server as run_stdio_test,
@@ -255,49 +261,50 @@ async def test_t2_stdio_whitelist_and_proc_fd_exec(dashboard_env, tmp_path):
     # 1. Parameter whitelist verification
     with pytest.raises(DashboardApiError) as exc_info:
         validate_stdio_args(["-c", "import os"])
-    assert exc_info.value.code == "SECURITY_VIOLATION"
+    assert exc_info.value.code == "ILLEGAL_ARGUMENT"
 
     # S1: -cCODE joined form rejected
-    with pytest.raises(SecurityError) as exc_info:
+    with pytest.raises(DashboardApiError) as exc_info:
+        validate_stdio_args(["-cimport os"])
+    assert exc_info.value.code == "ILLEGAL_ARGUMENT"
+
+    # Shell metacharacter takes precedence over -c prefix
+    with pytest.raises(DashboardApiError) as exc_info:
         validate_stdio_args(["-cimport os; print(1)"])
     assert exc_info.value.code == "SECURITY_VIOLATION"
 
-    with pytest.raises(SecurityError) as exc_info:
+    with pytest.raises(DashboardApiError) as exc_info:
         validate_stdio_args(["-m", "ha_mcp", "-cbad"])
-    assert exc_info.value.code == "SECURITY_VIOLATION"
+    assert exc_info.value.code == "ILLEGAL_ARGUMENT"
 
     # S1: -mMODULE joined form rejected
-    with pytest.raises(SecurityError) as exc_info:
+    with pytest.raises(DashboardApiError) as exc_info:
         validate_stdio_args(["-mha_mcp"])
-    assert exc_info.value.code == "SECURITY_VIOLATION"
+    assert exc_info.value.code == "INVALID_SCRIPT_PATH"
 
     with pytest.raises(DashboardApiError) as exc_info:
         validate_stdio_args(["-m", "ha_mcp; rm -rf /"])
     assert exc_info.value.code == "SECURITY_VIOLATION"
 
     with pytest.raises(DashboardApiError) as exc_info:
-        validate_stdio_args(["-m", "unauthorized_module"])
-    assert exc_info.value.code == "SECURITY_VIOLATION"
+        validate_stdio_args(["-m", "123invalid_module"])
+    assert exc_info.value.code == "INVALID_MODULE_NAME"
 
-    # S1: External script / arbitrary script in project_root rejected
+    # S1: Non-existent script rejected
     with pytest.raises(DashboardApiError) as exc_info:
-        validate_stdio_args(["/tmp/malicious.py"])
-    assert exc_info.value.code == "SECURITY_VIOLATION"
+        validate_stdio_args(["/tmp/malicious_non_existent.py"])
+    assert exc_info.value.code == "SCRIPT_NOT_FOUND"
 
-    with pytest.raises(SecurityError) as exc_info:
-        validate_stdio_args(["agent/ovs_agent/plugins/mcp_manager.py"])
-    assert exc_info.value.code == "SECURITY_VIOLATION"
-
-    # S1: Non-existent script or non-.py script in agent/mcp_servers/ rejected
-    with pytest.raises(SecurityError) as exc_info:
+    with pytest.raises(DashboardApiError) as exc_info:
         validate_stdio_args(["agent/mcp_servers/does_not_exist.py"])
-    assert exc_info.value.code == "SECURITY_VIOLATION"
+    assert exc_info.value.code == "SCRIPT_NOT_FOUND"
 
-    with pytest.raises(SecurityError) as exc_info:
+    # S1: Non-.py script rejected
+    with pytest.raises(DashboardApiError) as exc_info:
         validate_stdio_args(["agent/mcp_servers/test.sh"])
-    assert exc_info.value.code == "SECURITY_VIOLATION"
+    assert exc_info.value.code == "INVALID_SCRIPT_PATH"
 
-    # S1: Valid Mode B script strictly within agent/mcp_servers/ passes
+    # S1: Valid Mode B script passes
     mock_mcp_dir = tmp_path / "agent" / "mcp_servers"
     mock_mcp_dir.mkdir(parents=True, exist_ok=True)
     valid_script = mock_mcp_dir / "valid_server.py"
@@ -307,6 +314,7 @@ async def test_t2_stdio_whitelist_and_proc_fd_exec(dashboard_env, tmp_path):
     # Valid Mode A args pass
     validate_stdio_args(["-m", "ovs_agent.mcp.servers"])
     validate_stdio_args(["-m", "ha_mcp"])
+    validate_stdio_args(["-m", "custom_thirdparty_module"])
 
     # 2. inspect_and_open_verified_exe success
     exe_fd, venv_bin, chain = inspect_and_open_verified_exe()
@@ -1295,7 +1303,7 @@ def test_validate_mcp_env_unit():
     for key in prohibited_keys:
         with pytest.raises(SecurityError) as exc_info:
             validate_mcp_env({key: "exploit_payload"})
-        assert exc_info.value.code == "SECURITY_VIOLATION"
+        assert exc_info.value.code == "FORBIDDEN_ENV"
         assert f"Forbidden environment variable key: {key}" in exc_info.value.internal_message
 
 
@@ -1344,9 +1352,9 @@ async def test_mcp_env_injection_blocked_in_server_management_and_api(dashboard_
         assert resp.status == 400
         data = await resp.json()
         assert data["ok"] is False
-        assert data["code"] == "SECURITY_VIOLATION"
+        assert data["code"] == "FORBIDDEN_ENV"
 
-        # 3. HTTP PATCH /api/mcp/servers/srv1 with dangerous env -> 400 SECURITY_VIOLATION
+        # 3. HTTP PATCH /api/mcp/servers/srv1 with dangerous env -> 400 FORBIDDEN_ENV
         resp = await s.patch(
             f"{base}/api/mcp/servers/srv1",
             headers={"X-Admin-Token": token, "Origin": f"http://{host}", "If-Match": etag},
@@ -1359,9 +1367,9 @@ async def test_mcp_env_injection_blocked_in_server_management_and_api(dashboard_
         assert resp.status == 400
         data = await resp.json()
         assert data["ok"] is False
-        assert data["code"] == "SECURITY_VIOLATION"
+        assert data["code"] == "FORBIDDEN_ENV"
 
-        # 4. HTTP POST /api/mcp/test with dangerous env -> 400 SECURITY_VIOLATION
+        # 4. HTTP POST /api/mcp/test with dangerous env -> 400 FORBIDDEN_ENV
         resp = await s.post(
             f"{base}/api/mcp/test",
             headers={"X-Admin-Token": token, "Origin": f"http://{host}"},
@@ -1375,7 +1383,7 @@ async def test_mcp_env_injection_blocked_in_server_management_and_api(dashboard_
         assert resp.status == 400
         data = await resp.json()
         assert data["ok"] is False
-        assert data["code"] == "SECURITY_VIOLATION"
+        assert data["code"] == "FORBIDDEN_ENV"
 
 
 # ── Tests for Defect 2: _persist_agent_settings_to_yaml 0600 mode and cleanup ──
@@ -1618,5 +1626,510 @@ def test_persist_agent_settings_to_yaml_rollback_and_marker_both_fail(tmp_path):
     assert "Target configuration replaced but rollback failed" in str(exc_info.value)
     assert target_replace_calls[0] == 2
     assert fstat_calls[0] >= 2
+
+
+# ── Spec v2.5 Verification Tests ──────────────────────────────────────────
+
+def test_normalize_stdio_mode_a(tmp_path):
+    """Verify Mode A parses valid module identifier and sets cwd to config_dir."""
+    cfg_dir = str(tmp_path)
+    cmd, args, env, cwd = normalize_stdio_mcp_config(
+        command=None,
+        args=["-m", "ovs_agent.mcp.servers", "--extra"],
+        env={"CUSTOM_VAR": "val1"},
+        config_dir=cfg_dir,
+    )
+    assert cmd == sys.executable
+    assert args == ["-m", "ovs_agent.mcp.servers", "--extra"]
+    assert cwd == cfg_dir
+    assert env["CUSTOM_VAR"] == "val1"
+    assert env["PYTHONUNBUFFERED"] == "1"
+    assert "VIRTUAL_ENV" in env
+
+
+def test_normalize_stdio_mode_b_relative(tmp_path):
+    """Verify Mode B resolves relative script against config_dir and sets cwd to script directory."""
+    sub_dir = tmp_path / "scripts"
+    sub_dir.mkdir()
+    script_file = sub_dir / "my_server.py"
+    script_file.write_text("#!/usr/bin/env python\nprint('hello')\n", encoding="utf-8")
+
+    cmd, args, env, cwd = normalize_stdio_mcp_config(
+        command=None,
+        args=["scripts/my_server.py", "--flag"],
+        config_dir=str(tmp_path),
+    )
+    assert cmd == sys.executable
+    assert args == [str(script_file.resolve()), "--flag"]
+    assert cwd == str(sub_dir.resolve())
+
+
+def test_validation_precedence(tmp_path):
+    """Verify precedence: MISSING_ARGUMENT -> SECURITY_VIOLATION -> ILLEGAL_ARGUMENT -> INVALID_MODULE_NAME -> SCRIPT_NOT_FOUND."""
+    # 1. Missing argument: empty list
+    with pytest.raises(DashboardApiError) as exc:
+        normalize_stdio_mcp_config(command=None, args=[])
+    assert exc.value.code == "MISSING_ARGUMENT"
+
+    # 2. Metacharacter vs -c: metacharacter takes precedence
+    with pytest.raises(DashboardApiError) as exc:
+        normalize_stdio_mcp_config(command=None, args=["-c; rm -rf /"])
+    assert exc.value.code == "SECURITY_VIOLATION"
+
+    # 3. -c vs invalid module name: -c takes precedence
+    with pytest.raises(DashboardApiError) as exc:
+        normalize_stdio_mcp_config(command=None, args=["-c", "import sys"])
+    assert exc.value.code == "ILLEGAL_ARGUMENT"
+
+    # 4. Mode A: invalid module name takes precedence before checking existence
+    with pytest.raises(DashboardApiError) as exc:
+        normalize_stdio_mcp_config(command=None, args=["-m", "123_invalid_module!"])
+    assert exc.value.code == "INVALID_MODULE_NAME"
+
+    # 5. Mode B: non-existent file
+    with pytest.raises(DashboardApiError) as exc:
+        normalize_stdio_mcp_config(command=None, args=["does_not_exist.py"], config_dir=str(tmp_path))
+    assert exc.value.code == "SCRIPT_NOT_FOUND"
+
+
+def test_unreadable_file_rejected(tmp_path):
+    """Verify unreadable script raises SCRIPT_NOT_READABLE."""
+    script_file = tmp_path / "unreadable.py"
+    script_file.write_text("print('test')\n", encoding="utf-8")
+    with patch("os.access", return_value=False):
+        with pytest.raises(DashboardApiError) as exc:
+            normalize_stdio_mcp_config(command=None, args=[str(script_file)])
+        assert exc.value.code == "SCRIPT_NOT_READABLE"
+
+
+@pytest.mark.asyncio
+async def test_stderr_drain_under_heavy_output(tmp_path):
+    """Verify child writing 128KB unbuffered stderr output does not deadlock and succeeds."""
+    server_py = tmp_path / "heavy_stderr_server.py"
+    server_py.write_text(
+        """import sys, json
+sys.stderr.write("X" * (128 * 1024))
+sys.stderr.flush()
+
+for line in sys.stdin:
+    req = json.loads(line)
+    method = req.get("method")
+    if method == "initialize":
+        resp = {
+            "jsonrpc": "2.0",
+            "id": req["id"],
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "serverInfo": {"name": "test-heavy", "version": "1.0"},
+            }
+        }
+        sys.stdout.write(json.dumps(resp) + "\\n")
+        sys.stdout.flush()
+    elif method == "notifications/initialized":
+        continue
+    elif method == "tools/list":
+        resp = {
+            "jsonrpc": "2.0",
+            "id": req["id"],
+            "result": {"tools": [{"name": "heavy_tool", "description": "heavy test"}]}
+        }
+        sys.stdout.write(json.dumps(resp) + "\\n")
+        sys.stdout.flush()
+""",
+        encoding="utf-8",
+    )
+    tools = await run_stdio_test(
+        args=[str(server_py)],
+        timeout=10.0,
+        config_dir=str(tmp_path),
+    )
+    assert len(tools) == 1
+    assert tools[0]["name"] == "heavy_tool"
+
+
+@pytest.mark.asyncio
+async def test_stderr_drain_error_handling():
+    """Verify stderr read exception converts to CONNECTION_FAILED without hanging."""
+    mock_proc = MagicMock()
+    mock_proc.pid = 99994
+    mock_proc.wait = AsyncMock(return_value=0)
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdin.drain = AsyncMock()
+    mock_proc.stdout = MagicMock()
+    async def mock_hang_stdout():
+        await asyncio.sleep(100)
+        return b""
+    mock_proc.stdout.readline = AsyncMock(side_effect=mock_hang_stdout)
+    mock_proc.stderr = MagicMock()
+    mock_proc.stderr.read = AsyncMock(side_effect=OSError("Simulated broken pipe"))
+
+    with patch("ovs_agent.plugins.mcp_manager.launch_stdio_mcp_subprocess", AsyncMock(return_value=mock_proc)) as mock_launch, \
+         patch("ovs_agent.plugins.mcp_manager._cleanup_process", AsyncMock(return_value="REAP_CONFIRMED")):
+        with pytest.raises(DashboardApiError) as exc:
+            await run_stdio_test(args=["-m", "ha_mcp"], timeout=5.0)
+        assert exc.value.code == "CONNECTION_FAILED"
+        assert "Simulated broken pipe" in exc.value.internal_message
+        assert mock_launch.call_count == 1
+
+
+def test_stderr_tail_redaction():
+    """Verify sensitive tokens and secrets are redacted from diagnostic text."""
+    raw_text = (
+        "Error in server: Authorization: Bearer secret_token_value_12345678\n"
+        "Config token=my_secret_token_12345\n"
+        "OpenAI API key sk-ant-api03-abcdef1234567890abcdef\n"
+        "GitHub token ghp_123456789012345678901234567890123456\n"
+        'JSON data: {"token": "sensitive-json-token", "password": "two word secret", "api_key": "sec-12345"}'
+    )
+    redacted = redact_sensitive_text(raw_text)
+    assert "secret_token_value_12345678" not in redacted
+    assert "my_secret_token_12345" not in redacted
+    assert "sk-ant-api03-abcdef1234567890abcdef" not in redacted
+    assert "ghp_123456789012345678901234567890123456" not in redacted
+    assert "sensitive-json-token" not in redacted
+    assert "two word secret" not in redacted
+    assert "sec-12345" not in redacted
+    assert "******" in redacted
+
+
+@pytest.mark.asyncio
+async def test_process_group_cleanup_parent_exited_surviving_children(tmp_path):
+    """Verify process group cleanup successfully kills stubborn grandchildren via SIGKILL even after parent exited."""
+    child_py = tmp_path / "stubborn_tree.py"
+    child_py.write_text(
+        f"""import sys, time, subprocess, signal
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+cmd = [sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"]
+subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, close_fds=True)
+time.sleep(0.1)
+sys.exit(0)
+""",
+        encoding="utf-8",
+    )
+    proc = await launch_stdio_mcp_subprocess(args=[str(child_py)], config_dir=str(tmp_path))
+    pgid = proc.pid
+    await proc.wait()
+    assert proc.returncode is not None
+
+    try:
+        os.killpg(pgid, 0)
+        group_alive = True
+    except ProcessLookupError:
+        group_alive = False
+    assert group_alive, "Child process should still be alive in process group"
+
+    status = await _cleanup_process(proc, pgid, drain_task=None)
+    assert status == "REAP_CONFIRMED"
+
+    deadline = asyncio.get_running_loop().time() + 1.0
+    group_gone = False
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            os.killpg(pgid, 0)
+            await asyncio.sleep(0.05)
+        except ProcessLookupError:
+            group_gone = True
+            break
+    assert group_gone, "Process group should be completely reaped after cleanup"
+
+
+@pytest.mark.asyncio
+async def test_process_group_cleanup_under_repeated_cancellation():
+    """Verify repeated cancellation preserves first cancel and completes cleanup."""
+    mock_proc = MagicMock()
+    mock_proc.pid = 99999
+    mock_proc.wait = AsyncMock(return_value=0)
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdin.drain = AsyncMock()
+    mock_proc.stdout = MagicMock()
+
+    read_event = asyncio.Event()
+    async def mock_readline():
+        await read_event.wait()
+        return b""
+    mock_proc.stdout.readline = AsyncMock(side_effect=mock_readline)
+    mock_proc.stderr = MagicMock()
+    mock_proc.stderr.read = AsyncMock(return_value=b"")
+
+    cleanup_completed = False
+    async def mock_cleanup(p, pg, dt):
+        nonlocal cleanup_completed
+        await asyncio.sleep(0.2)
+        cleanup_completed = True
+        return "REAP_CONFIRMED"
+
+    with patch("ovs_agent.plugins.mcp_manager.launch_stdio_mcp_subprocess", AsyncMock(return_value=mock_proc)) as mock_launch, \
+         patch("os.getpgid", return_value=99999), \
+         patch("ovs_agent.plugins.mcp_manager._cleanup_process", side_effect=mock_cleanup):
+
+        task = asyncio.create_task(run_stdio_test(["-m", "ovs_agent.mcp.servers"]))
+        await asyncio.sleep(0.05)
+        task.cancel("cancel-1")
+        await asyncio.sleep(0.05)
+        task.cancel("cancel-2")
+
+        with pytest.raises(asyncio.CancelledError) as exc_info:
+            await task
+
+        assert mock_launch.call_count == 1
+        assert cleanup_completed, "Cleanup task should have executed completely"
+        assert exc_info.value.args == ("cancel-1",), "First cancellation must be preserved"
+
+
+@pytest.mark.asyncio
+async def test_process_group_cleanup_failure_with_cancellation_precedence():
+    """Verify cleanup exception is attached to context while CancelledError retains precedence."""
+    mock_proc = MagicMock()
+    mock_proc.pid = 99998
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdin.drain = AsyncMock()
+    mock_proc.stdout = MagicMock()
+    read_event = asyncio.Event()
+    async def mock_hang_read():
+        await read_event.wait()
+        return b""
+    mock_proc.stdout.readline = AsyncMock(side_effect=mock_hang_read)
+    mock_proc.stderr = MagicMock()
+    mock_proc.stderr.read = AsyncMock(return_value=b"")
+
+    cleanup_error = RuntimeError("Internal cleanup error")
+    async def mock_cleanup_fail(p, pg, dt):
+        await asyncio.sleep(0.1)
+        raise cleanup_error
+
+    with patch("ovs_agent.plugins.mcp_manager.launch_stdio_mcp_subprocess", AsyncMock(return_value=mock_proc)) as mock_launch, \
+         patch("os.getpgid", return_value=99998), \
+         patch("ovs_agent.plugins.mcp_manager._cleanup_process", side_effect=mock_cleanup_fail):
+
+        task = asyncio.create_task(run_stdio_test(["-m", "ovs_agent.mcp.servers"]))
+        await asyncio.sleep(0.05)
+        task.cancel("outer-cancel")
+
+        with pytest.raises(asyncio.CancelledError) as exc_info:
+            await task
+
+        assert mock_launch.call_count == 1
+        assert exc_info.value.args == ("outer-cancel",)
+        assert exc_info.value.__context__ is cleanup_error, "Cleanup error must be attached to __context__"
+
+
+@pytest.mark.asyncio
+async def test_process_group_cleanup_deadline_timeout_transfer_and_observation():
+    """Verify cleanup task exceeding 3.5s budget is transferred to background tasks and properly observed."""
+    mock_proc = MagicMock()
+    mock_proc.pid = 99997
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdin.drain = AsyncMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stdout.readline = AsyncMock(return_value=b"")
+    mock_proc.stderr = MagicMock()
+    mock_proc.stderr.read = AsyncMock(return_value=b"")
+
+    cleanup_done_event = asyncio.Event()
+    async def mock_slow_cleanup(p, pg, dt):
+        await cleanup_done_event.wait()
+        return "REAP_CONFIRMED"
+
+    real_time = asyncio.get_running_loop().time
+    time_offset = 0.0
+    def fake_time():
+        return real_time() + time_offset
+
+    with patch("ovs_agent.plugins.mcp_manager.launch_stdio_mcp_subprocess", AsyncMock(return_value=mock_proc)) as mock_launch, \
+         patch("os.getpgid", return_value=99997), \
+         patch("ovs_agent.plugins.mcp_manager._cleanup_process", side_effect=mock_slow_cleanup):
+
+        time_offset = 10.0  # Immediately exceed 3.5s budget
+        with patch.object(asyncio.get_running_loop(), "time", side_effect=fake_time):
+            with pytest.raises(DashboardApiError) as exc:
+                await run_stdio_test(["-m", "ovs_agent.mcp.servers"])
+            assert exc.value.code == "CONNECTION_FAILED"
+
+        assert mock_launch.call_count == 1
+        assert len(_PENDING_CLEANUP_TASKS) == 1
+        pending_task = next(iter(_PENDING_CLEANUP_TASKS))
+        assert not pending_task.done()
+
+        cleanup_done_event.set()
+        await pending_task
+        await asyncio.sleep(0.01)
+        assert len(_PENDING_CLEANUP_TASKS) == 0
+
+
+@pytest.mark.asyncio
+async def test_reap_failure_status_tracking_and_supervision():
+    """Verify process failing to reap within 1.0s marks REAP_TIMEOUT_PENDING and launches supervised task."""
+    mock_proc = MagicMock()
+    mock_proc.pid = 99996
+    reap_event = asyncio.Event()
+    async def mock_wait():
+        await reap_event.wait()
+        return 0
+    mock_proc.wait = AsyncMock(side_effect=mock_wait)
+
+    with patch("os.killpg"):
+        status = await _cleanup_process(mock_proc, 99996, drain_task=None)
+        assert status == "REAP_TIMEOUT_PENDING"
+        assert len(_PENDING_REAP_TASKS) == 1
+
+        reap_task = next(iter(_PENDING_REAP_TASKS))
+        assert not reap_task.done()
+
+        reap_event.set()
+        await reap_task
+        await asyncio.sleep(0.01)
+        assert len(_PENDING_REAP_TASKS) == 0
+
+
+def test_symlink_virtualenv_preservation(tmp_path):
+    """Verify virtualenv path and pyvenv.cfg are preserved via symlinked Python."""
+    venv_dir = tmp_path / "mock_venv"
+    bin_dir = venv_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    symlink_python = bin_dir / "python3"
+    symlink_python.symlink_to(sys.executable)
+    (venv_dir / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+
+    cmd, args, env, cwd = normalize_stdio_mcp_config(
+        command=str(symlink_python),
+        args=["-m", "ha_mcp"],
+    )
+    assert cmd == str(symlink_python)
+    assert env["VIRTUAL_ENV"] == str(venv_dir)
+
+
+def test_case_insensitive_script_extension(tmp_path):
+    """Verify .py and .PY extensions are both accepted."""
+    script = tmp_path / "UPPERCASE_SERVER.PY"
+    script.write_text("#!/usr/bin/env python\n", encoding="utf-8")
+
+    cmd, args, env, cwd = normalize_stdio_mcp_config(
+        command=None,
+        args=[str(script)],
+        config_dir=str(tmp_path),
+    )
+    assert args[0] == str(script.resolve())
+
+
+def test_mcp_bridge_plugin_parity(tmp_path):
+    """Verify McpBridgePlugin leverages normalize_stdio_mcp_config and initializes cwd appropriately."""
+    from ovs_agent.mcp.plugin import McpBridgePlugin
+
+    sub_dir = tmp_path / "custom_mcp"
+    sub_dir.mkdir()
+    script = sub_dir / "test_script.py"
+    script.write_text("print(1)\n", encoding="utf-8")
+
+    config_yaml = tmp_path / "agent.yaml"
+    config_yaml.write_text("dummy: true\n", encoding="utf-8")
+
+    cfg = Config()
+    cfg._source_path = config_yaml
+    cfg.mcp_servers = [
+        {
+            "name": "relative_server",
+            "transport": "stdio",
+            "args": ["custom_mcp/test_script.py"],
+        }
+    ]
+    mock_app = MagicMock()
+    mock_app.config = cfg
+
+    plugin = McpBridgePlugin(mock_app)
+    ok = plugin.setup()
+    assert ok is True
+    assert len(plugin._connections) == 1
+    conn = plugin._connections[0]
+    assert conn.cwd == str(sub_dir.resolve())
+    assert conn.args[0] == str(script.resolve())
+
+
+@pytest.mark.asyncio
+async def test_stderr_drain_failure_races_and_causes_immediate_connection_failed():
+    """Verify drain task exception immediately causes CONNECTION_FAILED without waiting for stdout timeout."""
+    mock_proc = MagicMock()
+    mock_proc.pid = 99995
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdin.drain = AsyncMock()
+    mock_proc.stdout = MagicMock()
+    # Stdout readline hangs forever
+    async def mock_hang_stdout():
+        await asyncio.sleep(100)
+        return b""
+    mock_proc.stdout.readline = AsyncMock(side_effect=mock_hang_stdout)
+    mock_proc.stderr = MagicMock()
+    mock_proc.stderr.read = AsyncMock(side_effect=OSError("Immediate stderr failure"))
+
+    with patch("ovs_agent.plugins.mcp_manager.launch_stdio_mcp_subprocess", AsyncMock(return_value=mock_proc)) as mock_launch, \
+         patch("os.getpgid", return_value=99995), \
+         patch("ovs_agent.plugins.mcp_manager._cleanup_process", AsyncMock(return_value="REAP_CONFIRMED")):
+        start = asyncio.get_running_loop().time()
+        with pytest.raises(DashboardApiError) as exc:
+            await run_stdio_test(["-m", "ovs_agent.mcp.servers"], timeout=5.0)
+        elapsed = asyncio.get_running_loop().time() - start
+        assert elapsed < 1.0, f"Expected immediate failure, took {elapsed}s"
+        assert exc.value.code == "CONNECTION_FAILED"
+        assert "MCP stderr drain failed" in exc.value.internal_message
+        assert mock_launch.call_count == 1
+
+
+def test_stderr_redaction_quoted_json():
+    """Verify quoted JSON keys and values are completely redacted."""
+    json_text = '{"token": "secret_abc_123", "password": "super secret password", "apiKey": "xyz_987"}'
+    redacted = redact_sensitive_text(json_text)
+    assert "secret_abc_123" not in redacted
+    assert "super secret password" not in redacted
+    assert "xyz_987" not in redacted
+    assert '"******"' in redacted
+
+    case1 = '{"password": "alpha\'BRAVO_PRIVATE"}'
+    assert redact_sensitive_text(case1) == '{"password": "******"}'
+
+    case2 = r'{"token": "foo\"bar"}'
+    assert redact_sensitive_text(case2) == '{"token": "******"}'
+
+    assert redact_sensitive_text("password=alpha'BRAVO_PRIVATE") == 'password="******"'
+    assert redact_sensitive_text("token BRAVO_PRIVATE") == 'token "******"'
+    assert redact_sensitive_text('token "BRAVO_PRIVATE"') == 'token "******"'
+    assert redact_sensitive_text("token 'BRAVO_PRIVATE'") == "token '******'"
+    assert redact_sensitive_text("Bearer abcdefgh/BRAVO_PRIVATE+tail==") == "Bearer ******"
+
+    multiline = "api_key: secret_line1\n    continuation_line2\n    continuation_line3"
+    assert redact_sensitive_text(multiline) == 'api_key: "******"'
+
+    multiline_blank = "api_key: first_line\n    second_line\n\n    BRAVO_PRIVATE"
+    assert redact_sensitive_text(multiline_blank) == 'api_key: "******"'
+
+    pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----"
+    assert redact_sensitive_text(pem) == "******"
+
+
+@pytest.mark.asyncio
+async def test_add_server_empty_args_yields_missing_argument(dashboard_env):
+    """Verify add_or_update_server yields MISSING_ARGUMENT for empty args list even when forbidden env is present."""
+    base = dashboard_env["base_url"]
+    token = dashboard_env["token"]
+    host = dashboard_env["host"]
+    manager = dashboard_env["plugin"]._mcp_manager
+    etag = manager.persisted_config_etag
+
+    async with aiohttp.ClientSession() as s:
+        resp = await s.post(
+            f"{base}/api/mcp/servers",
+            headers={"X-Admin-Token": token, "Origin": f"http://{host}", "If-Match": etag},
+            json={
+                "server": {
+                    "name": "empty_args_srv",
+                    "transport": "stdio",
+                    "args": [],
+                    "env": {"LD_PRELOAD": "/evil/preload.so"},
+                }
+            },
+        )
+        assert resp.status == 400
+        data = await resp.json()
+        assert data["code"] == "MISSING_ARGUMENT"
+
 
 

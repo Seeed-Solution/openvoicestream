@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from ovs_agent.plugin import Plugin
@@ -57,12 +58,28 @@ class McpBridgePlugin(Plugin):
             name = str(item.get("name") or f"mcp_{idx}")
             transport = str(item.get("transport") or "stdio").strip().lower()
             try:
+                command = item.get("command")
+                args = item.get("args") or []
+                env = item.get("env")
+                cwd = None
+                if transport == "stdio":
+                    from ovs_agent.plugins.mcp_manager import normalize_stdio_mcp_config
+                    cfg_obj = getattr(self.app, "config", None)
+                    cfg_path = getattr(cfg_obj, "_source_path", None) or getattr(cfg_obj, "config_path", None)
+                    config_dir = os.path.dirname(os.path.abspath(str(cfg_path))) if cfg_path else os.getcwd()
+                    command, args, env, cwd = normalize_stdio_mcp_config(
+                        command=command,
+                        args=args,
+                        env=env,
+                        config_dir=config_dir,
+                    )
                 conn = McpConnection(
                     name=name,
                     transport=transport,
-                    command=item.get("command"),
-                    args=item.get("args"),
-                    env=item.get("env"),
+                    command=command,
+                    args=args,
+                    env=env,
+                    cwd=cwd,
                     url=item.get("url"),
                     headers=item.get("headers"),
                     timeout_s=float(item.get("timeout_s", 10.0)),
