@@ -119,6 +119,7 @@ services:
       - rk-asr-models:/opt/asr/models
       - rk-tts-models:/opt/tts/models
       - voice-data:/opt/seeed-local-voice/data
+      - ${KOKORO_BUNDLE_DIR:-/opt/kokoro-dualbucket}:/opt/kokoro-dualbucket:ro
     environment:
       # Profile-owned ASR/TTS variables are deliberately absent here: the
       # resolved OVS_PROFILE supplies them, so a language switch that changes
