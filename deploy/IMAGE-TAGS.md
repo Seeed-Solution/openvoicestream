@@ -7,41 +7,40 @@ are **gitignored**, so reproducibility relies on the recorded voxedge commit bel
 plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 (`uv build --wheel`) and stage the same worker binaries.
 
-## Latest Production Specification: `openvoicestream:rk-20261104-kokoro-dualbucket`
+## Latest Production Specification: `openvoicestream:rk-20261106-kokoro-dualbucket`
 
-- **Image Tag**: `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261104-kokoro-dualbucket` (aliased as `openvoicestream:rk-20261104-kokoro-dualbucket`)
+- **Image Tag**: `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261106-kokoro-dualbucket` (aliased as `openvoicestream:rk-20261106-kokoro-dualbucket`, `openvoicestream:rk-20261104-kokoro-dualbucket`)
 - **Target Hardware**: Seeed reComputer (RK3588) & RK3576
-- **Baseline Git Commit**: `74568a23` (main PR #134)
+- **Baseline Git Commit**: `9434b1a2d5386c499848e288aee93dcdfffc0db2`
 - **Core Runtime & Dependencies**:
-  - `rkvoice-stream`: commit `f605c6f` (NPU T50 sliding-window streaming vocoder integration)
+  - `rkvoice-stream`: commit `bf4cfe8` (English word-chunking streaming + librkllmrt 1.2.3/1.3.0 dual-ABI)
   - `onnxruntime`: `1.26.0` (4-thread CPU text stem, duration head, and target tail)
   - `rknn-toolkit-lite2` / `rknpu`: `2.3.2`
   - `kokoro_dualbucket.manifest.json` SHA256: `cfc6aa8d485415884e4cf5eac47b0a786889ed02d9556a1051ed66685927083d`
+- **Registry Digest**: `sha256:a728035c1dc6f4efd6a5fbe573c82f860938bb6d6b2d24e4da840b03f5ae7fe0`
+- **Image Size**: `994 MB`
+- **Build Host**: `spark` (Linux `aarch64`)
 - **Build Command**:
   ```bash
   docker build \
     -f deploy/docker/Dockerfile.rk \
     --target final-slim \
+    -t sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261106-kokoro-dualbucket \
+    -t openvoicestream:rk-20261106-kokoro-dualbucket \
     -t sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261104-kokoro-dualbucket \
     -t openvoicestream:rk-20261104-kokoro-dualbucket \
     .
   ```
-- **Deployment Profile**: `rk3588-kokoro-dualbucket`
-  - Compose overlay: `deploy/docker-compose.kokoro-dualbucket-rk3588.yml`
-  - Offline model path: `/opt/kokoro-dualbucket/rk3588` (21 files total on disk: 20 payload files + 1 manifest)
-- **Lifecycle & Registry Push**:
-  - The image was natively built on `spark` (ARM64) from commit `74568a23`.
-  - Pushed to `sensecraft-missionpack.seeed.cn` under both `solution/seeed-local-voice:rk-20261104-kokoro-dualbucket` and `solution/openvoicestream:rk-20261104-kokoro-dualbucket`.
-  - Pull and digest verified on Seeed reComputer (RK3588) (`sha256:d49378672a71f7809dee5595731c79b429418c3775f310cb3bf2ca5a6174183a`).
+- **Deployment Profiles**:
+  - `rk3588-kokoro-dualbucket` (standalone Kokoro TTS)
+  - `rk3588-qwen3-kokoro-dualbucket` (Qwen3-ASR + Kokoro TTS with serialized NPU execution)
+  - Compose overlay: `deploy/docker-compose.conversation-rk3588-rk1828.yml`
+  - Offline model path: `/opt/kokoro-dualbucket/rk3588` (21 verified files)
 
 | Tag | Seeed commit | voxedge commit | Date | Build host | Registry digest |
 |-----|-------------|----------------|------|-----------|-----------------|
+| `openvoicestream:rk-20261106-kokoro-dualbucket` | `9434b1a2d5386c499848e288aee93dcdfffc0db2` | rkvoice-stream `bf4cfe8` | 2026-11-06 | spark (aarch64) | `sha256:a728035c1dc6f4efd6a5fbe573c82f860938bb6d6b2d24e4da840b03f5ae7fe0` |
 | `openvoicestream:rk-20261104-kokoro-dualbucket` | `74568a23` (main PR #134) | rkvoice-stream `f605c6f` | 2026-11-06 | spark (aarch64) | `sha256:d49378672a71f7809dee5595731c79b429418c3775f310cb3bf2ca5a6174183a` (993 MB) |
-| `rk-20261024-ttsnum` (speech, `openvoicestream:`, Linux/ARM64) | `8271afba` (main PR #130) | `voxedge==0.0.15a4` (`cda39e3`) | 2026-10-24 | macbook | index `sha256:0030846210c84cfef112c13966370f962d150942f099263977cf7737ba5f3d50` (leaf `sha256:4629a129edb7bd8d505c4773ad9e6e577e45f991694e0fe46d70af5db4a41d5c`) |
-| `v0.11.0-candidate-voice-dfd6aae` (`seeed-local-voice`, Linux/ARM64) | `dfd6aae3c8d287fbba564c691e650ef5bf739d27` / closure `0a815fdda79411377a7e92ff952888437054b15a` | `voxedge==0.0.15a3` (`fd96f0a793873c080b88e13cabc1ab265b9c2901`) | 2026-10-12 | macbook | `sha256:4a61834fdc2862ec8d61c4748898fb02694a06bfea07c4ba166bee49d811a39a` |
-| `edgellm-v011-cp312-ifb-b2-20261012-candidate` (`edge-llm-chat-service`, index) | v0.11 candidate closure `0a815fdda79411377a7e92ff952888437054b15a` | engine bundle `41fb732368307f2a6a6ef3ba67d35aef027845b4a`; VoxEdge pin is separate | 2026-10-12 | macbook | `sha256:7a9548e01db6255cb30d07ebff76ec53e0464a331ba284506483c03ea331c868` (Linux/ARM64 leaf `sha256:f882ff1daf2acb6cbf544d660f9e8763121a26fc3cfffacd0e4cd79aa9ebf4fc`) |
-
-The v0.11 LLM candidate passed one Orin NX IFB B2 GPU smoke on 2026-10-12 using the immutable index: `/v1/chat/completions` returned HTTP 200 with `model=qwen3.5-4b` and non-empty content. This records deployment smoke only; the candidate remains unqualified.
 | `prod-unified-v8` | `9bad68d99d2c20e0448c6b958f1302b35756829f` | `02e4f0bbe46e4c0cb6513c396cc83aab652ade65` | 2026-06-03 | recomputer-desktop | `sha256:910e298e9b5bf3643133c070618588164f104f9b326cc3f16de8200f5c760f5a` |
 | `prod-unified-v9` | `9bad68d99d2c20e0448c6b958f1302b35756829f` | `02e4f0b+mossfix(afdef16)` | 2026-06-17 | seeed-orin-nx | `sha256:bf355e8af0e214be2c76681313f5e2ff590b0f6f692679c5f27a3b6e77c5ac22` |
 | `jetson-jp62-trt103-edgellm-v091-20260804-r5` | release lock `orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5` | `f738123` (0.0.5a0, superseded by next reproducible rebuild) | 2026-08-04 | seeed-orin-nx | `sha256:b1d9db8d0e61344dc02367bb0114fd6889335f21638cea790e3f795d8226ce5c` |
