@@ -7,32 +7,40 @@ are **gitignored**, so reproducibility relies on the recorded voxedge commit bel
 plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 (`uv build --wheel`) and stage the same worker binaries.
 
-## Latest Production Specification: `openvoicestream:rk-20261104-kokoro-dualbucket`
+## Latest Production Specification: `openvoicestream:rk-20261106-kokoro-dualbucket`
 
-- **Image Tag**: `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261104-kokoro-dualbucket` (aliased as `openvoicestream:rk-20261104-kokoro-dualbucket`)
+- **Image Tag**: `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261106-kokoro-dualbucket` (aliased as `openvoicestream:rk-20261106-kokoro-dualbucket`, `openvoicestream:rk-20261104-kokoro-dualbucket`)
 - **Target Hardware**: Radxa RK3588 (ROCK 5B / 5ITX) & RK3576
-- **Baseline Git Commit**: `a23a1b16a2dee9154e8580f0c6deadb3248a08f4`
+- **Baseline Git Commit**: `9434b1a2d5386c499848e288aee93dcdfffc0db2`
 - **Core Runtime & Dependencies**:
-  - `rkvoice-stream`: commit `f605c6f` (NPU T50 sliding-window streaming vocoder integration)
+  - `rkvoice-stream`: commit `bf4cfe8` (English word-chunking streaming + librkllmrt 1.2.3/1.3.0 dual-ABI)
   - `onnxruntime`: `1.26.0` (4-thread CPU text stem, duration head, and target tail)
   - `rknn-toolkit-lite2` / `rknpu`: `2.3.2`
   - `kokoro_dualbucket.manifest.json` SHA256: `cfc6aa8d485415884e4cf5eac47b0a786889ed02d9556a1051ed66685927083d`
+- **Registry Digest**: `sha256:a728035c1dc6f4efd6a5fbe573c82f860938bb6d6b2d24e4da840b03f5ae7fe0`
+- **Image Size**: `994 MB`
+- **Build Host**: `spark` (Linux `aarch64`)
 - **Build Command**:
   ```bash
   docker build \
     -f deploy/docker/Dockerfile.rk \
     --target final-slim \
+    -t sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261106-kokoro-dualbucket \
+    -t openvoicestream:rk-20261106-kokoro-dualbucket \
     -t sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261104-kokoro-dualbucket \
     -t openvoicestream:rk-20261104-kokoro-dualbucket \
     .
   ```
-- **Deployment Profile**: `rk3588-kokoro-dualbucket`
-  - Compose overlay: `deploy/docker-compose.kokoro-dualbucket-rk3588.yml`
+- **Deployment Profiles**:
+  - `rk3588-kokoro-dualbucket` (standalone Kokoro TTS)
+  - `rk3588-qwen3-kokoro-dualbucket` (Qwen3-ASR + Kokoro TTS with serialized NPU execution)
+  - Compose overlay: `deploy/docker-compose.conversation-rk3588-rk1828.yml`
   - Offline model path: `/opt/kokoro-dualbucket/rk3588` (21 verified files)
 
 | Tag | Seeed commit | voxedge commit | Date | Build host | Registry digest |
 |-----|-------------|----------------|------|-----------|-----------------|
-| `openvoicestream:rk-20261104-kokoro-dualbucket` | `a23a1b16a2dee9154e8580f0c6deadb3248a08f4` | rkvoice-stream `f605c6f` | 2026-11-04 | Radxa RK3588 | `UNVERIFIED (Pending build & registry push)` |
+| `openvoicestream:rk-20261106-kokoro-dualbucket` | `9434b1a2d5386c499848e288aee93dcdfffc0db2` | rkvoice-stream `bf4cfe8` | 2026-11-06 | spark (aarch64) | `sha256:a728035c1dc6f4efd6a5fbe573c82f860938bb6d6b2d24e4da840b03f5ae7fe0` |
+| `openvoicestream:rk-20261104-kokoro-dualbucket` | `9434b1a2d5386c499848e288aee93dcdfffc0db2` | rkvoice-stream `bf4cfe8` | 2026-11-06 | spark (aarch64) | `sha256:a728035c1dc6f4efd6a5fbe573c82f860938bb6d6b2d24e4da840b03f5ae7fe0` |
 | `prod-unified-v8` | `9bad68d99d2c20e0448c6b958f1302b35756829f` | `02e4f0bbe46e4c0cb6513c396cc83aab652ade65` | 2026-06-03 | recomputer-desktop | `sha256:910e298e9b5bf3643133c070618588164f104f9b326cc3f16de8200f5c760f5a` |
 | `prod-unified-v9` | `9bad68d99d2c20e0448c6b958f1302b35756829f` | `02e4f0b+mossfix(afdef16)` | 2026-06-17 | seeed-orin-nx | `sha256:bf355e8af0e214be2c76681313f5e2ff590b0f6f692679c5f27a3b6e77c5ac22` |
 | `jetson-jp62-trt103-edgellm-v091-20260804-r5` | release lock `orin-nx-edgellm-v091-jp62-trt103-sm87-20260803-r5` | `f738123` (0.0.5a0, superseded by next reproducible rebuild) | 2026-08-04 | seeed-orin-nx | `sha256:b1d9db8d0e61344dc02367bb0114fd6889335f21638cea790e3f795d8226ce5c` |
