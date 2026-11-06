@@ -21,15 +21,6 @@
       <div id="modeMenu" class="mode-menu hidden"></div>
     </div>
     <button id="modeSettingsBtn" class="ctl-btn" title="编辑当前模式的 system prompt / temperature">⚙ 设置</button>
-    <div class="filters" id="filters">
-      <label title="用户完整语句"><input type="checkbox" data-f="utt" checked /> 用户语句</label>
-      <label title="助手 LLM token 流"><input type="checkbox" data-f="tok" checked /> 助手回复</label>
-      <label title="ASR 中间识别（每 100ms 一次）"><input type="checkbox" data-f="partial" /> 识别中</label>
-      <label title="WS 连接 / 队列健康指标"><input type="checkbox" data-f="stats" /> 连接状态</label>
-      <label title="ConvState 切换 idle/listening/thinking/speaking"><input type="checkbox" data-f="state" /> 状态切换</label>
-      <label title="麦克风音量波形（10fps 噪声）"><input type="checkbox" data-f="mic" /> 麦克风电平</label>
-      <label title="错误"><input type="checkbox" data-f="error" checked /> 错误</label>
-    </div>
   </div>
   <div class="tb-right">
     <button id="btnWake" class="ctl-btn pipeline-ctl hidden" title="唤醒 agent (从 SLEEPING → IDLE)">唤醒</button>
@@ -46,6 +37,7 @@
       <button id="btnClear">清空日志</button>
       <button id="btnClearContextMenu">清空上下文</button>
       <button id="btnPause">暂停</button>
+      <button id="btnRestartAgentMenu" class="danger">重启 Agent</button>
     </div>
   </div>
 </div>
@@ -61,6 +53,18 @@
       <div id="chat" class="chat-stream"></div>
     </div>
     <div class="tab-panel" id="tab-events">
+      <div class="events-toolbar">
+        <span class="events-toolbar-title">事件过滤:</span>
+        <div class="filters" id="filters">
+          <label title="用户完整语句"><input type="checkbox" data-f="utt" checked /> 用户语句</label>
+          <label title="助手 LLM token 流"><input type="checkbox" data-f="tok" checked /> 助手回复</label>
+          <label title="ASR 中间识别（每 100ms 一次）"><input type="checkbox" data-f="partial" /> 识别中</label>
+          <label title="WS 连接 / 队列健康指标"><input type="checkbox" data-f="stats" /> 连接状态</label>
+          <label title="ConvState 切换 idle/listening/thinking/speaking"><input type="checkbox" data-f="state" /> 状态切换</label>
+          <label title="麦克风音量波形（10fps 噪声）"><input type="checkbox" data-f="mic" /> 麦克风电平</label>
+          <label title="错误"><input type="checkbox" data-f="error" checked /> 错误</label>
+        </div>
+      </div>
       <div id="events" class="event-stream"></div>
     </div>
     <div class="tab-panel" id="tab-history">
@@ -143,96 +147,203 @@
 </div>
 
 <div id="modeSettingsPanel" class="mode-settings-panel hidden">
-  <div class="ms-header">
+  <div class="ms-header" id="modeSettingsHeader">
     <span>当前模式: <span id="msMode">–</span></span>
     <button id="msClose" class="icon-btn" title="关闭">×</button>
   </div>
-  <div class="ms-body">
-    <label class="ms-label">System prompt</label>
-    <textarea id="msSystemPrompt" rows="6" placeholder="(继承类默认)"></textarea>
-    <div class="ms-default muted small">默认: <span id="msSystemPromptDefault">–</span></div>
+  <div class="ms-tabs" id="msTabs" role="tablist" aria-label="设置分类">
+    <button type="button" class="ms-tab" role="tab" id="msTab-prompt" data-tab="prompt" aria-controls="msTabPanel-prompt" aria-selected="true" tabindex="0">💬 提示词与模型</button>
+    <button type="button" class="ms-tab" role="tab" id="msTab-voice" data-tab="voice" aria-controls="msTabPanel-voice" aria-selected="false" tabindex="-1">🎙 声音与交互</button>
+    <button type="button" class="ms-tab" role="tab" id="msTab-mcp" data-tab="mcp" aria-controls="msTabPanel-mcp" aria-selected="false" tabindex="-1">
+      🔌 MCP 服务
+      <span id="msTabPendingBadge-mcp" class="tab-badge-dot hidden" title="有待生效的配置变更"></span>
+    </button>
+    <button type="button" class="ms-tab" role="tab" id="msTab-translator" data-tab="translator" aria-controls="msTabPanel-translator" aria-selected="false" tabindex="-1" hidden>🌐 翻译设置</button>
+  </div>
+  <div class="ms-body" id="msBody">
+    <section class="ms-tab-panel" role="tabpanel" id="msTabPanel-prompt" aria-labelledby="msTab-prompt">
+      <label class="ms-label">System prompt</label>
+      <textarea id="msSystemPrompt" rows="6" placeholder="(继承类默认)"></textarea>
+      <div class="ms-default muted small">默认: <span id="msSystemPromptDefault">–</span></div>
 
-    <button id="msAdvancedToggle" class="advanced-toggle ctl-btn">▾ 高级</button>
-    <div id="msAdvancedBody" class="hidden">
-      <label class="ms-label">Temperature</label>
-      <input id="msTemperature" type="number" step="0.1" min="0" max="2" placeholder="(继承)" />
-      <label class="ms-label">Max history</label>
-      <input id="msMaxHistory" type="number" step="1" min="0" placeholder="(继承)" />
-      <label class="ms-label">Barge-in</label>
-      <select id="msBargeIn">
-        <option value="">(继承)</option>
-        <option value="true">true (允许打断)</option>
-        <option value="false">false (禁止打断)</option>
-      </select>
-    </div>
-
-    <div class="ms-actions">
-      <button id="msSave" class="ctl-btn primary">保存</button>
-      <button id="msReset" class="ctl-btn">恢复默认</button>
-    </div>
-
-    <hr class="ms-divider" />
-    <div class="ms-section" id="ttsVoiceCard">
-      <div class="ms-section-head">
-        <span>TTS 声音</span>
-        <button id="btnVoiceReload" class="ctl-btn voice-reload-btn" title="重新加载 speaker 列表">↻</button>
-      </div>
-      <select id="voiceSelect" class="voice-select"></select>
-      <div class="muted small voice-meta">
-        <span>model: <span id="voiceModel">–</span></span>
-        <span>共 <span id="voiceCount">0</span> 个</span>
-      </div>
-      <button id="btnVoiceClone" class="ctl-btn voice-clone-btn hidden">+ 克隆新声音</button>
-      <div class="voice-hint muted small" id="voiceHint"></div>
-    </div>
-
-    <hr class="ms-divider" />
-    <div class="ms-section" id="agentSettingsCard">
-      <div class="ms-section-head">
-        <span>⚙ Agent 全局设置</span>
-      </div>
-      <div id="agentSettingsBody">
-        <label class="ms-label">pipeline_mode</label>
-        <select id="setPipelineMode">
-          <option value="always_on">always_on</option>
-          <option value="wake_word">wake_word</option>
-          <option value="push_to_talk">push_to_talk</option>
+      <button id="msAdvancedToggle" class="advanced-toggle ctl-btn">▾ 高级</button>
+      <div id="msAdvancedBody" class="hidden">
+        <label class="ms-label">Temperature</label>
+        <input id="msTemperature" type="number" step="0.1" min="0" max="2" placeholder="(继承)" />
+        <label class="ms-label">Max history</label>
+        <input id="msMaxHistory" type="number" step="1" min="0" placeholder="(继承)" />
+        <label class="ms-label">Barge-in</label>
+        <select id="msBargeIn">
+          <option value="">(继承)</option>
+          <option value="true">true (允许打断)</option>
+          <option value="false">false (禁止打断)</option>
         </select>
-        <label class="ms-label">sleep_timeout_s</label>
-        <input id="setSleepTimeout" type="number" step="0.5" min="0" />
-        <label class="ms-label">stop_words (每行一个)</label>
-        <textarea id="setStopWords" rows="5" placeholder="停&#10;停下&#10;stop"></textarea>
-        <div class="settings-warn muted small">
-          ⚠ 修改 pipeline_mode 需要重启 agent 才能完全生效；sleep_timeout_s / stop_words 下一轮即热生效。
-        </div>
-        <div class="ms-actions">
-          <button id="btnAgentSettingsSave" class="ctl-btn primary">保存设置</button>
-          <button id="btnAgentSettingsReload" class="ctl-btn">重新加载</button>
-        </div>
       </div>
-    </div>
 
-    <hr class="ms-divider" />
-    <div class="ms-section" id="translatorCard">
-      <div class="ms-section-head">
-        <span>🌐 翻译设置 <span class="muted small" id="translatorBackendBadge">–</span></span>
-        <button id="btnTranslatorToggle" class="advanced-toggle ctl-btn" type="button" title="展开/折叠">▾</button>
+      <div class="ms-actions">
+        <button id="msSave" class="ctl-btn primary">保存</button>
+        <button id="msReset" class="ctl-btn">恢复默认</button>
       </div>
-      <div id="translatorBody" class="hidden">
-        <label class="ms-label">目标语种 (tgt_lang)</label>
-        <select id="setTranslatorTgtLang"></select>
-        <div class="muted small">
-          源语种自动来自 ASR 识别结果；当前默认 fallback: <span id="translatorSrcLangText">–</span>
+
+      <hr class="ms-divider" />
+
+      <div class="ms-section llm-endpoint-card" id="llmEndpointSection" role="group" aria-label="LLM 服务端点与模型">
+        <div class="llm-endpoint-head">
+          <h3 class="llm-endpoint-title">LLM 服务端点与模型</h3>
+          <p class="muted small llm-endpoint-desc">全局生效，与上方当前模式的提示词参数分开保存；保存后需重启 Agent 生效。</p>
         </div>
-        <div class="settings-warn muted small">
-          仅在 interpreter 模式下生效；保存会尝试写入 yaml（启动时通过 yaml 加载的 config 才能持久化），下次重启保留。
+        <label class="ms-label" for="llmBackend">引擎类型</label>
+        <select id="llmBackend">
+          <option value="edge_llm">edge_llm（本地推理）</option>
+          <option value="openai_compat">openai_compat（OpenAI 兼容协议）</option>
+          <option value="noop">noop（空推理，仅调试）</option>
+        </select>
+        <label class="ms-label" for="llmBaseUrl">服务地址</label>
+        <input id="llmBaseUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://localhost:8000/v1" />
+        <label class="ms-label" for="llmModel">模型名称</label>
+        <input id="llmModel" type="text" autocomplete="off" spellcheck="false" maxlength="128" placeholder="qwen2.5-3b-instruct" />
+        <label class="ms-label" for="llmApiKey">API 密钥</label>
+        <div class="llm-key-row">
+          <input id="llmApiKey" type="password" autocomplete="off" spellcheck="false" maxlength="512" placeholder="(无，留空表示不使用密钥)" />
+          <button id="btnLlmApiKeyToggle" class="ctl-btn llm-key-toggle" type="button" aria-label="显示密钥" aria-pressed="false" title="显示/隐藏密钥">👁</button>
         </div>
-        <div class="ms-actions">
-          <button id="btnTranslatorSave" class="ctl-btn primary">保存</button>
-          <button id="btnTranslatorReload" class="ctl-btn">重新加载</button>
+        <div class="ms-actions llm-actions">
+          <button id="btnLlmTest" class="ctl-btn" type="button">测试连接</button>
+          <button id="btnLlmSave" class="ctl-btn primary" type="button">保存端点配置</button>
+        </div>
+        <div id="llmTestResult" class="llm-test-result hidden" role="status" aria-live="polite"></div>
+        <div id="llmRestartAlert" class="llm-restart-alert hidden" role="status">
+          <span>⚠️ 端点配置已保存，需重启生效</span>
+          <button id="btnLlmRestartNow" class="ctl-btn vw-restart-btn" type="button">立即重启</button>
         </div>
       </div>
-    </div>
+    </section>
+
+    <section class="ms-tab-panel" role="tabpanel" id="msTabPanel-voice" aria-labelledby="msTab-voice" hidden>
+      <div class="ms-section" id="ttsVoiceCard">
+        <div class="ms-section-head">
+          <span>TTS 声音</span>
+          <button id="btnVoiceReload" class="ctl-btn voice-reload-btn" title="重新加载 speaker 列表">↻</button>
+        </div>
+        <select id="voiceSelect" class="voice-select"></select>
+        <div class="muted small voice-meta">
+          <span>model: <span id="voiceModel">–</span></span>
+          <span>共 <span id="voiceCount">0</span> 个</span>
+        </div>
+        <button id="btnVoiceClone" class="ctl-btn voice-clone-btn hidden">+ 克隆新声音</button>
+        <div class="voice-hint muted small" id="voiceHint"></div>
+      </div>
+
+      <hr class="ms-divider" />
+      <div class="ms-section vw-card" id="agentSettingsCard">
+        <div class="ms-section-head">
+          <span>语音与唤醒交互配置 <span class="muted small">Voice &amp; Wake Settings</span></span>
+        </div>
+        <div id="agentSettingsBody" class="vw-body">
+
+          <fieldset class="vw-group">
+            <legend>模式</legend>
+            <div class="vw-label-row">
+              <label class="ms-label" for="setPipelineMode">pipeline_mode</label>
+              <div class="vw-mode-tags">
+                <span id="modeRestartTag" class="vw-restart-tag">⚠ 修改需重启生效</span>
+                <button id="btnRestartAgent" class="ctl-btn vw-restart-btn hidden" type="button">立即重启</button>
+              </div>
+            </div>
+            <select id="setPipelineMode">
+              <option value="always_on">always_on · 常开对话</option>
+              <option value="wake_word">wake_word · 唤醒词</option>
+              <option value="push_to_talk">push_to_talk · 按住说话</option>
+            </select>
+          </fieldset>
+
+          <fieldset class="vw-group" id="wakewordGroup">
+            <legend>唤醒词 <span id="wwBadge" class="vw-badge vw-badge-disabled">检测中…</span></legend>
+            <label class="ms-label" for="wwPhrases">运行时短语（多个用逗号分隔）</label>
+            <input id="wwPhrases" type="text" placeholder="例：你好小智" disabled />
+            <div class="vw-btn-row">
+              <button id="btnWwValidate" class="ctl-btn" type="button" disabled>验证</button>
+              <button id="btnWwSave" class="ctl-btn" type="button" disabled>应用唤醒词</button>
+              <button id="btnWwTone" class="ctl-btn" type="button" disabled>试听提示音</button>
+            </div>
+            <div id="wwHint" class="vw-hint muted small">未挂载 runtime_kws 插件，唤醒词不可在线修改。</div>
+          </fieldset>
+
+          <fieldset class="vw-group">
+            <legend>问候与休眠</legend>
+            <label class="ms-label" for="setWakeReply">wake_reply_text · 唤醒后问候语</label>
+            <input id="setWakeReply" type="text" placeholder="例：在呢（留空则不播报）" />
+            <label class="ms-label" for="setSleepTimeout">sleep_timeout_s · 休眠等待超时（秒）</label>
+            <input id="setSleepTimeout" type="number" step="0.5" min="0" />
+            <label class="ms-label" for="setExitReply">exit_reply_text · 休眠道别语</label>
+            <input id="setExitReply" type="text" placeholder="例：那我先退下了（留空则直接休眠）" />
+          </fieldset>
+
+          <fieldset class="vw-group">
+            <legend>词表</legend>
+            <div class="vw-grid-2">
+              <div>
+                <label class="ms-label" for="setStopWords">stop_words · 打断停下词（每行一个）</label>
+                <textarea id="setStopWords" class="vw-words" rows="5" placeholder="停&#10;停下&#10;stop"></textarea>
+              </div>
+              <div>
+                <label class="ms-label" for="setExitWords">exit_words · 退出休眠词（每行一个）</label>
+                <textarea id="setExitWords" class="vw-words" rows="5" placeholder="退下&#10;再见&#10;bye"></textarea>
+              </div>
+            </div>
+          </fieldset>
+
+          <div class="settings-warn muted small">
+            pipeline_mode 需重启 agent 生效；其余字段下一轮热生效。
+          </div>
+          <div class="ms-actions">
+            <button id="btnAgentSettingsReload" class="ctl-btn" type="button">重新加载</button>
+            <button id="btnAgentSettingsSave" class="ctl-btn primary" type="button">保存设置</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="ms-tab-panel" role="tabpanel" id="msTabPanel-mcp" aria-labelledby="msTab-mcp" hidden>
+      <div class="ms-section mcp-card" id="mcpCard">
+        <div class="ms-section-head mcp-head">
+          <span>MCP 服务 <span class="muted small">MCP Servers</span> <span id="mcpCount" class="vw-badge vw-badge-disabled">–</span></span>
+          <div class="mcp-btn-row">
+            <button id="btnMcpRefresh" class="ctl-btn" type="button">刷新</button>
+            <button id="btnMcpAdd" class="ctl-btn primary" type="button">+ 添加服务</button>
+          </div>
+        </div>
+        <div id="mcpPendingBar" class="mcp-pending-bar hidden" role="status">
+          <span>⚠ MCP 配置已变更，需重启生效</span>
+          <button id="btnMcpRestartNow" class="ctl-btn vw-restart-btn" type="button">立即重启</button>
+        </div>
+        <div id="mcpNotice" class="vw-hint muted small hidden"></div>
+        <div id="mcpList" class="mcp-list" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="ms-tab-panel" role="tabpanel" id="msTabPanel-translator" aria-labelledby="msTab-translator" hidden>
+      <div class="ms-section" id="translatorCard">
+        <div class="ms-section-head">
+          <span>🌐 翻译设置 <span class="muted small" id="translatorBackendBadge">–</span></span>
+          <button id="btnTranslatorToggle" class="advanced-toggle ctl-btn open" type="button" title="展开/折叠">▾</button>
+        </div>
+        <div id="translatorBody">
+          <label class="ms-label" for="setTranslatorTgtLang">目标语种 (tgt_lang)</label>
+          <select id="setTranslatorTgtLang"></select>
+          <div class="muted small">
+            源语种自动来自 ASR 识别结果；当前默认 fallback: <span id="translatorSrcLangText">–</span>
+          </div>
+          <div class="settings-warn muted small">
+            仅在 interpreter 模式下生效；保存会尝试写入 yaml（启动时通过 yaml 加载的 config 才能持久化），下次重启保留。
+          </div>
+          <div class="ms-actions">
+            <button id="btnTranslatorSave" class="ctl-btn primary">保存</button>
+            <button id="btnTranslatorReload" class="ctl-btn">重新加载</button>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -258,6 +369,56 @@
     </div>
     <div id="vcStatus" class="muted small"></div>
   </div>
+</div>
+
+<div id="mcpModal" class="mode-settings-panel mcp-modal hidden" role="dialog" aria-modal="true" aria-labelledby="mcpModalTitle">
+  <div class="ms-header">
+    <span id="mcpModalTitle">添加 MCP 服务</span>
+    <button id="mcpModalClose" class="icon-btn" type="button" title="关闭">×</button>
+  </div>
+  <form id="mcpForm" class="ms-body" novalidate>
+    <label class="ms-label" for="mcpName">name · 服务名称</label>
+    <input id="mcpName" type="text" autocomplete="off" spellcheck="false" placeholder="例：weather（字母、数字、- 或 _）" />
+
+    <span class="ms-label">transport · 协议</span>
+    <div class="mcp-seg" role="radiogroup" aria-label="transport">
+      <label><input type="radio" name="mcpTransport" value="stdio" checked /> stdio · 本地进程</label>
+      <label><input type="radio" name="mcpTransport" value="sse" /> sse · 远程 HTTP</label>
+    </div>
+
+    <div id="mcpStdioFields" class="mcp-fields">
+      <label class="ms-label" for="mcpCommand">command · Python 运行时（可留空）</label>
+      <input id="mcpCommand" type="text" autocomplete="off" spellcheck="false" placeholder="python（留空使用 Agent 默认 Python 运行时）" aria-describedby="mcpStdioHelp" />
+      <label class="ms-label" for="mcpArgs">args · 参数（每行一个）</label>
+      <textarea id="mcpArgs" class="mcp-kv" rows="3" spellcheck="false" placeholder="-m&#10;ha_mcp" aria-describedby="mcpStdioHelp"></textarea>
+      <div id="mcpStdioHelp" class="vw-hint muted small">
+        仅支持两种形式：① <code>-m</code> + 白名单模块（<code>ovs_agent.mcp.servers</code>、<code>ha_mcp</code>、<code>device_mcp</code>），每行一个；② <code>agent/mcp_servers/</code> 目录下的 <code>.py</code> 脚本路径。不支持 <code>-c</code> 和 Shell 元字符。
+      </div>
+      <label class="ms-label" for="mcpEnv">env · 环境变量（每行 KEY=VALUE）</label>
+      <textarea id="mcpEnv" class="mcp-kv" rows="3" spellcheck="false" placeholder="API_KEY=xxxx&#10;LOG_LEVEL=info"></textarea>
+    </div>
+
+    <div id="mcpSseFields" class="mcp-fields hidden">
+      <label class="ms-label" for="mcpUrl">url · 服务地址</label>
+      <input id="mcpUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://example.com/mcp/sse" />
+      <label class="ms-label" for="mcpHeaders">headers · 请求头（每行 Key: Value）</label>
+      <textarea id="mcpHeaders" class="mcp-kv" rows="3" spellcheck="false" placeholder="Authorization: Bearer xxxx"></textarea>
+    </div>
+
+    <div class="vw-hint muted small">
+      敏感值显示为 <code>******</code>：保持不动即保留原值；改为新值即替换；写成 <code>KEY=</code>（值留空）或删掉整行即删除该项。
+    </div>
+
+    <div id="mcpTestResult" class="mcp-test-result hidden" aria-live="polite"></div>
+    <div id="mcpFormError" class="mcp-form-error hidden" role="alert"></div>
+
+    <div class="ms-actions mcp-modal-actions">
+      <button id="btnMcpTest" class="ctl-btn" type="button">测试连接</button>
+      <span class="mcp-spacer"></span>
+      <button id="btnMcpCancel" class="ctl-btn" type="button">取消</button>
+      <button id="btnMcpSave" class="ctl-btn primary" type="submit">保存</button>
+    </div>
+  </form>
 </div>
 
 <div id="toast" class="toast hidden"></div>

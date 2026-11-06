@@ -11,21 +11,54 @@ Strictly a debugging aid. No auth, no TLS, no CORS handling.
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import logging
 import os
+import stat
 import time
+import uuid
 from collections import deque
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
+from ..config import DEFAULT_EXIT_WORDS
 from ..plugin import Plugin
 from ..state import ConvState
+from .mcp_manager import (
+    ConfigPersistenceError,
+    DashboardApiError,
+    McpServerManager,
+    RestartWatchdog,
+    SecurityError,
+    _open_atomic_tmp,
+    _read_all_bounded,
+    _safe_close,
+    _safe_fchmod,
+    _safe_fsync_dir,
+    _safe_fsync_file,
+    _safe_open_readonly,
+    _safe_replace,
+    _write_all,
+    fatal_config_recovery_exit,
+    mcp_api_boundary,
+    write_persistent_recovery_marker,
+)
 
 logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).with_name("static")
 _INDEX_HTML = _STATIC_DIR / "dashboard.html"
+
+_AGENT_SETTINGS_KEYS = (
+    "pipeline_mode",
+    "sleep_timeout_s",
+    "stop_words",
+    "wake_reply_text",
+    "exit_words",
+    "exit_reply_text",
+)
 
 
 class DebugDashboardPlugin(Plugin):
@@ -69,6 +102,13 @@ class DebugDashboardPlugin(Plugin):
         self._started: bool = False
         # ── lazy HTTP client to SLV (used by /api/tts/* proxy routes) ──
         self._slv_http: Any = None  # aiohttp.ClientSession
+        # ── MCP server management and algebraic restart watchdog ──
+        self._mcp_manager: Any = None
+        self._mcp_admin_token: str | None = None
+        self._restart_watchdog: Any = None
+        # ── LLM endpoint configuration lock and restart status ──
+        self._llm_config_lock: asyncio.Lock = asyncio.Lock()
+        self._llm_config_pending_restart: bool = False
 
     # ── lifecycle ─────────────────────────────────────────────────
 
@@ -78,6 +118,25 @@ class DebugDashboardPlugin(Plugin):
             self._port = int(meta.get("dashboard_port", 18000))
         except Exception:
             self._port = 18000
+
+        try:
+            config_path = getattr(getattr(self.app, "config", None), "_source_path", None)
+            if not config_path:
+                config_path = "agent.yaml"
+            active_servers = getattr(getattr(self.app, "config", None), "mcp_servers", None) or []
+            self._mcp_manager = McpServerManager(
+                config_path=config_path,
+                active_servers=active_servers,
+            )
+            self._mcp_admin_token = self._mcp_manager.admin_token
+            exit_fn = getattr(self.app, "_restart_exit_fn", None)
+            self._restart_watchdog = RestartWatchdog(exit_fn=exit_fn)
+        except Exception:
+            logger.exception("Failed to initialize McpServerManager in setup")
+            self._mcp_manager = None
+            self._mcp_admin_token = None
+            self._restart_watchdog = None
+
         return True
 
     async def start(self) -> None:
@@ -94,13 +153,28 @@ class DebugDashboardPlugin(Plugin):
             return
         self._started = True
 
+        if self._mcp_manager is not None:
+            try:
+                self._mcp_manager.startup_check()
+            except ConfigPersistenceError as e:
+                logger.critical("Startup MCP check encountered recovery marker: %s", e)
+                fatal_config_recovery_exit(f"Startup check failed: {e}", exit_code=78)
+
         web_app = web.Application()
         web_app.router.add_get("/", self._handle_index)
         web_app.router.add_get("/ws", self._handle_ws)
 
+        # MCP configuration and sandbox endpoints
+        web_app.router.add_get("/api/mcp/servers", self._api_mcp_servers_get)
+        web_app.router.add_post("/api/mcp/servers", self._api_mcp_servers_post)
+        web_app.router.add_patch("/api/mcp/servers/{name}", self._api_mcp_servers_patch)
+        web_app.router.add_delete("/api/mcp/servers/{name}", self._api_mcp_servers_delete)
+        web_app.router.add_post("/api/mcp/test", self._api_mcp_test)
+
         # Control endpoints (POST).
         web_app.router.add_post("/api/control/reconnect", self._api_reconnect)
         web_app.router.add_post("/api/control/restart_mic", self._api_restart_mic)
+        web_app.router.add_post("/api/control/restart_agent", self._api_restart_agent)
         web_app.router.add_post("/api/control/abort", self._api_abort)
         web_app.router.add_post("/api/control/send_text", self._api_send_text)
         web_app.router.add_post(
@@ -150,6 +224,9 @@ class DebugDashboardPlugin(Plugin):
         web_app.router.add_patch("/api/wakeword/runtime", self._api_wakeword_runtime_patch)
         web_app.router.add_post("/api/wakeword/test-tone", self._api_wakeword_test_tone)
         web_app.router.add_post("/api/llm/probe", self._api_llm_probe)
+        web_app.router.add_get("/api/llm/config", self._api_llm_config_get)
+        web_app.router.add_post("/api/llm/config", self._api_llm_config_post)
+        web_app.router.add_post("/api/llm/test", self._api_llm_test_post)
         web_app.router.add_get(
             "/api/translator/runtime", self._api_translator_runtime_get
         )
@@ -249,6 +326,12 @@ class DebugDashboardPlugin(Plugin):
                 pass
             self._runner = None
 
+        if self._restart_watchdog is not None:
+            try:
+                await self._restart_watchdog.shutdown()
+            except Exception:
+                pass
+
         await super().stop()
 
     # ── HTTP / WS handlers ───────────────────────────────────────
@@ -259,7 +342,19 @@ class DebugDashboardPlugin(Plugin):
             text = _INDEX_HTML.read_text(encoding="utf-8")
         except FileNotFoundError:
             return web.Response(status=500, text="dashboard.html not found")
-        return web.Response(text=text, content_type="text/html")
+        token = self._mcp_admin_token or ""
+        meta_tag = f'<meta name="ovs-admin-token" content="{token}">'
+        if "<head>" in text:
+            text = text.replace("<head>", f"<head>\n    {meta_tag}", 1)
+        elif "</head>" in text:
+            text = text.replace("</head>", f"    {meta_tag}\n</head>", 1)
+        return web.Response(
+            text=text,
+            content_type="text/html",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, private",
+            },
+        )
 
     async def _handle_ws(self, request):  # noqa: ANN001
         from aiohttp import web
@@ -322,6 +417,7 @@ class DebugDashboardPlugin(Plugin):
 
     # ── /api/control/* ──────────────────────────────────────────
 
+    @mcp_api_boundary
     async def _api_reconnect(self, request):  # noqa: ANN001
         from aiohttp import web
         try:
@@ -347,11 +443,15 @@ class DebugDashboardPlugin(Plugin):
             except Exception:  # pragma: no cover - defensive
                 pass
             return web.json_response({"ok": True})
+        except DashboardApiError:
+            raise
         except Exception as e:
-            return web.json_response({"ok": False, "error": str(e)}, status=500)
+            raise DashboardApiError("INTERNAL_ERROR", f"Reconnect failed: {e}")
 
+    @mcp_api_boundary
     async def _api_abort(self, request):  # noqa: ANN001
         from aiohttp import web
+        from .mcp_manager import DashboardApiError
         errs: list[str] = []
         try:
             await self.app.slv.abort()
@@ -362,32 +462,164 @@ class DebugDashboardPlugin(Plugin):
         except Exception as e:
             errs.append(f"stop_playback: {e}")
         if errs:
-            return web.json_response({"ok": False, "errors": errs}, status=500)
+            raise DashboardApiError("INTERNAL_ERROR", f"Abort failed: {'; '.join(errs)}")
         return web.json_response({"ok": True})
 
+    @mcp_api_boundary
     async def _api_restart_mic(self, request):  # noqa: ANN001
         from aiohttp import web
+        from .mcp_manager import DashboardApiError
+        restart = getattr(self.app, "restart_mic_capture", None)
+        if not callable(restart):
+            raise DashboardApiError(
+                "SERVICE_UNAVAILABLE", "restart_mic_capture unavailable"
+            )
         try:
-            restart = getattr(self.app, "restart_mic_capture", None)
-            if not callable(restart):
-                return web.json_response(
-                    {"ok": False, "error": "restart_mic_capture unavailable"},
-                    status=501,
-                )
             await restart("dashboard")
             return web.json_response({"ok": True})
         except Exception as e:
-            return web.json_response({"ok": False, "error": str(e)}, status=500)
+            raise DashboardApiError("INTERNAL_ERROR", f"restart_mic failed: {e}")
 
+    @mcp_api_boundary
+    async def _api_restart_agent(self, request):  # noqa: ANN001
+        import asyncio
+        import os
+        import signal
+        from aiohttp import web
+        from .mcp_manager import DashboardApiError
+
+        if self._mcp_manager is None:
+            raise DashboardApiError("SERVICE_UNAVAILABLE", "MCP manager not initialized")
+        self._mcp_manager.verify_admin_token(request)
+        self._mcp_manager.verify_csrf(request)
+
+        exit_fn = getattr(self.app, "_restart_exit_fn", None)
+        if self._restart_watchdog is not None:
+            await self._restart_watchdog.trigger_restart(exit_fn=exit_fn)
+        else:
+            async def _delayed_exit() -> None:
+                await asyncio.sleep(0.5)
+                logger.warning("Agent restart requested via dashboard API; terminating process...")
+                if callable(exit_fn):
+                    exit_fn()
+                    return
+                try:
+                    os.kill(os.getpid(), signal.SIGTERM)
+                except Exception:
+                    os._exit(0)
+
+            asyncio.create_task(_delayed_exit(), name="agent-restart-delayed-exit")
+
+        return web.json_response(
+            {"ok": True, "message": "Agent restarting in 500ms, poll /api/agent/settings for recovery"}
+        )
+
+    @mcp_api_boundary
+    async def _api_mcp_servers_get(self, request):  # noqa: ANN001
+        from aiohttp import web
+        from .mcp_manager import DashboardApiError
+        if self._mcp_manager is None:
+            raise DashboardApiError("SERVICE_UNAVAILABLE", "MCP manager not initialized")
+        self._mcp_manager.verify_admin_token(request)
+        self._mcp_manager.verify_csrf(request)
+        return web.json_response({
+            "ok": True,
+            "pending_restart": self._mcp_manager.pending_restart,
+            "active_servers": self._mcp_manager.active_servers_sanitized,
+            "servers": self._mcp_manager.persisted_servers_sanitized,
+            "etag": self._mcp_manager.persisted_config_etag,
+        })
+
+    @mcp_api_boundary
+    async def _api_mcp_servers_post(self, request):  # noqa: ANN001
+        from aiohttp import web
+        from .mcp_manager import DashboardApiError
+        if self._mcp_manager is None:
+            raise DashboardApiError("SERVICE_UNAVAILABLE", "MCP manager not initialized")
+        self._mcp_manager.verify_admin_token(request)
+        self._mcp_manager.verify_csrf(request)
+        body = await request.json()
+        server_data = body.get("server") if isinstance(body, dict) and "server" in body else body
+        if not isinstance(server_data, dict):
+            raise DashboardApiError("INVALID_PARAM", "Request body must contain server configuration object")
+        if_match = request.headers.get("If-Match", "")
+        await self._mcp_manager.add_or_update_server(server_data, if_match=if_match)
+        return web.json_response({
+            "ok": True,
+            "pending_restart": self._mcp_manager.pending_restart,
+            "etag": self._mcp_manager.persisted_config_etag,
+            "servers": self._mcp_manager.persisted_servers_sanitized,
+        })
+
+    @mcp_api_boundary
+    async def _api_mcp_servers_patch(self, request):  # noqa: ANN001
+        from aiohttp import web
+        from .mcp_manager import DashboardApiError
+        if self._mcp_manager is None:
+            raise DashboardApiError("SERVICE_UNAVAILABLE", "MCP manager not initialized")
+        self._mcp_manager.verify_admin_token(request)
+        self._mcp_manager.verify_csrf(request)
+        name = request.match_info.get("name", "")
+        if not name:
+            raise DashboardApiError("INVALID_PARAM", "Missing server name")
+        body = await request.json()
+        patch_data = body.get("server") if isinstance(body, dict) and "server" in body else body
+        if not isinstance(patch_data, dict):
+            raise DashboardApiError("INVALID_PARAM", "Request body must contain server configuration object")
+        if_match = request.headers.get("If-Match", "")
+        await self._mcp_manager.patch_server(name, patch_data, if_match=if_match)
+        return web.json_response({
+            "ok": True,
+            "pending_restart": self._mcp_manager.pending_restart,
+            "etag": self._mcp_manager.persisted_config_etag,
+            "servers": self._mcp_manager.persisted_servers_sanitized,
+        })
+
+    @mcp_api_boundary
+    async def _api_mcp_servers_delete(self, request):  # noqa: ANN001
+        from aiohttp import web
+        from .mcp_manager import DashboardApiError
+        if self._mcp_manager is None:
+            raise DashboardApiError("SERVICE_UNAVAILABLE", "MCP manager not initialized")
+        self._mcp_manager.verify_admin_token(request)
+        self._mcp_manager.verify_csrf(request)
+        name = request.match_info.get("name", "")
+        if not name:
+            raise DashboardApiError("INVALID_PARAM", "Missing server name")
+        if_match = request.headers.get("If-Match", "")
+        await self._mcp_manager.delete_server(name, if_match=if_match)
+        return web.json_response({
+            "ok": True,
+            "pending_restart": self._mcp_manager.pending_restart,
+            "etag": self._mcp_manager.persisted_config_etag,
+            "servers": self._mcp_manager.persisted_servers_sanitized,
+        })
+
+    @mcp_api_boundary
+    async def _api_mcp_test(self, request):  # noqa: ANN001
+        from aiohttp import web
+        from .mcp_manager import DashboardApiError
+        if self._mcp_manager is None:
+            raise DashboardApiError("SERVICE_UNAVAILABLE", "MCP manager not initialized")
+        self._mcp_manager.verify_admin_token(request)
+        self._mcp_manager.verify_csrf(request)
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise DashboardApiError("INVALID_PARAM", "Request body must be a JSON object")
+        res = await self._mcp_manager.test_server(body)
+        return web.json_response(res)
+
+    @mcp_api_boundary
     async def _api_send_text(self, request):  # noqa: ANN001
         from aiohttp import web
+        from .mcp_manager import DashboardApiError
         try:
             body = await request.json()
-        except Exception:
-            return web.json_response({"ok": False, "error": "bad json"}, status=400)
+        except Exception as e:
+            raise DashboardApiError("CONFIG_PARSE_ERROR", f"Bad JSON: {e}")
         text = (body or {}).get("text")
         if not isinstance(text, str) or not text.strip():
-            return web.json_response({"ok": False, "error": "missing text"}, status=400)
+            raise DashboardApiError("INVALID_PARAM", "missing text")
         # Typed-text bypasses ASR, so no ASRFinal will clear the playback
         # discard latch a prior barge-in / abort / sleep may have armed.
         # Clear it explicitly so this turn's TTS is actually audible.
@@ -402,7 +634,7 @@ class DebugDashboardPlugin(Plugin):
             await self.app.slv.flush_tts()
             return web.json_response({"ok": True})
         except Exception as e:
-            return web.json_response({"ok": False, "error": str(e)}, status=500)
+            raise DashboardApiError("INTERNAL_ERROR", f"send_text failed: {e}")
 
     async def _api_inject_wav(self, request):  # noqa: ANN001
         """DEBUG-ONLY: POST raw WAV bytes → fed to the SLV as a spoken utterance.
@@ -1001,25 +1233,70 @@ class DebugDashboardPlugin(Plugin):
             pass
         return web.json_response({"ok": True})
 
+    _AGENT_SETTINGS_KEYS = _AGENT_SETTINGS_KEYS
+
     def _build_agent_settings_payload(self) -> dict[str, Any]:
         cfg = getattr(self.app, "config", None)
         pipeline_mode = "always_on"
+        active = getattr(self.app, "_active_pipeline_mode", None)
+        if not isinstance(active, str):
+            active = getattr(self.app, "pipeline_mode", None)
+        pipeline_mode_active = active if isinstance(active, str) else None
         sleep_timeout_s = 30.0
         stop_words: list[str] = []
+        wake_reply_text = ""
+        exit_words: list[str] = list(DEFAULT_EXIT_WORDS)
+        exit_reply_text = ""
         if cfg is not None:
             pipeline_mode = getattr(cfg, "pipeline_mode", "always_on")
+            if not pipeline_mode_active:
+                pipeline_mode_active = pipeline_mode
             try:
                 sleep_timeout_s = float(getattr(cfg, "sleep_timeout_s", 30.0))
             except Exception:
                 sleep_timeout_s = 30.0
-            raw_sw = getattr(cfg, "stop_words", None) or []
+            raw_sw = getattr(cfg, "stop_words", None)
             if isinstance(raw_sw, (list, tuple)):
                 stop_words = [str(x) for x in raw_sw]
+            elif raw_sw is not None:
+                stop_words = []
+            raw_ew = getattr(cfg, "exit_words", None)
+            if isinstance(raw_ew, (list, tuple)):
+                exit_words = [str(x) for x in raw_ew]
+            elif raw_ew is None:
+                exit_words = list(DEFAULT_EXIT_WORDS)
+            
+            raw_wrt = getattr(cfg, "wake_reply_text", "")
+            if not raw_wrt:
+                meta = getattr(cfg, "metadata", {}) or {}
+                raw_wrt = meta.get("wake_reply_text") or meta.get("wakeword", {}).get("reply_text", "")
+            wake_reply_text = self._reply_text_str(raw_wrt)
+
+            raw_ert = getattr(cfg, "exit_reply_text", "")
+            if not raw_ert:
+                meta = getattr(cfg, "metadata", {}) or {}
+                raw_ert = meta.get("exit_reply_text", "")
+            exit_reply_text = self._reply_text_str(raw_ert)
+        else:
+            if not pipeline_mode_active:
+                pipeline_mode_active = pipeline_mode
         return {
             "pipeline_mode": pipeline_mode,
+            "pipeline_mode_active": pipeline_mode_active,
             "sleep_timeout_s": sleep_timeout_s,
             "stop_words": stop_words,
+            "wake_reply_text": wake_reply_text,
+            "exit_words": exit_words,
+            "exit_reply_text": exit_reply_text,
         }
+
+    @staticmethod
+    def _reply_text_str(raw: Any) -> str:
+        # Config also accepts a list (random choice per wake); the dashboard
+        # edits a single line, so show the alternatives comma-joined.
+        if isinstance(raw, (list, tuple)):
+            return ", ".join(str(x).strip() for x in raw if str(x).strip())
+        return str(raw or "")
 
     def _runtime_kws(self):  # noqa: ANN001
         for plugin in getattr(self.app, "plugins", []) or []:
@@ -1031,7 +1308,12 @@ class DebugDashboardPlugin(Plugin):
         from aiohttp import web
         source = self._runtime_kws()
         if source is None:
-            return web.json_response({"available": False, "enabled": False})
+            return web.json_response({
+                "available": False,
+                "enabled": False,
+                "running": False,
+                "phrases": [],
+            })
         payload = dict(source.status())
         payload["enabled"] = True
         return web.json_response(payload)
@@ -1121,7 +1403,9 @@ class DebugDashboardPlugin(Plugin):
         return web.json_response(self._build_agent_settings_payload())
 
     async def _api_agent_settings_post(self, request):  # noqa: ANN001
+        import math
         from aiohttp import web
+
         try:
             body = await request.json()
         except Exception:
@@ -1131,62 +1415,149 @@ class DebugDashboardPlugin(Plugin):
         cfg = getattr(self.app, "config", None)
         if cfg is None:
             return web.json_response({"ok": False, "error": "no config"}, status=500)
-        updated: dict[str, Any] = {}
+
+        # Global pre-validation: validate all fields first.
+        # If any field is invalid, immediately return HTTP 400 without updating cfg.
+        for k in body:
+            if k not in _AGENT_SETTINGS_KEYS:
+                return web.json_response(
+                    {"ok": False, "error": f"unrecognized field: {k}"}, status=400
+                )
+
+        normalized: dict[str, Any] = {}
+
         if "pipeline_mode" in body:
-            v = body["pipeline_mode"]
-            if v not in self._PIPELINE_MODES:
+            pm = body["pipeline_mode"]
+            if not isinstance(pm, str) or pm not in self._PIPELINE_MODES:
                 return web.json_response(
                     {"ok": False, "error": f"pipeline_mode must be one of {list(self._PIPELINE_MODES)}"},
                     status=400,
                 )
-            # Persist + update config, but do NOT switch live state machine
-            # — change takes effect on next agent restart.
-            cfg.pipeline_mode = v
-            updated["pipeline_mode"] = v
+            normalized["pipeline_mode"] = pm
+
         if "sleep_timeout_s" in body:
+            st = body["sleep_timeout_s"]
+            if isinstance(st, bool) or not isinstance(st, (int, float)):
+                return web.json_response(
+                    {"ok": False, "error": "sleep_timeout_s must be a number (not bool)"},
+                    status=400,
+                )
+            if not math.isfinite(st):
+                return web.json_response(
+                    {"ok": False, "error": "sleep_timeout_s must be a finite number"},
+                    status=400,
+                )
+            if not (0.0 <= st <= 86400.0):
+                return web.json_response(
+                    {"ok": False, "error": "sleep_timeout_s must be between 0.0 and 86400.0"},
+                    status=400,
+                )
+            normalized["sleep_timeout_s"] = 0.0 if st == 0.0 else float(st)
+
+        for text_field in ("wake_reply_text", "exit_reply_text"):
+            if text_field in body:
+                tf = body[text_field]
+                if not isinstance(tf, str):
+                    return web.json_response(
+                        {"ok": False, "error": f"{text_field} must be a string"},
+                        status=400,
+                    )
+                tf_clean = tf.strip()
+                if len(tf_clean) > 200 or len(tf) > 200:
+                    return web.json_response(
+                        {"ok": False, "error": f"{text_field} length must be <= 200"},
+                        status=400,
+                    )
+                normalized[text_field] = tf_clean
+
+        for list_field in ("stop_words", "exit_words"):
+            if list_field in body:
+                lw = body[list_field]
+                if not isinstance(lw, list):
+                    return web.json_response(
+                        {"ok": False, "error": f"{list_field} must be a list"},
+                        status=400,
+                    )
+                cleaned: list[str] = []
+                seen: set[str] = set()
+                for item in lw:
+                    if not isinstance(item, str):
+                        return web.json_response(
+                            {"ok": False, "error": f"{list_field} items must be strings"},
+                            status=400,
+                        )
+                    item_s = item.strip()
+                    if not item_s:
+                        continue
+                    if len(item_s) > 50 or len(item) > 50:
+                        return web.json_response(
+                            {"ok": False, "error": f"{list_field} item length must be <= 50"},
+                            status=400,
+                        )
+                    if item_s not in seen:
+                        seen.add(item_s)
+                        cleaned.append(item_s)
+                if len(cleaned) > 100:
+                    return web.json_response(
+                        {"ok": False, "error": f"{list_field} cannot exceed 100 items"},
+                        status=400,
+                    )
+                normalized[list_field] = cleaned
+
+        # Compute changed: normalized values that differ from current cfg
+        current = self._build_agent_settings_payload()
+        changed = [
+            k for k in _AGENT_SETTINGS_KEYS
+            if k in normalized and normalized[k] != current.get(k)
+        ]
+
+        if not changed:
+            payload = self._build_agent_settings_payload()
+            payload["ok"] = True
+            payload["persisted"] = False
+            payload["changed"] = []
+            return web.json_response(payload)
+
+        # Apply updates to cfg
+        for k in changed:
+            setattr(cfg, k, normalized[k])
+
+        # Invalidate stop words matcher cache only if word lists changed
+        if "stop_words" in changed or "exit_words" in changed:
             try:
-                f = float(body["sleep_timeout_s"])
-                if f < 0:
-                    raise ValueError("must be >= 0")
-            except (TypeError, ValueError) as e:
-                return web.json_response(
-                    {"ok": False, "error": f"sleep_timeout_s: {e}"}, status=400
-                )
-            cfg.sleep_timeout_s = f
-            updated["sleep_timeout_s"] = f
-        if "stop_words" in body:
-            sw_raw = body["stop_words"]
-            if not isinstance(sw_raw, list):
-                return web.json_response(
-                    {"ok": False, "error": "stop_words must be a list"}, status=400
-                )
-            sw = [str(x).strip() for x in sw_raw if str(x).strip()]
-            cfg.stop_words = sw
-            updated["stop_words"] = sw
-        # Persist to YAML if we have a source path.
+                self.app._stop_words_cache = None
+            except Exception:
+                pass
+
         persisted = False
         persist_error: str | None = None
         src = getattr(cfg, "_source_path", None)
-        if src is not None and updated:
+        if src is not None and changed:
             try:
-                self._persist_agent_settings_to_yaml(Path(src), updated)
+                self._persist_agent_settings_to_yaml(
+                    Path(src), {k: normalized[k] for k in changed}
+                )
                 persisted = True
-            except Exception as e:  # pragma: no cover - defensive
+            except Exception as e:
                 persist_error = str(e)
-                logger.exception("persist agent_settings failed")
-        # Broadcast plugin hook.
+                persisted = False
+                logger.warning("persist agent_settings failed: %s", e)
+
+        payload = self._build_agent_settings_payload()
+        payload["ok"] = True
+        payload["persisted"] = persisted
+        payload["changed"] = list(changed)
+        if persist_error is not None:
+            payload["persist_error"] = persist_error
+
         try:
             await self.app.broadcast(
                 "on_agent_settings_change",
-                {**self._build_agent_settings_payload(), "persisted": persisted, "changed": list(updated.keys())},
+                dict(payload),
             )
         except Exception:
             logger.exception("on_agent_settings_change broadcast failed")
-        payload = self._build_agent_settings_payload()
-        payload["persisted"] = persisted
-        payload["changed"] = list(updated.keys())
-        if persist_error is not None:
-            payload["persist_error"] = persist_error
+
         return web.json_response(payload)
 
     @staticmethod
@@ -1194,19 +1565,101 @@ class DebugDashboardPlugin(Plugin):
         """Re-write the YAML config replacing only the changed agent-setting keys."""
         import yaml
 
-        with path.open("r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
+        path = Path(path)
+        read_fd = _safe_open_readonly(str(path))
+        try:
+            prior_bytes = _read_all_bounded(read_fd)
+        finally:
+            _safe_close(read_fd, raise_on_error=True)
+
+        raw = yaml.safe_load(prior_bytes) or {}
         if not isinstance(raw, dict):
             raise ValueError(f"config root not a mapping: {type(raw).__name__}")
         for k, v in updated.items():
             raw[k] = v
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        with tmp.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(
-                raw, f,
-                default_flow_style=False, allow_unicode=True, sort_keys=False,
-            )
-        tmp.replace(path)
+
+        serialized = yaml.safe_dump(
+            raw,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        ).encode("utf-8")
+
+        tmp_path = f"{path}.tmp.{uuid.uuid4().hex}"
+        fd = -1
+        replaced = False
+        try:
+            fd = _open_atomic_tmp(tmp_path)
+            _write_all(fd, serialized)
+            _safe_fsync_file(fd)
+            _safe_close(fd, raise_on_error=True)
+            fd = -1
+
+            _safe_replace(tmp_path, str(path))
+            replaced = True
+
+            verify_fd = _safe_open_readonly(str(path))
+            try:
+                st = os.fstat(verify_fd)
+                if stat.S_IMODE(st.st_mode) != 0o600:
+                    raise SecurityError("Failed to enforce 0600 mode on config file")
+            finally:
+                _safe_close(verify_fd, raise_on_error=True)
+
+            _safe_fsync_dir(str(path.parent))
+        except Exception:
+            if fd >= 0:
+                _safe_close(fd)
+            try:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            except OSError as unl_err:
+                if unl_err.errno != errno.ENOENT:
+                    logger.critical("FATAL: Failed to unlink tmp file %s: %s", tmp_path, unl_err)
+                    raise ConfigPersistenceError(
+                        "TMP_CLEANUP_FAILED",
+                        f"Failed to clean up temporary file {tmp_path}: {unl_err}",
+                        unl_err.errno,
+                    ) from unl_err
+
+            if replaced:
+                # Replacement succeeded but verification or directory fsync failed.
+                # Must perform safe rollback to restore prior_bytes.
+                restore_tmp = f"{path}.tmp.{uuid.uuid4().hex}"
+                r_fd = -1
+                try:
+                    r_fd = _open_atomic_tmp(restore_tmp)
+                    _write_all(r_fd, prior_bytes)
+                    _safe_fsync_file(r_fd)
+                    _safe_close(r_fd, raise_on_error=True)
+                    r_fd = -1
+                    _safe_replace(restore_tmp, str(path))
+                    _safe_fsync_dir(str(path.parent))
+                except Exception as rb_err:
+                    logger.critical("FATAL: Rollback failed for %s: %s", path, rb_err)
+                    try:
+                        write_persistent_recovery_marker(str(path.parent), "rollback_failed")
+                    except (Exception, SystemExit) as marker_err:
+                        logger.critical("FATAL: Failed to write recovery marker during rollback failure: %s", marker_err)
+                    raise ConfigPersistenceError(
+                        "CONFIG_RECOVERY_REQUIRED",
+                        f"Target configuration replaced but rollback failed: {rb_err}",
+                    ) from rb_err
+                finally:
+                    if r_fd >= 0:
+                        _safe_close(r_fd)
+                    try:
+                        if os.path.exists(restore_tmp):
+                            os.unlink(restore_tmp)
+                    except OSError as rb_unl_err:
+                        if rb_unl_err.errno != errno.ENOENT:
+                            logger.critical("FATAL: Failed to unlink restore tmp file %s: %s", restore_tmp, rb_unl_err)
+                            raise ConfigPersistenceError(
+                                "TMP_CLEANUP_FAILED",
+                                f"Failed to clean up temporary file {restore_tmp}: {rb_unl_err}",
+                                rb_unl_err.errno,
+                            ) from rb_unl_err
+            raise
 
     # ── translator runtime endpoints (Phase 2a) ──────────────────
     #
@@ -1328,6 +1781,572 @@ class DebugDashboardPlugin(Plugin):
         if persist_error is not None:
             resp["persist_error"] = persist_error
         return web.json_response(resp)
+
+    # ── LLM endpoint configuration and connectivity probe (v2.2) ──
+
+    _LLM_ALLOWED_BACKENDS = ("edge_llm", "openai", "openai_compat", "noop")
+    _LLM_ALLOWED_KEYS = {"llm_backend", "llm_base_url", "llm_model", "llm_api_key"}
+
+    def _verify_csrf(self, request: web.Request) -> str | None:
+        """Verify Origin and Referer headers against Host."""
+        req_host = request.headers.get("Host", "").strip()
+        if not req_host:
+            return "CSRF check failed: missing Host header"
+
+        origin = request.headers.get("Origin")
+        referer = request.headers.get("Referer")
+
+        if not origin and not referer:
+            return "CSRF check failed: missing Origin and Referer headers"
+
+        if origin:
+            try:
+                origin_host = urlsplit(origin).netloc
+            except Exception:
+                return "CSRF check failed: malformed Origin header"
+            if not origin_host or origin_host != req_host:
+                return f"CSRF check failed: Origin host {origin_host!r} != Host {req_host!r}"
+
+        if referer:
+            try:
+                referer_host = urlsplit(referer).netloc
+            except Exception:
+                return "CSRF check failed: malformed Referer header"
+            if not referer_host or referer_host != req_host:
+                return f"CSRF check failed: Referer host {referer_host!r} != Host {req_host!r}"
+
+        return None
+
+    @staticmethod
+    def _origin_tuple(url: str | None) -> tuple[str, str, int] | None:
+        if not url or not isinstance(url, str):
+            return None
+        try:
+            split = urlsplit(url)
+            scheme = split.scheme.lower()
+            hostname = (split.hostname or "").lower()
+            if not scheme or not hostname:
+                return None
+            port = split.port or (443 if scheme == "https" else 80)
+            return (scheme, hostname, port)
+        except Exception:
+            return None
+
+    @classmethod
+    def _validate_llm_payload(cls, body: Any) -> dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("Payload must be a JSON object")
+
+        unknown = set(body.keys()) - cls._LLM_ALLOWED_KEYS
+        if unknown:
+            raise ValueError(f"Unknown fields in payload: {sorted(unknown)}")
+
+        for req in ("llm_backend", "llm_base_url", "llm_model"):
+            if req not in body:
+                raise ValueError(f"Missing required field: {req}")
+
+        backend = body["llm_backend"]
+        if not isinstance(backend, str) or backend not in cls._LLM_ALLOWED_BACKENDS:
+            raise ValueError(
+                f"Invalid llm_backend: {backend!r}. Must be one of {cls._LLM_ALLOWED_BACKENDS}"
+            )
+
+        base_url = body["llm_base_url"]
+        if not isinstance(base_url, str):
+            raise ValueError("llm_base_url must be a string")
+        base_url = base_url.strip()
+        if not base_url:
+            raise ValueError("llm_base_url cannot be empty")
+
+        try:
+            split = urlsplit(base_url)
+        except Exception as e:
+            raise ValueError(f"Invalid llm_base_url: {e}")
+
+        if split.scheme.lower() not in ("http", "https"):
+            raise ValueError(
+                f"Invalid llm_base_url scheme: {split.scheme!r}. Must be http or https"
+            )
+
+        if not split.netloc:
+            raise ValueError("llm_base_url netloc must not be empty")
+
+        if split.username is not None or split.password is not None or "@" in split.netloc:
+            raise ValueError("llm_base_url must not contain userinfo")
+
+        try:
+            port = split.port
+        except ValueError as e:
+            raise ValueError(f"Invalid port in llm_base_url: {e}")
+
+        if port is not None and not (1 <= port <= 65535):
+            raise ValueError(f"llm_base_url port out of range (1..65535): {port}")
+
+        if not split.hostname:
+            raise ValueError("llm_base_url must contain a valid hostname")
+
+        normalized_url = base_url.rstrip("/")
+
+        model = body["llm_model"]
+        if not isinstance(model, str):
+            raise ValueError("llm_model must be a string")
+        model = model.strip()
+        if not (1 <= len(model) <= 128):
+            raise ValueError("llm_model length must be between 1 and 128 characters")
+
+        api_key = body.get("llm_api_key")
+        if api_key is not None:
+            if not isinstance(api_key, str):
+                raise ValueError("llm_api_key must be a string or null")
+            if len(api_key) > 512:
+                raise ValueError("llm_api_key length exceeds 512 characters")
+
+        return {
+            "llm_backend": backend,
+            "llm_base_url": normalized_url,
+            "llm_model": model,
+            "llm_api_key": api_key,
+        }
+
+    async def _api_llm_config_get(self, request: web.Request) -> web.Response:
+        from aiohttp import web
+
+        cfg = getattr(self.app, "config", None)
+        backend = str(getattr(cfg, "llm_backend", "edge_llm") or "edge_llm")
+        base_url = str(getattr(cfg, "llm_base_url", "http://localhost:8000/v1") or "http://localhost:8000/v1")
+        model = str(getattr(cfg, "llm_model", "qwen2.5-3b-instruct") or "qwen2.5-3b-instruct")
+        saved_key = getattr(cfg, "llm_api_key", None)
+        has_api_key = bool(saved_key and str(saved_key).strip() and str(saved_key).strip() != "EMPTY")
+        api_key_masked = "●●●●●●" if has_api_key else ""
+        pending_restart = getattr(self, "_llm_config_pending_restart", False)
+
+        return web.json_response({
+            "ok": True,
+            "llm_backend": backend,
+            "llm_base_url": base_url,
+            "llm_model": model,
+            "has_api_key": has_api_key,
+            "api_key_masked": api_key_masked,
+            "pending_restart": pending_restart,
+        })
+
+    async def _api_llm_config_post(self, request: web.Request) -> web.Response:
+        from aiohttp import web
+
+        csrf_err = self._verify_csrf(request)
+        if csrf_err:
+            return web.json_response({"ok": False, "error": csrf_err}, status=403)
+
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+        try:
+            validated = self._validate_llm_payload(body)
+        except ValueError as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+        if self._llm_config_lock is None:
+            self._llm_config_lock = asyncio.Lock()
+
+        async with self._llm_config_lock:
+            cfg = getattr(self.app, "config", None)
+            if cfg is None:
+                return web.json_response({"ok": False, "error": "配置未加载"}, status=500)
+
+            src = getattr(cfg, "_source_path", None)
+            if not src or not Path(src).is_file():
+                return web.json_response(
+                    {"ok": False, "error": "配置文件路径不可用，无法将端点改动持久化至磁盘以备重启"},
+                    status=400,
+                )
+
+            current_backend = getattr(cfg, "llm_backend", "edge_llm")
+            current_url = getattr(cfg, "llm_base_url", "http://localhost:8000/v1")
+            current_model = getattr(cfg, "llm_model", "qwen2.5-3b-instruct")
+            current_key = getattr(cfg, "llm_api_key", "EMPTY")
+            if current_key is None:
+                current_key = "EMPTY"
+
+            new_backend = validated["llm_backend"]
+            new_url = validated["llm_base_url"]
+            new_model = validated["llm_model"]
+            raw_key = validated["llm_api_key"]
+
+            saved_origin = self._origin_tuple(current_url)
+            new_origin = self._origin_tuple(new_url)
+            dest_matched = (
+                saved_origin is not None
+                and new_origin is not None
+                and saved_origin == new_origin
+            )
+
+            key_cleared = False
+            if raw_key is None or raw_key == "●●●●●●":
+                if dest_matched:
+                    final_key = current_key
+                else:
+                    final_key = "EMPTY"
+                    if current_key and current_key != "EMPTY":
+                        key_cleared = True
+            elif raw_key == "" or raw_key.strip() == "EMPTY":
+                final_key = "EMPTY"
+                if current_key and current_key != "EMPTY":
+                    key_cleared = True
+            else:
+                final_key = raw_key.strip()
+
+            changed: list[str] = []
+            if new_backend != current_backend:
+                changed.append("llm_backend")
+            if new_url != current_url:
+                changed.append("llm_base_url")
+            if new_model != current_model:
+                changed.append("llm_model")
+            if final_key != current_key:
+                changed.append("llm_api_key")
+
+            if not changed:
+                return web.json_response({
+                    "ok": True,
+                    "changed": [],
+                    "pending_restart": self._llm_config_pending_restart,
+                    "key_cleared": False,
+                })
+
+            field_map = {
+                "llm_backend": new_backend,
+                "llm_base_url": new_url,
+                "llm_model": new_model,
+                "llm_api_key": final_key,
+            }
+            updated_fields = {k: field_map[k] for k in changed}
+
+            try:
+                self._persist_agent_settings_to_yaml(Path(src), updated_fields)
+            except Exception as e:
+                logger.error("Failed to persist LLM config to %s: %s", src, type(e).__name__)
+                return web.json_response({"ok": False, "error": "持久化失败: 无法写入配置文件，请检查磁盘与权限"}, status=500)
+
+            for k in changed:
+                setattr(cfg, k, field_map[k])
+            self._llm_config_pending_restart = True
+
+            bcast_payload: dict[str, Any] = {
+                "ok": True,
+                "changed": changed,
+                "llm_backend": cfg.llm_backend,
+                "llm_base_url": cfg.llm_base_url,
+                "llm_model": cfg.llm_model,
+                "has_api_key": bool(cfg.llm_api_key and cfg.llm_api_key != "EMPTY"),
+                "pending_restart": self._llm_config_pending_restart,
+                "key_cleared": key_cleared,
+            }
+            try:
+                if hasattr(self.app, "broadcast"):
+                    res = self.app.broadcast("on_llm_config_change", bcast_payload)
+                    if asyncio.iscoroutine(res):
+                        await res
+            except Exception:
+                logger.exception("on_llm_config_change broadcast failed")
+
+            return web.json_response({
+                "ok": True,
+                "changed": changed,
+                "pending_restart": self._llm_config_pending_restart,
+                "key_cleared": key_cleared,
+            })
+
+    async def _api_llm_test_post(self, request: web.Request) -> web.Response:
+        from aiohttp import web
+        import aiohttp
+
+        csrf_err = self._verify_csrf(request)
+        if csrf_err:
+            return web.json_response({"ok": False, "error": csrf_err}, status=403)
+
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+        try:
+            validated = self._validate_llm_payload(body)
+        except ValueError as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+        cfg = getattr(self.app, "config", None)
+        saved_url = getattr(cfg, "llm_base_url", "") if cfg else ""
+        saved_key = getattr(cfg, "llm_api_key", "EMPTY") if cfg else "EMPTY"
+        if saved_key is None:
+            saved_key = "EMPTY"
+
+        target_backend = validated["llm_backend"]
+        target_url = validated["llm_base_url"]
+        target_model = validated["llm_model"]
+        raw_key = validated["llm_api_key"]
+
+        saved_origin = self._origin_tuple(saved_url)
+        target_origin = self._origin_tuple(target_url)
+        dest_matched = (
+            saved_origin is not None
+            and target_origin is not None
+            and saved_origin == target_origin
+        )
+
+        if raw_key is None or raw_key == "●●●●●●":
+            if dest_matched:
+                test_key = saved_key
+            else:
+                test_key = "EMPTY"
+        elif raw_key == "" or raw_key.strip() == "EMPTY":
+            test_key = "EMPTY"
+        else:
+            test_key = raw_key.strip()
+
+        if target_backend == "noop":
+            return web.json_response({
+                "ok": True,
+                "status": "noop",
+                "latency_ms": 0,
+                "message": "noop 后端：跳过连通性探测",
+            })
+
+        async def _read_bounded(stream, limit: int = 65536) -> bytes:
+            buf = bytearray()
+            while True:
+                chunk = await stream.read(4096)
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                if len(buf) > limit:
+                    raise ValueError("响应体超过 64KB 上限")
+            return bytes(buf)
+
+        t0 = time.monotonic()
+        try:
+            async with asyncio.timeout(5.0):
+                headers = {"Accept": "application/json"}
+                if test_key and test_key != "EMPTY":
+                    headers["Authorization"] = f"Bearer {test_key}"
+
+                async with aiohttp.ClientSession() as session:
+                    models_url = f"{target_url}/models"
+                    need_fallback = False
+                    try:
+                        async with session.get(models_url, headers=headers, allow_redirects=False) as resp:
+                            latency_ms = max(1, int((time.monotonic() - t0) * 1000))
+                            if resp.status in (301, 302, 303, 307, 308):
+                                return web.json_response({
+                                    "ok": False,
+                                    "status": "redirect_blocked",
+                                    "latency_ms": latency_ms,
+                                    "error": f"端点返回重定向 (HTTP {resp.status})，出于凭据安全已禁止跟随重定向",
+                                })
+                            elif resp.status == 200:
+                                try:
+                                    body_bytes = await _read_bounded(resp.content, 64 * 1024)
+                                    data = json.loads(body_bytes.decode("utf-8", errors="replace"))
+                                except Exception:
+                                    return web.json_response({
+                                        "ok": False,
+                                        "status": "invalid_response",
+                                        "latency_ms": latency_ms,
+                                        "error": "端点响应无法解析为 JSON 或超出大小上限",
+                                    })
+
+                                model_ids: set[str] = set()
+                                if isinstance(data, dict):
+                                    items = data.get("data")
+                                    if isinstance(items, list):
+                                        for item in items:
+                                            if isinstance(item, dict) and "id" in item:
+                                                model_ids.add(str(item["id"]))
+                                            elif isinstance(item, str):
+                                                model_ids.add(item)
+                                    elif "models" in data and isinstance(data["models"], list):
+                                        for item in data["models"]:
+                                            if isinstance(item, dict) and "id" in item:
+                                                model_ids.add(str(item["id"]))
+                                            elif isinstance(item, str):
+                                                model_ids.add(item)
+                                elif isinstance(data, list):
+                                    for item in data:
+                                        if isinstance(item, dict) and "id" in item:
+                                            model_ids.add(str(item["id"]))
+                                        elif isinstance(item, str):
+                                            model_ids.add(item)
+
+                                if target_model in model_ids:
+                                    return web.json_response({
+                                        "ok": True,
+                                        "status": "available",
+                                        "latency_ms": latency_ms,
+                                        "message": f"连接成功，模型 {target_model} 可用",
+                                    })
+                                else:
+                                    return web.json_response({
+                                        "ok": False,
+                                        "status": "model_not_found",
+                                        "latency_ms": latency_ms,
+                                        "error": f"端点连接成功，但模型列表中未找到 {target_model}",
+                                    })
+                            elif resp.status == 401:
+                                return web.json_response({
+                                    "ok": False,
+                                    "status": "unauthorized",
+                                    "latency_ms": latency_ms,
+                                    "error": "认证失败 (HTTP 401)：API 密钥无效或未授权",
+                                })
+                            elif resp.status == 404:
+                                need_fallback = True
+                            else:
+                                return web.json_response({
+                                    "ok": False,
+                                    "status": f"http_{resp.status}",
+                                    "latency_ms": latency_ms,
+                                    "error": f"端点返回错误状态码 HTTP {resp.status}",
+                                })
+                    except aiohttp.ClientConnectorError as e:
+                        latency_ms = max(1, int((time.monotonic() - t0) * 1000))
+                        err_msg = str(e)
+                        if test_key and test_key != "EMPTY":
+                            err_msg = err_msg.replace(test_key, "●●●●●●")
+                        return web.json_response({
+                            "ok": False,
+                            "status": "connection_refused",
+                            "latency_ms": latency_ms,
+                            "error": f"无法连接到端点: {err_msg}",
+                        })
+                    except (asyncio.TimeoutError, TimeoutError):
+                        raise
+                    except Exception as e:
+                        latency_ms = max(1, int((time.monotonic() - t0) * 1000))
+                        err_msg = str(e)
+                        if test_key and test_key != "EMPTY":
+                            err_msg = err_msg.replace(test_key, "●●●●●●")
+                        return web.json_response({
+                            "ok": False,
+                            "status": "connection_error",
+                            "latency_ms": latency_ms,
+                            "error": f"端点连接发生异常: {err_msg}",
+                        })
+
+                    if need_fallback:
+                        chat_url = f"{target_url}/chat/completions"
+                        chat_payload = {
+                            "model": target_model,
+                            "messages": [{"role": "user", "content": "ping"}],
+                            "max_tokens": 1,
+                        }
+                        chat_headers = dict(headers)
+                        chat_headers["Content-Type"] = "application/json"
+                        try:
+                            async with session.post(
+                                chat_url,
+                                headers=chat_headers,
+                                json=chat_payload,
+                                allow_redirects=False,
+                            ) as chat_resp:
+                                latency_ms = max(1, int((time.monotonic() - t0) * 1000))
+                                if chat_resp.status in (301, 302, 303, 307, 308):
+                                    return web.json_response({
+                                        "ok": False,
+                                        "status": "redirect_blocked",
+                                        "latency_ms": latency_ms,
+                                        "error": f"端点返回重定向 (HTTP {chat_resp.status})，出于凭据安全已禁止跟随重定向",
+                                    })
+                                elif chat_resp.status == 200:
+                                    try:
+                                        chat_bytes = await _read_bounded(chat_resp.content, 64 * 1024)
+                                        chat_data = json.loads(chat_bytes.decode("utf-8", errors="replace"))
+                                    except Exception:
+                                        return web.json_response({
+                                            "ok": False,
+                                            "status": "invalid_response",
+                                            "latency_ms": latency_ms,
+                                            "error": "端点响应无法解析为 JSON 或超出大小上限",
+                                        })
+                                    choices = chat_data.get("choices") if isinstance(chat_data, dict) else None
+                                    if isinstance(choices, list) and len(choices) > 0:
+                                        return web.json_response({
+                                            "ok": True,
+                                            "status": "available",
+                                            "latency_ms": latency_ms,
+                                            "message": f"连接成功，模型 {target_model} 响应正常",
+                                        })
+                                    else:
+                                        return web.json_response({
+                                            "ok": False,
+                                            "status": "unexpected_response",
+                                            "latency_ms": latency_ms,
+                                            "error": "端点响应异常: /chat/completions 未返回有效的 choices 列表",
+                                        })
+                                elif chat_resp.status == 401:
+                                    return web.json_response({
+                                        "ok": False,
+                                        "status": "unauthorized",
+                                        "latency_ms": latency_ms,
+                                        "error": "认证失败 (HTTP 401)：API 密钥无效或未授权",
+                                    })
+                                elif chat_resp.status == 404:
+                                    return web.json_response({
+                                        "ok": False,
+                                        "status": "not_found",
+                                        "latency_ms": latency_ms,
+                                        "error": "端点连接成功，但 /models 与 /chat/completions 均返回 404",
+                                    })
+                                else:
+                                    return web.json_response({
+                                        "ok": False,
+                                        "status": f"http_{chat_resp.status}",
+                                        "latency_ms": latency_ms,
+                                        "error": f"端点返回错误状态码 HTTP {chat_resp.status}",
+                                    })
+                        except aiohttp.ClientConnectorError as e:
+                            latency_ms = max(1, int((time.monotonic() - t0) * 1000))
+                            err_msg = str(e)
+                            if test_key and test_key != "EMPTY":
+                                err_msg = err_msg.replace(test_key, "●●●●●●")
+                            return web.json_response({
+                                "ok": False,
+                                "status": "connection_refused",
+                                "latency_ms": latency_ms,
+                                "error": f"无法连接到端点: {err_msg}",
+                            })
+                        except (asyncio.TimeoutError, TimeoutError):
+                            raise
+                        except Exception as e:
+                            latency_ms = max(1, int((time.monotonic() - t0) * 1000))
+                            err_msg = str(e)
+                            if test_key and test_key != "EMPTY":
+                                err_msg = err_msg.replace(test_key, "●●●●●●")
+                            return web.json_response({
+                                "ok": False,
+                                "status": "connection_error",
+                                "latency_ms": latency_ms,
+                                "error": f"端点连接发生异常: {err_msg}",
+                            })
+        except (asyncio.TimeoutError, TimeoutError):
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            return web.json_response({
+                "ok": False,
+                "status": "timeout",
+                "latency_ms": max(elapsed_ms, 5000),
+                "error": "连接超时（超过 5.0 秒单一截止时间），请检查目标服务地址是否可达",
+            })
+        except Exception as e:
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            err_msg = str(e)
+            if test_key and test_key != "EMPTY":
+                err_msg = err_msg.replace(test_key, "●●●●●●")
+            return web.json_response({
+                "ok": False,
+                "status": "error",
+                "latency_ms": elapsed_ms,
+                "error": f"测试端点失败: {err_msg}",
+            })
 
     async def _api_session_history(self, request):  # noqa: ANN001
         from aiohttp import web
