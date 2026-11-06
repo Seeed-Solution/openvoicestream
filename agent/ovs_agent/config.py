@@ -58,6 +58,20 @@ def _default_slv_config() -> dict[str, Any]:
     }
 
 
+DEFAULT_STOP_WORDS: list[str] = [
+    "停", "停下", "停下来", "别说了", "闭嘴", "安静", "不用说了", "别讲了", "停止",
+    "stop", "shut up", "be quiet", "silence",
+]
+
+DEFAULT_EXIT_WORDS: list[str] = [
+    "退下", "退下吧", "退出", "退去", "请退下", "你退下", "你退下吧", "退下去",
+    "休眠", "进入休眠", "去休眠", "睡觉吧", "去睡觉", "休息吧", "去休息",
+    "结束对话", "结束",
+    "再见", "拜拜", "回头见", "下次聊", "拜",
+    "exit", "quit", "goodbye", "bye", "sleep",
+]
+
+
 @dataclass
 class Config:
     """Top-level agent config."""
@@ -178,20 +192,11 @@ class Config:
     # transition state→IDLE without consulting the LLM. Chinese strings
     # match the whole utterance; English strings match case-insensitive
     # whole-utterance or word-boundary prefix.
-    stop_words: list[str] = field(default_factory=lambda: [
-        "停", "停下", "停下来", "别说了", "闭嘴", "安静", "不用说了", "别讲了", "停止",
-        "stop", "shut up", "be quiet", "silence",
-    ])
+    stop_words: list[str] = field(default_factory=lambda: list(DEFAULT_STOP_WORDS))
     # Exit-intent recognition: when the ASR final matches one of these
     # (after normalisation), abort current playback/turn and transition
     # to SLEEPING state (or speak exit_reply_text before sleeping).
-    exit_words: list[str] = field(default_factory=lambda: [
-        "退下", "退下吧", "退出", "退去", "请退下", "你退下", "你退下吧", "退下去",
-        "休眠", "进入休眠", "去休眠", "睡觉吧", "去睡觉", "休息吧", "去休息",
-        "结束对话", "结束",
-        "再见", "拜拜", "回头见", "下次聊", "拜",
-        "exit", "quit", "goodbye", "bye", "sleep",
-    ])
+    exit_words: list[str] = field(default_factory=lambda: list(DEFAULT_EXIT_WORDS))
     # Exit reply: optional spoken farewell when user triggers an exit intent
     # (e.g. "那我先退下了", "好的，有事随时叫我"). If empty, transitions to
     # SLEEPING immediately and quietly.
