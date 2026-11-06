@@ -723,13 +723,17 @@ async def launch_stdio_mcp_subprocess(
     exe_fd = -1
     try:
         exe_fd, venv_bin, _ = inspect_and_open_verified_exe(command)
-        proc_exe = f"/proc/self/fd/{exe_fd}"
+        if command and str(command).strip():
+            target_cmd = str(command).strip()
+            real_cmd = os.path.realpath(target_cmd) if os.path.isabs(target_cmd) else shutil.which(target_cmd)
+            proc_exe = real_cmd or sys.executable
+        else:
+            proc_exe = sys.executable
         mcp_env = build_mcp_env(venv_bin, env)
         proc = await asyncio.create_subprocess_exec(
             proc_exe,
             *args,
             env=mcp_env,
-            pass_fds=(exe_fd,),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
