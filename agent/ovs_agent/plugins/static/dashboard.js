@@ -2085,7 +2085,7 @@
   const MCP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
   // stdio whitelist hints (backend validate_stdio_args is authoritative).
   const MCP_PY_CMD_RE = /^(?:.*\/)?python(?:3(?:\.\d+)?)?$/;
-  const MCP_SCRIPT_RE = /(?:^|\/)mcp_servers\/[^\/]+\.py$/;
+  const MCP_SCRIPT_RE = /(?:^|\/)(?:mcp_servers|opt\/voice)\/[^\/]+\.py$/;
   // Client copy per DashboardApiError code. Unknown codes fall back to the
   // server's SAFE_CLIENT_MESSAGES text, which is already sanitised.
   const MCP_ERROR_TEXT = {
@@ -2496,7 +2496,7 @@
       const a0 = p.args[0] || "";
       const argsOk = a0 === "-m" ? p.args.length >= 2 : MCP_SCRIPT_RE.test(a0);
       if (!argsOk) {
-        return { error: "args 第一行需为 -m（第二行写模块名），或 agent/mcp_servers/ 下的 .py 脚本路径", field: mcpArgs };
+        return { error: "args 第一行需为 -m（第二行写模块名），或 mcp_servers / /opt/voice 下的 .py 脚本路径", field: mcpArgs };
       }
       const env = parseKvText(mcpEnv.value, "=", "env");
       if (env.error) return { error: env.error, field: mcpEnv };

@@ -522,6 +522,8 @@ def validate_mcp_env(env: Any) -> None:
             raise SecurityError(f"Forbidden environment variable key: {k}")
 
         upper_k = k.upper()
+        if upper_k == "PYTHONUNBUFFERED":
+            continue
         if (
             any(upper_k.startswith(p) for p in FORBIDDEN_ENV_PREFIXES)
             or upper_k in FORBIDDEN_ENV_EXACT
@@ -584,7 +586,12 @@ def validate_stdio_args(
         else:
             agent_dir = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
             allowed_dir = os.path.join(agent_dir, "mcp_servers")
-    allowed_dir = os.path.realpath(allowed_dir)
+    allowed_dirs = [allowed_dir]
+    extra_dirs = os.environ.get("OVS_MCP_ALLOWED_DIRS", "/opt/voice")
+    for d in extra_dirs.split(":"):
+        d = d.strip()
+        if d:
+            allowed_dirs.append(os.path.realpath(d))
 
     if os.path.isabs(args[0]):
         script_path = os.path.realpath(args[0])
@@ -600,15 +607,19 @@ def validate_stdio_args(
     if not os.path.isfile(script_path):
         raise SecurityError(f"Script file does not exist or is not a regular file: {script_path}")
 
-    try:
-        rel = os.path.relpath(script_path, allowed_dir)
-        if rel.startswith("..") or rel == ".":
-            raise SecurityError(
-                f"Script path {script_path} is outside allowed directory {allowed_dir}"
-            )
-    except ValueError:
+    within_allowed = False
+    for ad in allowed_dirs:
+        try:
+            rel = os.path.relpath(script_path, ad)
+            if not rel.startswith("..") and rel != ".":
+                within_allowed = True
+                break
+        except ValueError:
+            pass
+
+    if not within_allowed:
         raise SecurityError(
-            f"Script path {script_path} is outside allowed directory {allowed_dir}"
+            f"Script path {script_path} is outside allowed directories {allowed_dirs}"
         )
 
 
