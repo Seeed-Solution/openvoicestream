@@ -13,7 +13,7 @@ after sentence 0. The drain loop then awaited a queue that nothing would ever
 fill and /tts/stream deadlocked on *any* multi-sentence input, holding the
 single session slot until the client timed out.
 
-Measured on radxa before the fix: "Hello there. How are you?" (two short
+Measured on RK3588 before the fix: "Hello there. How are you?" (two short
 sentences, 1.4 s of audio) hung after emitting only sentence 0.
 """
 

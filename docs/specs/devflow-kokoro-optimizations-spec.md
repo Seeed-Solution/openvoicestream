@@ -2,7 +2,7 @@
 
 **Spec ID**: DEVFLOW-KOKORO-OPT-20261104-V2  
 **Status**: APPROVED-CANDIDATE (Post-Codex Phase 1 Revision)  
-**Target Hardware**: RK3588 (Radxa / Cortex-A76 + 3-Core NPU) & RK3576  
+**Target Hardware**: RK3588 (Seeed reComputer / Cortex-A76 + 3-Core NPU) & RK3576  
 **Scope**: 
 - **Scheme A**: 发音人 Style 特征预热与动态切换缓存 (Speaker Style Warm-up & Concurrency-Safe Dynamic Cache)
 - **Scheme B**: 文本前端定长 Token 分桶上 NPU 架构与严密 Attention Mask 约束 (Text Frontend Fixed-Bucket RKNN Pipeline with Strict Attention Mask)
@@ -82,7 +82,7 @@ def warmup_voice(self, route_or_voice: str) -> dict[str, float]:
    - 对 $N_{\text{ph}} \in [1, 30]$ 的所有样本，Padding 区域填入不同噪声值时，有效前缀区域的 `stem_text` 输出保持 $\text{rel\_l2} \le 0.001$（证明 Attention Mask 完全有效，零表征污染）。
    - 对比 CPU ORT 黄金基准，NPU 输出的有效前缀 `rel_l2 \le 0.005`。
 2. **真机性能**：
-   - Radxa RK3588 上 `frontend_stem_b32.rknn` 单次推理耗时 $\le 8\text{ ms}$。
+   - Seeed reComputer (RK3588) 上 `frontend_stem_b32.rknn` 单次推理耗时 $\le 8\text{ ms}$。
 3. **回退容错**：
    - 输入 31 个音素的文本自动优雅回退 CPU ORT，无异常崩溃，音频正常发出。
 
@@ -96,4 +96,4 @@ def warmup_voice(self, route_or_voice: str) -> dict[str, float]:
 2. **阶段 3（双独立交叉审核）**：
    - 由 Codex CLI 独立审查代码实现（并发锁、Mask 节点与数值精度）。
 3. **阶段 4 & 5（真机验收与交付）**：
-   - 在 Radxa RK3588 上跑通端到端回归，提交标准 Commit。
+   - 在 Seeed reComputer (RK3588) 上跑通端到端回归，提交标准 Commit。

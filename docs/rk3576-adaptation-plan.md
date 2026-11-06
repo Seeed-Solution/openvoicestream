@@ -24,7 +24,7 @@ Docker image: `dustynv/onnxruntime:1.20-r36.4.0` (Jetson-specific)
 - **RAM**: 8 GB (shared with NPU)
 - **OS**: Debian 12 (Bookworm), aarch64
 - **Docker**: 29.3.1, Python 3.11.2
-- **Fleet name**: `cat-remote` (Tailscale: 100.89.94.11)
+- **Fleet name**: `rk3576` (reComputer RK3576, Tailscale: 100.89.94.11)
 
 ## 3. sherpa-onnx RKNN Support Matrix
 
@@ -286,7 +286,7 @@ Limitation: TensorRT currently only accelerates encoder; decoder/joiner fallback
 
 | Device | Role | Fleet Name | Specs |
 |--------|------|-----------|-------|
-| RK3576 board | Target deployment | `cat-remote` | 8GB RAM, Debian 12, Tailscale |
+| RK3576 board | Target deployment | `rk3576` (reComputer RK3576) | 8GB RAM, Debian 12, Tailscale |
 | WSL2 desktop | Model conversion (CUDA) | `wsl2-local` | 31GB RAM, GPU, Ubuntu 24.04 |
 | Jetson Orin Nano | Reference/comparison | `seeed-desktop` | 15GB RAM, JetPack 6.x |
 | Jetson AGX Orin | Heavy testing | `base-j50` | 61GB RAM, JetPack 6.x |

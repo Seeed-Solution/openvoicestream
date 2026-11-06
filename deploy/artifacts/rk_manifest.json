@@ -17,7 +17,7 @@
         "asr_path": "qwen3_asr_rknn_encoder_rkllm_decoder_w8a8",
         "tts_path": "matcha_ort_acoustic_rknn_vocos",
         "closed_loop_validated": true,
-        "validated_device": "cat-remote",
+        "validated_device": "recomputer-rk3576",
         "validated_at": "2026-06-10",
         "validated_profile": "rk3576-default",
         "metrics": {
@@ -175,7 +175,7 @@
       "runtime_contract": {
         "asr_path": "paraformer_hybrid_prefix_rknn_suffix_cpu_decoder_rknn",
         "streaming_validated": true,
-        "validated_device": "cat-remote",
+        "validated_device": "recomputer-rk3576",
         "validated_at": "2026-06-09",
         "validated_profile": "rk3576-paraformer-hybrid-rknn-decoder-matcha",
         "metrics": {
@@ -278,7 +278,7 @@
         "tts_path": "matcha_ort_acoustic_rknn_vocos",
         "closed_loop_validated": true,
         "closed_loop_phrase": "\u4f60\u597d\uff0c\u4eca\u5929\u5929\u6c14\u771f\u4e0d\u9519\u3002",
-        "validated_device": "radxa",
+        "validated_device": "recomputer-rk3588",
         "validated_at": "2026-06-10",
         "validated_profile": "rk3588-default",
         "metrics": {
@@ -412,7 +412,7 @@
       "runtime_contract": {
         "asr_path": "paraformer_hybrid_prefix_rknn_suffix_cpu_decoder_rknn",
         "streaming_validated": true,
-        "validated_device": "radxa",
+        "validated_device": "recomputer-rk3588",
         "validated_at": "2026-06-09",
         "validated_profile": "rk3588-paraformer-hybrid-rknn-decoder-matcha",
         "metrics": {
@@ -752,7 +752,7 @@
       },
       "runtime_contract": {
         "note": "RK1828 PCIe accelerator card (RKNN3), NOT the RK3588 host NPU (RKNN2). Served by services/rk1828-llm. The four files are a MATCHED SET from one export \u2014 a mismatched .rknn/.weight pair will not load, so never mix sources or revisions.",
-        "validated_device": "radxa",
+        "validated_device": "recomputer-rk3588",
         "validated_at": "2026-07-30",
         "cli_args": [
           "--core-mask",
@@ -811,7 +811,7 @@
         "asr_path": "qwen3_asr_rknn_encoder_rkllm_decoder_w8a8",
         "tts_path": "piper_vits_encoder_ort_cpu_flow_decoder_rknn_512mel",
         "closed_loop_validated": true,
-        "validated_device": "radxa",
+        "validated_device": "recomputer-rk3588",
         "validated_at": "2026-09-20",
         "notes": "Piper en_US/lessac, exported at --seq-len 128 --mel-len 512 (5.94 s per decode). Validated by transcribing the synthesised audio back through the spark trt_edgellm ASR: short and long sentences came back word for word. A sentence longer than one window is rendered in overlapping windows and stitched (see piper.py _decode_mel), measured at 834 frames -> 2 windows with no truncation and no seam artefact. English only: the lessac MODEL_CARD names its dataset licence, the zh_CN huayan voice states \"License: Unknown\".",
         "env": {
@@ -923,7 +923,7 @@
         "asr_path": "qwen3_asr_rknn_encoder_rkllm_decoder_w8a8",
         "tts_path": "piper_vits_encoder_ort_cpu_flow_decoder_rknn_512mel",
         "closed_loop_validated": true,
-        "validated_device": "cat-remote",
+        "validated_device": "recomputer-rk3576",
         "validated_at": "2026-09-20",
         "notes": "Piper en_US/lessac, exported at --seq-len 128 --mel-len 512 (5.94 s per decode). Validated by transcribing the synthesised audio back through the spark trt_edgellm ASR: short and long sentences came back word for word. A sentence longer than one window is rendered in overlapping windows and stitched (see piper.py _decode_mel), measured at 834 frames -> 2 windows with no truncation and no seam artefact. English only: the lessac MODEL_CARD names its dataset licence, the zh_CN huayan voice states \"License: Unknown\".",
         "env": {
@@ -1030,7 +1030,7 @@
       "runtime_contract": {
         "tts_path": "kokoro_dualbucket",
         "closed_loop_validated": true,
-        "validated_device": "radxa",
+        "validated_device": "recomputer-rk3588",
         "validated_at": "2026-11-04",
         "manifest_sha256": "cfc6aa8d485415884e4cf5eac47b0a786889ed02d9556a1051ed66685927083d",
         "metrics": {

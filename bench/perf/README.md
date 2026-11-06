@@ -105,7 +105,7 @@ remote) and stamped into result files + meta. Force with `--mode-label`.
 # Pushes bench/perf/ to device, fetches corpus, runs perf with loopback client,
 # pulls results back to results/_from_<node>/
 bench/perf/run_on_device.sh orin-nano -- asr --warmup 2 --runs 10
-bench/perf/run_on_device.sh radxa     -- v2v --llm-delay 0
+bench/perf/run_on_device.sh rk3588    -- v2v --llm-delay 0
 bench/perf/run_on_device.sh orin-nano -- matrix
 ```
 
@@ -125,8 +125,8 @@ Don't mix local-mode and remote-mode numbers in the same cross-device table.
 python bench/perf/perf.py matrix --base-url http://orin-nano.local:8621 \
   --container seeed-nano-v111
 
-# Radxa ROCK 5T (RK3588, multilang preset)
-python bench/perf/perf.py matrix --base-url http://radxa.local:8621 \
+# Seeed reComputer (RK3588, multilang preset)
+python bench/perf/perf.py matrix --base-url http://<rk3588-host>:8621 \
   --container seeed-rk-v11
 
 # Raspberry Pi 5 (lite_zh_en preset)

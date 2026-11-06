@@ -20,7 +20,7 @@ and what was/wasn't verified. Do not re-derive that from scratch.
   different name (`asrbench-<device>-<model>`) and, if the port is taken,
   ask before reusing it (`network_mode: host` means only one process can
   bind 8621 at a time).
-- `df -h /` before pulling any image or model — cat-remote was at 90-92%
+- `df -h /` before pulling any image or model — RK3576 device was at 90-92%
   free space (4.8-6.1 GB) as of 2026-09-09; treat any board under ~10%
   headroom the same way (check, don't just pull).
 - `export HF_ENDPOINT=https://hf-mirror.com` before any model download,
@@ -34,13 +34,13 @@ and what was/wasn't verified. Do not re-derive that from scratch.
 
 ## Per-device commands
 
-### cat-remote (RK3576) — SenseVoice already smoke-tested; do the real pass
+### Seeed reComputer (RK3576) — SenseVoice already smoke-tested; do the real pass
 
 The plain-fp16 encoder shipped in both cached images
 (`seeed-local-voice:rk-20260803b`, `openvoicestream:rk-20260903.10`) has a
 known duration-dependent overflow bug (see matrix doc). The fixed
 `fp16-scaled` file is already staged at
-`/home/cat/svtest-scaled/sense-voice-encoder.rk3576.fp16-scaled.rknn` (+ the
+`/opt/models/svtest-scaled/sense-voice-encoder.rk3576.fp16-scaled.rknn` (+ the
 three shared decode assets in the same dir) — **use that mount**, not the
 plain file, unless you specifically want to reproduce the bug for a
 before/after comparison.
@@ -48,13 +48,13 @@ before/after comparison.
 ```bash
 # 1. check state first
 FLEET=~/.rpty/bin/fleet
-$FLEET exec cat-remote "docker ps -a; df -h /"
+$FLEET exec <rk3576-host> "docker ps -a; df -h /"
 
 # 2. start SenseVoice (fixed fp16-scaled model)
-$FLEET exec cat-remote "docker run -d --name asrbench-rk3576-sv \
+$FLEET exec <rk3576-host> "docker run -d --name asrbench-rk3576-sv \
   --privileged --network host -v /dev:/dev \
   -v rk-asr-models:/opt/asr/models \
-  -v /home/cat/svtest-scaled:/opt/asr/sensevoice-rknn \
+  -v /opt/models/svtest-scaled:/opt/asr/sensevoice-rknn \
   -e OVS_PROFILE=rk3576-sensevoice -e OVS_PROFILE_DEFAULT=rk3576-sensevoice \
   -e ASR_BACKEND=sensevoice_rknn -e ASR_PLATFORM=rk3576 -e RK_PLATFORM=rk3576 \
   -e LANGUAGE_MODE=rk -e ASR_NPU_CORE_MASK=NPU_CORE_0 \
@@ -66,8 +66,8 @@ $FLEET exec cat-remote "docker run -d --name asrbench-rk3576-sv \
   python3 -m uvicorn server.main:app --host 0.0.0.0 --port 8621"
 # wait for readyz, then from the Mac (or wherever runs bench.py):
 cd bench/asr_bench
-uv run bench.py --url ws://100.89.94.11:8621 --model sensevoice --lang zh \
-  --segments corpus --concurrency 1,2,4,8 --out results/cat-remote-sensevoice-zh.json
+uv run bench.py --url ws://<rk3576-host>:8621 --model sensevoice --lang zh \
+  --segments corpus --concurrency 1,2,4,8 --out results/rk3576-sensevoice-zh.json
 # expect concurrency>1 to hard-fail with {"error":"too_many_sessions"} — that's
 # server-enforced (execution_policy.mode=serialized), not a bug in bench.py.
 # Report c=1 numbers as the real figure and c>=2 as "not supported by this
@@ -76,33 +76,32 @@ uv run bench.py --url ws://100.89.94.11:8621 --model sensevoice --lang zh \
 # 3. Whisper — NOT smoke-tested (disk headroom). Check df -h / again before
 #    pulling; whisper-asr.yaml estimates ~1-1.4 GB peak_unified_mb for
 #    encoder+decoder. If space allows:
-$FLEET exec cat-remote "docker rm -f asrbench-rk3576-sv"  # release NPU/port first
+$FLEET exec <rk3576-host> "docker rm -f asrbench-rk3576-sv"  # release NPU/port first
 # then start with rk3576-whisper profile (WHISPER_VARIANT=base10 or base20,
 # see configs/profiles/rk3576-whisper.json) and repeat the bench.py call with
 # --model whisper --lang en (Whisper zh CER is 35-56%, not the intended path).
 
 # cleanup when done
-$FLEET exec cat-remote "docker rm -f asrbench-rk3576-sv"
+$FLEET exec <rk3576-host> "docker rm -f asrbench-rk3576-sv"
 ```
 
 Expected time: SenseVoice pass (4 concurrency levels x ~10-20 zh items) ~10-20
 min; Whisper pass similar if disk allows.
 
-### radxa (RK3588)
+### Seeed reComputer (RK3588)
 
 ```bash
-$FLEET exec cat-remote  # (typo guard — this is radxa, not cat-remote)
-$FLEET exec radxa "docker ps -a; df -h /"
+$FLEET exec <rk3588-host> "docker ps -a; df -h /"
 ```
-Compose: `deploy/docker-compose.radxa.yml`, image
+Compose: `deploy/docker-compose.rk3588.yml`, image
 `...seeed-local-voice:rk-qwen3asr-opt-20260610`. Both SenseVoice
 (`rk3588-sensevoice`) and Whisper (`rk3588-whisper` 20s or `-10s`) profiles
 exist; RK3588's `fp16-scaled` requirement is undisputed across every source
 checked (unlike RK3576, no known-good/known-bad ambiguity) — download
 `sense-voice-encoder.rk3588.fp16-scaled.rknn` from `harvestsu/sensevoice-rknn`
-via hf-mirror and mount it the same way as the cat-remote example above
+via hf-mirror and mount it the same way as the RK3576 example above
 (swap `rk3576`→`rk3588` in every env var and filename).
-Run `bench.py --url ws://<radxa-host>:8621 --model sensevoice --lang zh
+Run `bench.py --url ws://<rk3588-host>:8621 --model sensevoice --lang zh
 --concurrency 1,2,4,8`, then repeat for whisper/en.
 
 ### orin-nano (J3011) and orin-nx (J4012)

@@ -270,7 +270,7 @@ sudo systemctl stop rk1828-llm
 ```
 
 **③ 容器名冲突。** 本 compose 的 `speech` 用 `container_name: openvoicestream`。
-如果你还在跑旧的单服务 compose，先 `docker compose -f deploy/docker-compose.radxa.yml stop speech`。
+如果你还在跑旧的单服务 compose，先 `docker compose -f deploy/docker-compose.rk3588.yml stop speech`。
 
 **④ agent 会占住唯一的 session 槽。** 语音服务只允许**一个** `/v2v/stream` 会话。
 所以 agent 一连上：
@@ -432,7 +432,7 @@ docker compose -f deploy/docker-compose.rk3588-ha.yml up -d --build agent
 | agent 日志 `[ha] ha_base_url / ha_token not configured` | `.env` 没被读到，或变量名写错 |
 | 能对话但从不控制设备 | `speech` 的 `OVS_V2V_SERVER_LOOP` 没开。这个和 `OVS_V2V_ENGINE` **缺一不可**，少一个就退化成"只会复述的语音服务" |
 | LLM 容器起不来，日志 `no /dev/pcie-rkep-*` | 宿主机没准备好，回到 §0.1 |
-| LLM 容器 `MODEL_SETUP fail` / `ACK_FAIL` | 卡被别的大模型占着（检查 `systemctl is-active tts-radxa`），或上下文设得太大。**最多重试两次**，之后干净重启宿主机 —— 反复失败会让卡退化 |
+| LLM 容器 `MODEL_SETUP fail` / `ACK_FAIL` | 卡被别的大模型占着（检查 `systemctl is-active tts-rk3588`），或上下文设得太大。**最多重试两次**，之后干净重启宿主机 —— 反复失败会让卡退化 |
 | 回复很长、把符号念出来 | `OVS_V2V_SYSTEM_PROMPT` 被覆盖成空了。不设的话模型会按聊天助手风格输出 Markdown（实测：一个短问句能合成出 **87 秒**音频） |
 | 首次启动很久没反应 | 在拉 4 GB 模型。`docker logs -f ovs-llm` 看进度 |
 

@@ -140,7 +140,7 @@ Their immutable revisions are `9f2c2059341fd2135cc3a0ec09e05150277ea5b6`
 | Target | Compose file | Example profile | Validated image |
 |---|---|---|---|
 | **Jetson** (Orin Nano/NX/AGX) | `deploy/docker-compose.yml` | `jetson-qwen3asr-matcha-nx` (default multilang), `jetson-multilang-highperf` (heavy), `jetson-zh-en` (lightest) | `seeed-local-voice:jetson-v1.14-hotswap` |
-| **RK3588** (Radxa ROCK 5T) | `deploy/docker-compose.radxa.yml` | `rk3588-default` (Qwen3 ASR W8A8 + Matcha), `rk3588-kokoro-rknn` | `seeed-local-voice:rk-qwen3asr-opt-20260610` |
+| **RK3588** (Seeed reComputer RK3588) | `deploy/docker-compose.rk3588.yml` | `rk3588-default` (Qwen3 ASR W8A8 + Matcha), `rk3588-kokoro-rknn` | `seeed-local-voice:rk-qwen3asr-opt-20260610` |
 | **RK3576** (BPI-M5 Pro) | `deploy/docker-compose.rk.yml` | `rk3576-default` (Qwen3 ASR W8A8 + Matcha) | `seeed-local-voice:rk-qwen3asr-opt-20260610` |
 | **Raspberry Pi** (4/5) | `deploy/docker-compose.rpi.yml` | `rpi5-default` | `seeed-local-voice:rpi-v1.0-onnx` |
 
@@ -156,7 +156,7 @@ docker compose -f deploy/docker-compose.yml up -d
 OVS_PROFILE=jetson-qwen3asr-matcha-nx docker compose -f deploy/docker-compose.yml up -d
 
 # Rockchip RK3588:
-OVS_PROFILE=rk3588-paraformer-matcha docker compose -f deploy/docker-compose.radxa.yml up -d
+OVS_PROFILE=rk3588-paraformer-matcha docker compose -f deploy/docker-compose.rk3588.yml up -d
 ```
 
 The RK Paraformer profile names above are stable aliases for the current

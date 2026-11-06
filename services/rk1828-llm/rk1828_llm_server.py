@@ -708,13 +708,17 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--binary",
-        default="/home/radxa/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/"
-        "rknn_Qwen3_demo/rknn_qwen3_demo",
+        default=os.environ.get(
+            "RK1828_BIN",
+            "/opt/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/rknn_Qwen3_demo/rknn_qwen3_demo",
+        ),
     )
     ap.add_argument(
         "--model-dir",
-        default="/home/radxa/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/"
-        "rknn_Qwen3_demo/model",
+        default=os.environ.get(
+            "RK1828_MODEL_DIR",
+            "/opt/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/rknn_Qwen3_demo/model",
+        ),
     )
     ap.add_argument("--core-mask", default="ff")
     ap.add_argument("--max-context", type=int, default=2048)

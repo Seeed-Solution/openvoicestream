@@ -13,7 +13,7 @@ COMPOSE_FILES = (
     ROOT / "deploy/docker-compose.edgellm-v091-voice.yml",
     ROOT / "deploy/docker-compose.rpi.yml",
     ROOT / "deploy/docker-compose.rk.yml",
-    ROOT / "deploy/docker-compose.radxa.yml",
+    ROOT / "deploy/docker-compose.rk3588.yml",
     ROOT / "deploy/spark/docker-compose.spark.yml",
 )
 DATA_VOLUME = "seeed-local-voice-data"

@@ -1,9 +1,9 @@
-# OpenVoiceStream — Rockchip RK3576 (cat-remote).
+# OpenVoiceStream — Rockchip RK3576 (reComputer RK3576).
 #
-# Usage (on cat-remote, repo root as cwd):
+# Usage (repo root as cwd):
 #   docker compose -f deploy/docker-compose.rk.yml up -d
 #
-# For RK3588 (radxa) see deploy/docker-compose.radxa.yml — same image,
+# For RK3588 see deploy/docker-compose.rk3588.yml — same image,
 # different artifact set.
 #
 # Hardware: needs /dev (RKNN NPU char devs) and host networking. The image
@@ -11,7 +11,7 @@
 
 services:
   speech:
-    # Built on radxa (RK3588) from main 1eba801 + the staged rk-runtime
+    # Built on RK3588 from main 1eba801 + the staged rk-runtime
     # artifacts. Same digest as the RK3588 line's openvoicestream tag --
     # one image, two repo names, different artifact set at runtime.
     image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260803b}
@@ -29,7 +29,7 @@ services:
       - rk-tts-models:/opt/tts/models
       - seeed-local-voice-data:/opt/seeed-local-voice/data
       # NPU matmul parallel helper (PYTHONPATH below)
-      - /home/cat/project/rknn-matmul-parallel:/opt/rknn-matmul-parallel:ro
+      - ${RKNN_MATMUL_PARALLEL_DIR:-/opt/rknn-matmul-parallel}:/opt/rknn-matmul-parallel:ro
     environment:
       - OVS_PROFILE=${OVS_PROFILE:-}
       # Week 2: structured JSON logs in production.

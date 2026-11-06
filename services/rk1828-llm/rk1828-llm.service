@@ -8,8 +8,8 @@ StartLimitBurst=5
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/radxa/rk1828-llm
-ExecStart=/home/radxa/rk1828-llm/.venv/bin/python /home/radxa/rk1828-llm/rk1828_llm_server.py --binary /home/radxa/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/rknn_Qwen3_demo/rknn_qwen3_demo --model-dir /home/radxa/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/rknn_Qwen3_demo/model --core-mask ff --max-context 2048 --host 127.0.0.1 --port 1828
+WorkingDirectory=/opt/rk1828-llm
+ExecStart=/opt/rk1828-llm/.venv/bin/python /opt/rk1828-llm/rk1828_llm_server.py --binary /opt/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/rknn_Qwen3_demo/rknn_qwen3_demo --model-dir /opt/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/rknn_Qwen3_demo/model --core-mask ff --max-context 2048 --host 127.0.0.1 --port 1828
 Restart=on-failure
 RestartSec=10
 

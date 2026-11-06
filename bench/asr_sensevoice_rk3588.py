@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Transcribe WAVs with sherpa-onnx SenseVoice (radxa). Resamples to 16k if needed."""
-import sys, wave, numpy as np, sherpa_onnx
+"""Transcribe WAVs with sherpa-onnx SenseVoice (RK3588). Resamples to 16k if needed."""
+import os, sys, wave, numpy as np, sherpa_onnx
 
-MODEL = "/home/radxa/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+MODEL = os.environ.get(
+    "SENSEVOICE_MODEL_DIR",
+    "/opt/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+)
 
 def read_wav(path):
     with wave.open(path, "rb") as w:

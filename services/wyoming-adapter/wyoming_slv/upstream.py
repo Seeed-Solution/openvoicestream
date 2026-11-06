@@ -10,7 +10,7 @@ Two endpoints are used:
   ``{"type": "partial"|"final", "text": ..., "is_final": bool}``.
 * ``POST /tts/stream`` — streaming TTS. Response body is
   ``uint32 LE sample_rate`` followed by raw int16 mono PCM chunks
-  (verified live against radxa 2026-07-30: header 16000, width 2, channels 1).
+  (verified live against RK3588 2026-07-30: header 16000, width 2, channels 1).
 """
 
 from __future__ import annotations

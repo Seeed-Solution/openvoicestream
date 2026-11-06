@@ -648,9 +648,9 @@ case "$target" in
     fi
     compose_files=("deploy/docker-compose.rk.yml")
     ;;
-  rk3588|radxa)
+  rk3588)
     canonical_target="rk3588"
-    compose_files=("deploy/docker-compose.radxa.yml")
+    compose_files=("deploy/docker-compose.rk3588.yml")
     if [[ "${profile:-}" == "rk3588-kokoro-dualbucket" ]]; then
       compose_files+=("deploy/docker-compose.kokoro-dualbucket-rk3588.yml")
     fi

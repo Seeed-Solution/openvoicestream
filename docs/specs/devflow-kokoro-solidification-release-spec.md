@@ -2,7 +2,7 @@
 
 **Spec ID**: DEVFLOW-KOKORO-RELEASE-20261104-V1  
 **Status**: APPROVED (Post-Codex Phase 1 Revision)  
-**Target Hardware**: Radxa RK3588 (4x A76 + 4x A55, 3-Core NPU) / RK3576  
+**Target Hardware**: Seeed reComputer (RK3588) (4x A76 + 4x A55, 3-Core NPU) / RK3576  
 **Scope**: 镜像固化构建契约、一键部署流水线集成、用户文档与 Runbook 交付、开源协议合规与 NOTICE 致谢。
 
 ---
@@ -81,4 +81,4 @@
    - `NOTICE` 文件语法规范，版权所有者、项目 URL 与 License 声明齐全；
    - `README.md` 与 `README.zh-CN.md` 包含 Acknowledgements 章节对应项目。
 3. **无破坏性操作**：
-   - 严禁影响 Radxa 上正在运行的 8621 生产服务（保持 `Up 4 weeks (healthy)`）。
+   - 严禁影响 RK3588 上正在运行的 8621 生产服务（保持 `Up 4 weeks (healthy)`）。

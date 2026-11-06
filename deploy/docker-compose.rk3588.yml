@@ -1,9 +1,9 @@
-# OpenVoiceStream — Rockchip RK3588 (radxa).
+# OpenVoiceStream — Rockchip RK3588 (reComputer RK3588).
 #
-# Usage (on radxa, repo root as cwd):
-#   docker compose -f deploy/docker-compose.radxa.yml up -d
+# Usage (repo root as cwd):
+#   docker compose -f deploy/docker-compose.rk3588.yml up -d
 #
-# Same Docker image as deploy/docker-compose.rk.yml (RK3576 cat-remote);
+# Same Docker image as deploy/docker-compose.rk.yml (RK3576);
 # only the artifact set and runtime tuning differ between the two boards.
 #
 # Hardware: needs /dev (RKNN NPU char devs) and host networking. The image
@@ -105,8 +105,8 @@ services:
       # The endpoint is rk1828-llm.service: Qwen3-4B on the RK1828 PCIe NPU
       # card, OpenAI-compatible, loopback-only (reachable because this container
       # uses host networking). Measured TTFT 130 ms, 81.5 tok/s.
-      # NOTE the card has ONE 5 GB context: rk1828-llm and tts-radxa (Qwen3-TTS)
-      # cannot both be resident, so tts-radxa stays stopped while this runs.
+      # NOTE the card has ONE 5 GB context: rk1828-llm and tts-rk3588 (Qwen3-TTS)
+      # cannot both be resident, so tts-rk3588 stays stopped while this runs.
       - OVS_V2V_ENGINE=voxedge
       - OVS_V2V_SERVER_LOOP=1
       - EDGE_LLM_BASE_URL=http://127.0.0.1:1828/v1

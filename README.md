@@ -198,20 +198,20 @@ OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml
 OVS_PROFILE=jetson-moss-tts-nano-trt docker compose -f deploy/docker-compose.yml up -d
 
 # Rockchip — recommended defaults (Qwen3-ASR RKNN W8A8 + Matcha RKNN).
-docker compose -f deploy/docker-compose.radxa.yml up -d   # RK3588
+docker compose -f deploy/docker-compose.rk3588.yml up -d   # RK3588
 docker compose -f deploy/docker-compose.rk.yml up -d       # RK3576
 
 # Rockchip — Whisper ASR (EN long-form) on RK3588.
 OVS_PROFILE=rk3588-whisper-10s \
-docker compose -f deploy/docker-compose.radxa.yml up -d
+docker compose -f deploy/docker-compose.rk3588.yml up -d
 
 # Rockchip — Qwen3 ASR + Kokoro RKNN TTS (multilingual, NPU-accelerated).
 OVS_PROFILE=rk3588-kokoro-rknn \
-docker compose -f deploy/docker-compose.radxa.yml up -d
+docker compose -f deploy/docker-compose.rk3588.yml up -d
 
 # Rockchip — Kokoro Dual-Bucket TTS (CPU frontend + NPU T50 streaming window, RK3588).
 OVS_PROFILE=rk3588-kokoro-dualbucket \
-docker compose -f deploy/docker-compose.radxa.yml -f deploy/docker-compose.kokoro-dualbucket-rk3588.yml up -d
+docker compose -f deploy/docker-compose.rk3588.yml -f deploy/docker-compose.kokoro-dualbucket-rk3588.yml up -d
 ```
 
 `deploy/install.sh --pull --verify` auto-detects Jetson/RK/RPi on the target
@@ -653,11 +653,11 @@ service are exposed on separate ports.
 
 ### Rockchip Kokoro Dual-Bucket Profile
 
-`OVS_PROFILE=rk3588-kokoro-dualbucket` enables the production-solidified Kokoro Dual-Bucket runtime on RK3588 (Radxa ROCK 5B / 5ITX).
+`OVS_PROFILE=rk3588-kokoro-dualbucket` enables the production-solidified Kokoro Dual-Bucket runtime on RK3588 (Seeed reComputer (RK3588)).
 
 - **Architecture**: Decoupled hybrid pipeline combining a CPU ONNXRuntime text frontend (`frontend_stem`, `duration_head`, `target_tail` at 4 intra-op threads) with an NPU RKNN T50 sliding-window streaming vocoder/generator (50 frames per chunk, 25-frame stride, 3001-sample overlap-discard).
 - **On-Device Latency & Throughput (RK3588)**:
-  - First-packet latency (**TTFT**): **383~414 ms** (measured on Radxa ROCK 5B).
+  - First-packet latency (**TTFT**): **383~414 ms** (measured on Seeed reComputer (RK3588)).
   - Real-Time Factor (**RTF**): **0.380~0.424** across 50-token streaming chunks.
 - **Voices & Languages**: 53 voices pre-packaged (`af_heart` default, British/American English, Chinese, Japanese, European accents).
 - **Deployment**: Zero-dependency offline bundle mounted at `/opt/kokoro-dualbucket/rk3588` with integrity verified by fixed SHA256 manifest. See [`docs/runbooks/kokoro-dualbucket-deploy.md`](docs/runbooks/kokoro-dualbucket-deploy.md).

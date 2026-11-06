@@ -62,7 +62,7 @@ jobs:
             -f deploy/docker-compose.edgellm-v091-cutover-4k.yml \
             config --quiet
           docker compose -f deploy/docker-compose.rk.yml config --quiet
-          docker compose -f deploy/docker-compose.radxa.yml config --quiet
+          docker compose -f deploy/docker-compose.rk3588.yml config --quiet
           docker compose -f deploy/docker-compose.rpi.yml config --quiet
 
       - name: Python compile gate

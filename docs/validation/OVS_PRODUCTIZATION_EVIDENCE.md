@@ -38,7 +38,7 @@ PASS; image=rk-20260903.10; ASR_BACKEND=disabled; TTS_BACKEND=kokoro_convonly
 OVS_PROFILE=rk3588-kokoro-convonly RK_PLATFORM=rk3588 \
 KOKORO_CONVONLY_MANIFEST_SHA256=83733c717e0ce5b76ac1295e4827cf3ad2e111955259e9d670897e100fabeb6e \
 OVS_TTS_MODEL_ID=kokoro-convonly-v1_0-rk3588 \
-docker compose -f deploy/docker-compose.radxa.yml -f deploy/docker-compose.kokoro-convonly-rk3588.yml config
+docker compose -f deploy/docker-compose.rk3588.yml -f deploy/docker-compose.kokoro-convonly-rk3588.yml config
 PASS; image=rk-20260903.10; ASR_BACKEND=disabled; TTS_BACKEND=kokoro_convonly; RK_PLATFORM=rk3588
 
 uv run pytest -q ...

@@ -152,7 +152,7 @@ event/counter and executor completion, not only HTTP slot release.
 - `deploy/docker-compose.edgellm-v091-voice.yml`
 - `deploy/docker-compose.rpi.yml`
 - `deploy/docker-compose.rk.yml`
-- `deploy/docker-compose.radxa.yml`
+- `deploy/docker-compose.rk3588.yml`
 - `deploy/spark/docker-compose.spark.yml`
 - `server/core/tts_speakers.py:1-12`
 - `server/core/sparktts_voices.py`

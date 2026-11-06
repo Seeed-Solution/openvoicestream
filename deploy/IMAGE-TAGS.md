@@ -10,7 +10,7 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 ## Latest Production Specification: `openvoicestream:rk-20261104-kokoro-dualbucket`
 
 - **Image Tag**: `sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20261104-kokoro-dualbucket` (aliased as `openvoicestream:rk-20261104-kokoro-dualbucket`)
-- **Target Hardware**: Radxa RK3588 (ROCK 5B / 5ITX) & RK3576
+- **Target Hardware**: Seeed reComputer (RK3588) & RK3576
 - **Baseline Git Commit**: `74568a23` (main PR #134)
 - **Core Runtime & Dependencies**:
   - `rkvoice-stream`: commit `f605c6f` (NPU T50 sliding-window streaming vocoder integration)
@@ -32,7 +32,7 @@ plus the seeed commit. Rebuild the wheel from the recorded voxedge commit
 - **Lifecycle & Registry Push**:
   - The image was natively built on `spark` (ARM64) from commit `74568a23`.
   - Pushed to `sensecraft-missionpack.seeed.cn` under both `solution/seeed-local-voice:rk-20261104-kokoro-dualbucket` and `solution/openvoicestream:rk-20261104-kokoro-dualbucket`.
-  - Pull and digest verified on Radxa RK3588 (`sha256:d49378672a71f7809dee5595731c79b429418c3775f310cb3bf2ca5a6174183a`).
+  - Pull and digest verified on Seeed reComputer (RK3588) (`sha256:d49378672a71f7809dee5595731c79b429418c3775f310cb3bf2ca5a6174183a`).
 
 | Tag | Seeed commit | voxedge commit | Date | Build host | Registry digest |
 |-----|-------------|----------------|------|-----------|-----------------|
@@ -168,7 +168,7 @@ denylisted (the image sets it and `configs/profiles/jetson-qwen3asr-moss-nx.json
 replaces it on purpose), and `VAD_ENDPOINT_SILENCE_MS` — declared by the four
 `rk3*-default/multilang` profiles — now flips to operator-owned **if and only if
 an operator actually sets it**. `deploy/docker-compose.rk3588-ha.yml:160` and
-`deploy/docker-compose.radxa.yml:82` pass it as `${VAD_ENDPOINT_SILENCE_MS:-}`,
+`deploy/docker-compose.rk3588.yml:82` pass it as `${VAD_ENDPOINT_SILENCE_MS:-}`,
 i.e. empty, and empty values were already excluded from the snapshot, so the
 shipped deployments are unaffected. Anyone who has a value for it in `.env` will
 see it take effect where it was previously ignored; making those four profiles
@@ -226,7 +226,7 @@ suharvest/rkvoice-stream main `5978d04` (PRs #7-#11).
   frames past the rolling buffer's cap were dropped and nothing kept their text.
   The window is now decoded and committed before it rolls, with
   `QWEN3_ASR_TRUE_ROLL_OVERLAP_SEC` (1.0 s) of frames carried over. Measured on
-  radxa with old and new loaded side by side in the speech container, same audio
+  RK3588 with old and new loaded side by side in the speech container, same audio
   at real-time pace: 2.8 s identical and no commit; 7.8 s old "And a case of edge
   computers that…" / new the whole sentence; 13.8 s three commits, whole sentence,
   no repeated, missing or clipped word at a seam. Each commit blocks `feed_audio`
@@ -235,7 +235,7 @@ suharvest/rkvoice-stream main `5978d04` (PRs #7-#11).
   prints no punctuation and the line breaks that stood in for it were flattened.
   Terminators now reach the model as tokens, and a segment gets a trailing pause
   by its final mark (`PIPER_SENTENCE_PAUSE_MS` 300, `PIPER_CLAUSE_PAUSE_MS` 150).
-  Measured on radxa: commas 110-260 ms, sentence ends 300-330 ms, none inside
+  Measured on RK3588: commas 110-260 ms, sentence ends 300-330 ms, none inside
   "1,000" / "10:30"; "Dr. Smith paid 3.14 dollars at example.com. Thanks a lot!"
   is two segments. Also brings `7442ae7` (decoder-window probe sanity check),
   which the base predates.
@@ -243,7 +243,7 @@ suharvest/rkvoice-stream main `5978d04` (PRs #7-#11).
 Verified before building: the base's `streaming.py` is byte-identical to
 rkvoice-stream `7442ae7` and its `piper.py` to `3e935dd`, so the overlay's diff is
 exactly the reviewed commits. Verified after, inside the image and again after a
-pull on radxa: both md5s, no `._*` sidecars, both modules compile and import.
+pull on RK3588: both md5s, no `._*` sidecars, both modules compile and import.
 The code went through three rounds of independent review (Codex); the first two
 found real defects -- a window commit that stopped at the first sentence
 terminator, an external abort accepted as a complete decode, abbreviation and
@@ -270,7 +270,7 @@ want one?" -> "They ship today." Measured 2026-09-21, W8A8, the same audio decod
 with the stop on and off in one process (`bench/perf/corpus` short + long plus
 four two-sentence clips):
 
-| | RK3588 (radxa) | RK3576 (cat-remote) |
+| | reComputer RK3588 | reComputer RK3576 |
 |---|---|---|
 | two English sentences, WER | 71.4% / 60.0% -> 14.3% / 0.0% | 57.1% / 60.0% -> 0.0% / 0.0% |
 | 10 single sentences | 17.9% -> 17.2% | 14.0% -> 14.0% |
@@ -284,7 +284,7 @@ continuation the 2026-06-02 RK3576 runs reported did not reproduce.
 
 Verified in the image: the nine files match main, all seven profiles read `"0"`,
 the contract verifies for both platforms and reports a mismatch when the value is
-put back to `1`. Verified as a running service on radxa (a temporary container
+put back to `1`. Verified as a running service on RK3588 (a temporary container
 from this image on port 8631, same volumes and env as the live one): startup logs
 `RK profile contract verified … 'ASR_FINAL_STOP_ON_PUNCT': '0'` and
 `RKLLM decoder loaded … final_stop_on_punct=False`; through `/asr/stream?vad=none`
@@ -337,7 +337,7 @@ server's 45 s per-turn deadline (seen on the RK3588 + RK1828 devkit as
 `asr: per-turn deadline 45s exceeded`). #116: `OVS_AGENT_SESSION_MAX_INPUT_TOKENS`
 sets the history trim budget; the RK1828 compose sets 1000 for the 2048-token
 Qwen3-4B export. Pull-verified (five file md5s, imports). Run on RK3576
-(`cat-remote`, cloud LLM, 2026-09-23): boots, one injected turn end to end
+(reComputer RK3576, cloud LLM, 2026-09-23): boots, one injected turn end to end
 (ASR -> LLM TTFT 2.15 s -> TTS), partial-driven barge-in back to IDLE in
 254 ms. The keep_asr path #115 exists for is still unverified on a device —
 that board's speech image predates keep_asr, so the server ends the utterance

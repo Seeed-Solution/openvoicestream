@@ -101,7 +101,7 @@ def _detect_jetson_tier() -> Optional[str]:
 
 
 def _detect_rk_tier() -> Optional[str]:
-    # Some boards (e.g. Radxa ROCK 5T) put only a marketing name in
+    # Some boards put only a marketing name in
     # /proc/device-tree/model and expose the SoC family via the
     # `compatible` node instead. Check both. Inside Docker neither
     # /proc/device-tree nor /sys/firmware is exposed by default, so

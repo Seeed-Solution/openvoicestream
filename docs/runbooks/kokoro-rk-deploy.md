@@ -13,7 +13,7 @@ the explicit platform overlay; it overrides inherited `ASR_BACKEND` and
 docker compose -f deploy/docker-compose.rk.yml \
   -f deploy/docker-compose.kokoro-convonly-rk3576.yml up -d
 # RK3588:
-docker compose -f deploy/docker-compose.radxa.yml \
+docker compose -f deploy/docker-compose.rk3588.yml \
   -f deploy/docker-compose.kokoro-convonly-rk3588.yml up -d
 ```
 
@@ -31,8 +31,8 @@ returns one completed audio chunk. Source builds use the recorded RKVoice 0.2.0
 gitlink. Rollback restores
 the previous image tag while retaining the external mounts.
 
-One-page deployment guide for the production Kokoro RK image on Radxa Rock
-5B / 5B+ (RK3588). For reproduction from-scratch (artifact build, audio
+One-page deployment guide for the production Kokoro RK image on Seeed reComputer
+(RK3588). For reproduction from-scratch (artifact build, audio
 parity, R&D decisions), see
 `docs/archive/specs/kokoro-rk-34pct-reproduction-guide.md`.
 
@@ -194,7 +194,7 @@ docker build --build-arg PIP_INDEX=https://pypi.org/simple ...
 ## 5. Roll back
 
 The previous image `openvoicestream:rk-kokoro-2026-05-23` (pre-rebuild) is
-retained on the radxa as the rollback target. To revert:
+retained on the RK3588 host as the rollback target. To revert:
 
 ```bash
 docker stop openvoicestream-kokoro
@@ -202,7 +202,7 @@ docker rm openvoicestream-kokoro
 # Re-run with the hot-patch overlay recipe from
 # docs/archive/specs/kokoro-rk-34pct-reproduction-guide.md §3.D
 # (bind-mounts /tmp/fixed-tts.py, /tmp/fixed-kokoro_rknn.py, and
-#  /home/radxa/models/tts/kokoro-bucket-* at the same destinations).
+#  /opt/models/tts/kokoro-bucket-* at the same destinations).
 ```
 
 The misaki pip install in the writable layer of the old container is

@@ -182,18 +182,18 @@ OVS_PROFILE=jetson-paraformer-kokoro docker compose -f deploy/docker-compose.yml
 OVS_PROFILE=jetson-moss-tts-nano-trt docker compose -f deploy/docker-compose.yml up -d
 
 # Rockchip —— 推荐默认档（Qwen3-ASR RKNN W8A8 + Matcha RKNN）。
-docker compose -f deploy/docker-compose.radxa.yml up -d   # RK3588
+docker compose -f deploy/docker-compose.rk3588.yml up -d   # RK3588
 docker compose -f deploy/docker-compose.rk.yml up -d       # RK3576
 
 # Rockchip —— Whisper ASR（英文长语音）或 Qwen3 ASR + Kokoro RKNN TTS，均在 RK3588。
 OVS_PROFILE=rk3588-whisper-10s \
-docker compose -f deploy/docker-compose.radxa.yml up -d
+docker compose -f deploy/docker-compose.rk3588.yml up -d
 OVS_PROFILE=rk3588-kokoro-rknn \
-docker compose -f deploy/docker-compose.radxa.yml up -d
+docker compose -f deploy/docker-compose.rk3588.yml up -d
 
 # Rockchip —— Kokoro Dual-Bucket TTS（CPU 文本前端 + NPU T50 窗口流式生成，RK3588）。
 OVS_PROFILE=rk3588-kokoro-dualbucket \
-docker compose -f deploy/docker-compose.radxa.yml -f deploy/docker-compose.kokoro-dualbucket-rk3588.yml up -d
+docker compose -f deploy/docker-compose.rk3588.yml -f deploy/docker-compose.kokoro-dualbucket-rk3588.yml up -d
 ```
 
 `deploy/install.sh --pull --verify` 在目标设备上自动检测 Jetson/RK/RPi。以上所有 profile 共享同一客户端 API —— 切换 profile 只是重启，不是重写。
@@ -572,11 +572,11 @@ split-generator 运行时（仅 TTS，英文，53 预置音色）。三个同源
 
 ### Rockchip Kokoro Dual-Bucket Profile
 
-`OVS_PROFILE=rk3588-kokoro-dualbucket` 在 RK3588（Radxa ROCK 5B / 5ITX）上启用经过固化的 Kokoro Dual-Bucket 运行时。
+`OVS_PROFILE=rk3588-kokoro-dualbucket` 在 RK3588（Seeed reComputer (RK3588)）上启用经过固化的 Kokoro Dual-Bucket 运行时。
 
 - **架构设计**：解耦的混合流水线，结合了 CPU ONNXRuntime 文本前端（`frontend_stem`、`duration_head`、`target_tail`，使用 4 个 intra-op 线程）与 NPU RKNN T50 滑动窗口流式生成器/vocoder（每块 50 帧，步长 25 帧，3001 样本重叠舍弃）。
 - **设备端实测延迟与吞吐（RK3588）**：
-  - 首包延迟（**TTFT**）：**383~414 ms**（在 Radxa ROCK 5B 实测）。
+  - 首包延迟（**TTFT**）：**383~414 ms**（在 Seeed reComputer (RK3588) 实测）。
   - 实时率（**RTF**）：**0.380~0.424**（50-token 流式分块）。
 - **音色与多语言**：预置打包 53 种音色（默认 `af_heart`，覆盖英美英音、中文、日语、欧洲口音）。
 - **部署方式**：零外部依赖离线产物包挂载至 `/opt/kokoro-dualbucket/rk3588`，并通过固定 SHA256 清单做完整性校验。详见 [`docs/runbooks/kokoro-dualbucket-deploy.md`](docs/runbooks/kokoro-dualbucket-deploy.md)。

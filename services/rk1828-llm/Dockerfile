@@ -31,7 +31,7 @@
 #   docker build -f services/rk1828-llm/Dockerfile -t edge-llm-rk1828:<tag> .
 #   ^ build context is the REPO ROOT, because the runtime is staged under deploy/
 #
-# Run: see deploy/docker-compose.radxa.yml (needs privileged + the char device).
+# Run: see deploy/docker-compose.rk3588.yml (needs privileged + the char device).
 
 FROM debian:12-slim
 

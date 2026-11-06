@@ -20,7 +20,7 @@ docker compose -f demos/docker-compose.demos.yml --profile all up -d
 Local dev without Docker / 免 Docker 本地开发：
 `cd demos && uv sync && uv run uvicorn gallery.backend.main:app --port 8700`。
 
-| Card / 卡片 | Port | What it demos / 演示什么 | orin-nx (Jetson) | rk3588 (Radxa ROCK 5T) |
+| Card / 卡片 | Port | What it demos / 演示什么 | orin-nx (Jetson) | rk3588 (Seeed reComputer RK3588) |
 |---|---|---|---|---|
 | **Gallery portal** 演示门户 | 8700 | Device status, demo cards, runtime ASR/TTS model hot-switch panel, kiosk attract carousel / 设备状态、演示卡片、模型热切换面板、kiosk 轮播 | ✅ | ✅ (hot-switch: RK NPU engines report `hot_reload_not_supported` / 热切换按引擎能力置灰) |
 | **asr-caption** 实时字幕 | 8701 | Streaming captions word by word, first-token latency, auto language detection / 流式字幕逐字上屏、首字延迟、语言自动检测 | ✅ | ✅ |
