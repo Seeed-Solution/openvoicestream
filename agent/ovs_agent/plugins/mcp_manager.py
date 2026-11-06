@@ -82,6 +82,13 @@ SAFE_CLIENT_MESSAGES: dict[str, str] = {
     "READ_FAILED": "Failed to read configuration file",
     "CONFIG_RECOVERY_REQUIRED": "Configuration state requires manual recovery; locked in read-only mode",
     "INTERNAL_ERROR": "Internal server error occurred",
+    "MISSING_ARGUMENT": "参数缺失，stdio 模式需要提供非空 args 列表",
+    "INVALID_MODULE_NAME": "Python 模块名格式不正确，必须为合法的模块标识符",
+    "INVALID_SCRIPT_PATH": "Python 脚本路径不合法，必须以 .py 结尾且不能以选项参数开头",
+    "SCRIPT_NOT_FOUND": "指定的 Python 脚本文件不存在，请检查路径是否正确",
+    "SCRIPT_NOT_READABLE": "Python 脚本文件无读取权限，请检查文件权限",
+    "ILLEGAL_ARGUMENT": "包含不支持的参数格式，严禁使用 -c 参数",
+    "FORBIDDEN_ENV": "禁止设置动态链接器相关环境变量",
 }
 
 HTTP_STATUS_MAP: dict[str, int] = {
@@ -110,6 +117,13 @@ HTTP_STATUS_MAP: dict[str, int] = {
     "READ_FAILED": 500,
     "CONFIG_RECOVERY_REQUIRED": 500,
     "INTERNAL_ERROR": 500,
+    "MISSING_ARGUMENT": 400,
+    "INVALID_MODULE_NAME": 400,
+    "INVALID_SCRIPT_PATH": 400,
+    "SCRIPT_NOT_FOUND": 400,
+    "SCRIPT_NOT_READABLE": 400,
+    "ILLEGAL_ARGUMENT": 400,
+    "FORBIDDEN_ENV": 400,
 }
 
 VALID_HTTP_STATUSES: set[int] = {400, 401, 403, 409, 429, 500, 502, 503, 504}
@@ -486,6 +500,46 @@ def cleanup_orphaned_tmp_files(config_dir: str) -> None:
 
 ALLOWED_MCP_MODULES: set[str] = {"ovs_agent.mcp.servers", "ha_mcp", "device_mcp"}
 SHELL_METACHARS: set[str] = set(";&|`$><\n\r")
+MODULE_NAME_REGEX = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
+
+
+def redact_sensitive_text(text: str) -> str:
+    """Redact sensitive patterns (tokens, passwords, secrets, api keys) from text."""
+    if not text:
+        return ""
+    # 0. PEM private keys
+    text = re.sub(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
+        "******",
+        text,
+    )
+    # 1. Double-quoted values with escaped quotes (supporting := or space separator)
+    text = re.sub(
+        r'(?i)(["\']?(?:api[_-]?key|token|secret|password|passwd|auth)[_-]?(?:key|token|id)?["\']?(?:\s*[:=]\s*|\s+))"([^"\\]*(?:\\.[^"\\]*)*)"',
+        r'\1"******"',
+        text,
+    )
+    # 2. Single-quoted values with escaped quotes (supporting := or space separator)
+    text = re.sub(
+        r"(?i)([\"']?(?:api[_-]?key|token|secret|password|passwd|auth)[_-]?(?:key|token|id)?[\"']?(?:\s*[:=]\s*|\s+))'([^'\\]*(?:\\.[^'\\]*)*)'",
+        r"\1'******'",
+        text,
+    )
+    # 3. Unquoted key: value / key=value / key <space> value
+    # Supports indented continuation lines even across blank lines
+    text = re.sub(
+        r'(?i)(["\']?(?:api[_-]?key|token|secret|password|passwd|auth)[_-]?(?:key|token|id)?["\']?(?:\s*[:=]\s*|\s+))([^\s,;}{"\'\r\n][^\r\n]*(?:\r?\n(?:[ \t]*\r?\n)*[ \t]+[^\r\n]+)*)',
+        r'\1"******"',
+        text,
+    )
+    # 4. Bearer tokens with base64 / urlsafe chars (+, /, =)
+    text = re.sub(r'(?i)(bearer\s+)[a-zA-Z0-9_\-\.+/=]{8,}', r'\1******', text)
+    # 5. sk- tokens
+    text = re.sub(r'(?i)(sk-[a-zA-Z0-9_\-]{8,})', r'sk-******', text)
+    # 6. ghp_ tokens
+    text = re.sub(r'\b(ghp_[a-zA-Z0-9]{30,}|github_pat_[a-zA-Z0-9_]{30,})\b', r'******', text)
+    return text
+
 
 FORBIDDEN_ENV_PREFIXES: tuple[str, ...] = ("PYTHON", "LD_", "DYLD_", "PERL5")
 FORBIDDEN_ENV_EXACT: frozenset[str] = frozenset({
@@ -528,7 +582,7 @@ def validate_mcp_env(env: Any) -> None:
             any(upper_k.startswith(p) for p in FORBIDDEN_ENV_PREFIXES)
             or upper_k in FORBIDDEN_ENV_EXACT
         ):
-            raise SecurityError(f"Forbidden environment variable key: {k}")
+            raise SecurityError(f"Forbidden environment variable key: {k}", code="FORBIDDEN_ENV")
 
         if not isinstance(v, str):
             raise DashboardApiError(
@@ -537,90 +591,88 @@ def validate_mcp_env(env: Any) -> None:
             )
 
 
+def normalize_stdio_mcp_config(
+    command: str | None,
+    args: Sequence[str],
+    env: dict[str, str] | None = None,
+    config_dir: str | None = None,
+) -> tuple[str, list[str], dict[str, str], str]:
+    """Validate and normalize stdio config into (command, args, env, cwd)."""
+    # 1. 基本结构检查：args 必须为非空字符串列表
+    if not isinstance(args, (list, tuple)) or not args:
+        raise DashboardApiError("MISSING_ARGUMENT", "参数缺失，stdio 模式需要提供非空 args 列表")
+    for arg in args:
+        if not isinstance(arg, str):
+            raise DashboardApiError("MISSING_ARGUMENT", "参数缺失，stdio 模式需要提供非空 args 列表")
+
+    # 2. 禁止参数与特殊字符：
+    for arg in args:
+        if any(c in SHELL_METACHARS for c in arg):
+            raise DashboardApiError("SECURITY_VIOLATION", f"stdio args contain shell metacharacter: {arg}")
+    for arg in args:
+        if arg == "-c" or arg.startswith("-c"):
+            raise DashboardApiError("ILLEGAL_ARGUMENT", "包含不支持的参数格式，严禁使用 -c 参数")
+
+    # 3. 模式匹配与区分：
+    base_dir = config_dir if config_dir else os.getcwd()
+    if args[0] == "-m":
+        if len(args) < 2:
+            raise DashboardApiError("MISSING_ARGUMENT", "参数缺失，stdio 模式需要提供非空 args 列表")
+        if not MODULE_NAME_REGEX.match(args[1]):
+            raise DashboardApiError("INVALID_MODULE_NAME", "Python 模块名格式不正确，必须为合法的模块标识符")
+        norm_args = list(args)
+        cwd = base_dir
+    else:
+        if args[0].startswith("-"):
+            raise DashboardApiError("INVALID_SCRIPT_PATH", "Python 脚本路径不合法，必须以 .py 结尾且不能以选项参数开头")
+        if not re.search(r"\.py$", args[0], re.I):
+            raise DashboardApiError("INVALID_SCRIPT_PATH", "Python 脚本路径不合法，必须以 .py 结尾且不能以选项参数开头")
+        abs_path = os.path.abspath(args[0]) if os.path.isabs(args[0]) else os.path.abspath(os.path.join(base_dir, args[0]))
+        if not os.path.isfile(abs_path):
+            raise DashboardApiError("SCRIPT_NOT_FOUND", "指定的 Python 脚本文件不存在，请检查路径是否正确")
+        if not os.access(abs_path, os.R_OK):
+            raise DashboardApiError("SCRIPT_NOT_READABLE", "Python 脚本文件无读取权限，请检查文件权限")
+        resolved_script = os.path.realpath(abs_path)
+        norm_args = [resolved_script, *args[1:]]
+        cwd = os.path.dirname(resolved_script)
+
+    # 4. Command 解释器规范化（保留 virtualenv 解释器路径）
+    if command and str(command).strip() and str(command).strip() != sys.executable:
+        target_cmd = str(command).strip()
+        exe_fd, venv_bin, _ = inspect_and_open_verified_exe(target_cmd)
+        _safe_close(exe_fd)
+        if not os.path.isabs(target_cmd):
+            resolved = shutil.which(target_cmd)
+            norm_command = resolved if resolved else target_cmd
+        else:
+            norm_command = target_cmd
+        cmd_dir = os.path.dirname(os.path.abspath(norm_command))
+        venv_root = os.path.dirname(cmd_dir)
+        if os.path.isfile(os.path.join(venv_root, "pyvenv.cfg")):
+            venv_bin = cmd_dir
+    else:
+        norm_command = sys.executable
+        venv_bin = os.path.dirname(sys.executable)
+
+    # 5. 环境变量校验与构建
+    norm_env = build_mcp_env(venv_bin, env)
+
+    return norm_command, norm_args, norm_env, cwd
+
+
 def validate_stdio_args(
     args: Sequence[str],
     project_root: str | None = None,
     env: dict[str, Any] | None = None,
+    config_dir: str | None = None,
 ) -> None:
-    """Validate stdio args: disallow -c, shell metacharacters, enforcing Mode A or Mode B."""
-    if env is not None:
-        validate_mcp_env(env)
-    if not isinstance(args, (list, tuple)) or not args:
-        raise DashboardApiError("INVALID_PARAM", "stdio args must be a non-empty list of strings")
-    for arg in args:
-        if not isinstance(arg, str):
-            raise DashboardApiError("INVALID_PARAM", "stdio args must contain only strings")
-        if any(c in SHELL_METACHARS for c in arg):
-            raise SecurityError(f"stdio args contain shell metacharacter: {arg}")
-        if arg.startswith("-c"):
-            raise SecurityError(f"stdio args contain prohibited -c flag or prefix: {arg}")
-
-    # Mode A: Python standard module
-    if args[0] == "-m":
-        if len(args) < 2 or args[1] not in ALLOWED_MCP_MODULES:
-            raise SecurityError(
-                f"Module {args[1] if len(args) > 1 else ''} not in allowed MCP modules"
-            )
-        return
-
-    # Mode B: Script file strictly within agent/mcp_servers/
-    if args[0].startswith("-"):
-        raise SecurityError(f"Prohibited flag or option in script mode: {args[0]}")
-    if not args[0].endswith(".py"):
-        raise SecurityError(f"stdio script must end with .py: {args[0]}")
-
-    if project_root is not None:
-        p = os.path.realpath(project_root)
-        if os.path.basename(p) == "agent":
-            allowed_dir = os.path.join(p, "mcp_servers")
-        else:
-            allowed_dir = os.path.join(p, "agent", "mcp_servers")
-    else:
-        env_root = os.environ.get("OVS_MCP_PROJECT_ROOT")
-        if env_root:
-            p = os.path.realpath(env_root)
-            if os.path.basename(p) == "agent":
-                allowed_dir = os.path.join(p, "mcp_servers")
-            else:
-                allowed_dir = os.path.join(p, "agent", "mcp_servers")
-        else:
-            agent_dir = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-            allowed_dir = os.path.join(agent_dir, "mcp_servers")
-    allowed_dirs = [allowed_dir]
-    extra_dirs = os.environ.get("OVS_MCP_ALLOWED_DIRS", "/opt/voice")
-    for d in extra_dirs.split(":"):
-        d = d.strip()
-        if d:
-            allowed_dirs.append(os.path.realpath(d))
-
-    if os.path.isabs(args[0]):
-        script_path = os.path.realpath(args[0])
-    else:
-        candidate = os.path.realpath(args[0])
-        if os.path.isfile(candidate):
-            script_path = candidate
-        elif project_root and os.path.isfile(os.path.join(project_root, args[0])):
-            script_path = os.path.realpath(os.path.join(project_root, args[0]))
-        else:
-            script_path = candidate
-
-    if not os.path.isfile(script_path):
-        raise SecurityError(f"Script file does not exist or is not a regular file: {script_path}")
-
-    within_allowed = False
-    for ad in allowed_dirs:
-        try:
-            rel = os.path.relpath(script_path, ad)
-            if not rel.startswith("..") and rel != ".":
-                within_allowed = True
-                break
-        except ValueError:
-            pass
-
-    if not within_allowed:
-        raise SecurityError(
-            f"Script path {script_path} is outside allowed directories {allowed_dirs}"
-        )
+    """Validate stdio args leveraging normalize_stdio_mcp_config."""
+    normalize_stdio_mcp_config(
+        command=None,
+        args=args,
+        env=env,
+        config_dir=config_dir or project_root,
+    )
 
 
 def inspect_and_open_verified_exe(exe_path: str | None = None) -> tuple[int, str, list[tuple[str, int, int]]]:
@@ -698,6 +750,10 @@ def build_mcp_env(venv_bin: str, extra_env: dict[str, str] | None = None) -> dic
     if extra_env is not None:
         validate_mcp_env(extra_env)
     env = os.environ.copy()
+    for k in list(env.keys()):
+        upper_k = k.upper()
+        if upper_k.startswith("LD_") or upper_k.startswith("DYLD_"):
+            env.pop(k, None)
     current_path = env.get("PATH", "")
     if venv_bin not in current_path.split(os.pathsep):
         env["PATH"] = f"{venv_bin}{os.pathsep}{current_path}"
@@ -715,25 +771,23 @@ async def launch_stdio_mcp_subprocess(
     env: dict[str, str] | None = None,
     command: str | None = None,
     project_root: str | None = None,
+    config_dir: str | None = None,
 ) -> asyncio.subprocess.Process:
-    """Launch stdio MCP subprocess via /proc/self/fd/<fd> preventing TOCTOU attacks."""
-    validate_stdio_args(args, project_root=project_root, env=env)
-    if env is not None:
-        validate_mcp_env(env)
+    """Launch stdio MCP subprocess."""
+    norm_cmd, norm_args, norm_env, cwd = normalize_stdio_mcp_config(
+        command=command,
+        args=args,
+        env=env,
+        config_dir=config_dir or project_root,
+    )
     exe_fd = -1
     try:
-        exe_fd, venv_bin, _ = inspect_and_open_verified_exe(command)
-        if command and str(command).strip():
-            target_cmd = str(command).strip()
-            real_cmd = os.path.realpath(target_cmd) if os.path.isabs(target_cmd) else shutil.which(target_cmd)
-            proc_exe = real_cmd or sys.executable
-        else:
-            proc_exe = sys.executable
-        mcp_env = build_mcp_env(venv_bin, env)
+        exe_fd, _, _ = inspect_and_open_verified_exe(norm_cmd)
         proc = await asyncio.create_subprocess_exec(
-            proc_exe,
-            *args,
-            env=mcp_env,
+            norm_cmd,
+            *norm_args,
+            env=norm_env,
+            cwd=cwd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -942,24 +996,138 @@ def merge_server_secrets(
 
 # ── 9. Sandboxed Test Execution ────────────────────────────────────────────
 
+_PENDING_CLEANUP_TASKS: set[asyncio.Task] = set()
+_PENDING_REAP_TASKS: set[asyncio.Task] = set()
+
+
+async def _supervise_pending_reap(proc: asyncio.subprocess.Process, pid: int) -> None:
+    """Supervise reap of process that did not exit within initial 1.0s wait."""
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=10.0)
+        logger.info("Background reap confirmed for MCP process %d", pid)
+    except asyncio.TimeoutError:
+        logger.error("MCP process %d failed to reap after background timeout 10.0s", pid)
+    except Exception as e:
+        logger.error("Error in background reap for MCP process %d: %s", pid, e)
+
+
+async def _cleanup_process(
+    proc: asyncio.subprocess.Process,
+    pgid: int,
+    drain_task: asyncio.Task | None,
+) -> str:
+    # 返回值: REAP_CONFIRMED | REAP_TIMEOUT_PENDING | REAP_FAILED
+    # 1. 尝试优雅终止整个进程组 (SIGTERM)
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+    # 2. 组级存活判定：基于 os.killpg(pgid, 0) 等待最多 1.5s 优雅期
+    deadline = asyncio.get_running_loop().time() + 1.5
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            pass
+        await asyncio.sleep(0.05)
+
+    # 3. 升级强制击杀整个进程组 (SIGKILL)
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+    # 4. 回收父进程并显式标记状态，超时则转交后台监督
+    reap_status = "REAP_CONFIRMED"
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=1.0)
+    except asyncio.TimeoutError:
+        reap_status = "REAP_TIMEOUT_PENDING"
+        logger.warning(
+            "MCP parent process %d failed to reap within 1.0s after SIGKILL; launching background supervisor",
+            proc.pid,
+        )
+        reap_task = asyncio.create_task(_supervise_pending_reap(proc, proc.pid))
+        _PENDING_REAP_TASKS.add(reap_task)
+
+        def _on_reap_done(t: asyncio.Task) -> None:
+            try:
+                if not t.cancelled():
+                    _ = t.exception()
+            except Exception:
+                pass
+            finally:
+                _PENDING_REAP_TASKS.discard(t)
+
+        reap_task.add_done_callback(_on_reap_done)
+    except Exception as e:
+        reap_status = "REAP_FAILED"
+        logger.warning("Error waiting for MCP process %d to exit: %s", proc.pid, e)
+
+    # 5. 清理 stderr 排水任务与管道
+    if drain_task:
+        if not drain_task.done():
+            drain_task.cancel()
+            try:
+                await asyncio.wait_for(drain_task, timeout=0.5)
+            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                pass
+        try:
+            if drain_task.done() and not drain_task.cancelled():
+                _ = drain_task.exception()
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    return reap_status
+
+
 async def test_stdio_mcp_server(
     args: Sequence[str],
     env: dict[str, str] | None = None,
     timeout: float = 10.0,
     command: str | None = None,
     project_root: str | None = None,
+    config_dir: str | None = None,
+    **kwargs: Any,
 ) -> list[dict[str, Any]]:
     """Execute stdio discovery in an isolated process group with clean killpg teardown."""
-    if env is not None:
-        validate_mcp_env(env)
     proc = None
     pgid = None
-    try:
-        proc = await launch_stdio_mcp_subprocess(args, env, command=command, project_root=project_root)
+    drain_task = None
+    stderr_tail = bytearray()
+    drain_error: Exception | None = None
+    first_cancel: asyncio.CancelledError | None = None
+
+    async def _drain_stderr(stream: asyncio.StreamReader) -> None:
+        nonlocal stderr_tail, drain_error
         try:
-            pgid = os.getpgid(proc.pid)
-        except OSError:
-            pgid = None
+            while True:
+                chunk = await stream.read(1024)
+                if not chunk:
+                    break
+                stderr_tail.extend(chunk)
+                if len(stderr_tail) > 4096:
+                    del stderr_tail[:-4096]
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            drain_error = e
+            logger.warning("MCP stderr drain encountered error: %s", e)
+            raise
+
+    try:
+        proc = await launch_stdio_mcp_subprocess(
+            args=args,
+            env=env,
+            command=command,
+            config_dir=config_dir or project_root,
+        )
+        pgid = proc.pid
+        if proc.stderr is not None:
+            drain_task = asyncio.create_task(_drain_stderr(proc.stderr))
 
         async def _query_tools() -> list[dict[str, Any]]:
             init_req = {
@@ -978,7 +1146,15 @@ async def test_stdio_mcp_server(
 
             init_line = await proc.stdout.readline()
             if not init_line:
+                if drain_error is not None:
+                    raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain error: {drain_error}")
+                raw_err = stderr_tail.decode("utf-8", errors="replace").strip()
+                if raw_err:
+                    redacted = redact_sensitive_text(raw_err)
+                    raise DashboardApiError("CONNECTION_FAILED", f"Empty response from MCP server; stderr: {redacted}")
                 raise DashboardApiError("CONNECTION_FAILED", "Empty response from MCP server during initialize")
+            if drain_error is not None:
+                raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain error: {drain_error}")
             try:
                 init_resp = json.loads(init_line.decode("utf-8"))
             except Exception as e:
@@ -996,7 +1172,15 @@ async def test_stdio_mcp_server(
 
             list_line = await proc.stdout.readline()
             if not list_line:
+                if drain_error is not None:
+                    raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain error: {drain_error}")
+                raw_err = stderr_tail.decode("utf-8", errors="replace").strip()
+                if raw_err:
+                    redacted = redact_sensitive_text(raw_err)
+                    raise DashboardApiError("CONNECTION_FAILED", f"Empty response from MCP server; stderr: {redacted}")
                 raise DashboardApiError("CONNECTION_FAILED", "Empty response from MCP server during tools/list")
+            if drain_error is not None:
+                raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain error: {drain_error}")
             try:
                 list_resp = json.loads(list_line.decode("utf-8"))
             except Exception as e:
@@ -1015,31 +1199,123 @@ async def test_stdio_mcp_server(
                 )
             return tools
 
+        query_task = asyncio.create_task(_query_tools())
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
         try:
-            tools = await asyncio.wait_for(_query_tools(), timeout=timeout)
-            return tools
-        except asyncio.TimeoutError:
-            raise DashboardApiError("TEST_TIMEOUT", "MCP server test connection timed out")
-        except DashboardApiError:
+            wait_tasks = [query_task]
+            if drain_task and not drain_task.done():
+                wait_tasks.append(drain_task)
+            done, pending = await asyncio.wait(
+                wait_tasks,
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                if not query_task.done():
+                    query_task.cancel()
+                raise DashboardApiError("TEST_TIMEOUT", "MCP server test connection timed out")
+
+            if drain_task and drain_task in done:
+                drain_exc = drain_task.exception() if not drain_task.cancelled() else None
+                if drain_exc or drain_error:
+                    if not query_task.done():
+                        query_task.cancel()
+                    err = drain_exc or drain_error
+                    raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain failed: {err}")
+
+            if query_task not in done:
+                remaining = timeout - (loop.time() - start_time)
+                if remaining <= 0:
+                    if not query_task.done():
+                        query_task.cancel()
+                    raise DashboardApiError("TEST_TIMEOUT", "MCP server test connection timed out")
+                done2, _ = await asyncio.wait([query_task], timeout=remaining)
+                if not done2:
+                    if not query_task.done():
+                        query_task.cancel()
+                    raise DashboardApiError("TEST_TIMEOUT", "MCP server test connection timed out")
+
+            if query_task.cancelled():
+                raise asyncio.CancelledError()
+            q_exc = query_task.exception()
+            if q_exc:
+                if isinstance(q_exc, DashboardApiError):
+                    raise q_exc
+                raise DashboardApiError("CONNECTION_FAILED", f"MCP test connection failed: {q_exc}") from q_exc
+            return query_task.result()
+        except asyncio.CancelledError as ce:
+            if not query_task.done():
+                query_task.cancel()
+            if first_cancel is None:
+                first_cancel = ce
             raise
-        except Exception as e:
-            raise DashboardApiError("CONNECTION_FAILED", f"MCP test connection failed: {e}") from e
+    except asyncio.CancelledError as ce:
+        if first_cancel is None:
+            first_cancel = ce
+        raise
     finally:
         if proc is not None and pgid is not None:
-            is_alive = (proc.returncode if hasattr(proc, "returncode") else proc.poll()) is None
-            if is_alive:
+            def _on_background_cleanup_done(t: asyncio.Task) -> None:
+                """Explicitly observe result/exception to prevent unretrieved task exception warnings."""
                 try:
-                    os.killpg(pgid, signal.SIGTERM)
-                    await asyncio.wait_for(proc.wait(), timeout=0.5)
-                except (ProcessLookupError, PermissionError, asyncio.TimeoutError):
-                    pass
-            is_alive = (proc.returncode if hasattr(proc, "returncode") else proc.poll()) is None
-            if is_alive:
+                    if not t.cancelled():
+                        exc = t.exception()
+                        if exc:
+                            logger.error("Background MCP cleanup task failed: %s", exc)
+                        else:
+                            res = t.result()
+                            logger.info("Background MCP cleanup completed with status: %s", res)
+                except Exception as e:
+                    logger.error("Error inspecting background cleanup task completion: %s", e)
+                finally:
+                    _PENDING_CLEANUP_TASKS.discard(t)
+
+            cleanup_task = asyncio.create_task(_cleanup_process(proc, pgid, drain_task))
+            loop = asyncio.get_running_loop()
+            cleanup_deadline = loop.time() + 3.5
+            cleanup_exc: Exception | None = None
+            cleanup_status: str | None = None
+
+            while not cleanup_task.done():
+                remaining = cleanup_deadline - loop.time()
+                if remaining <= 0:
+                    logger.error(
+                        "MCP cleanup task exceeded budget 3.5s; status=CLEANUP_PENDING_TIMEOUT; transferring to background supervisor"
+                    )
+                    _PENDING_CLEANUP_TASKS.add(cleanup_task)
+                    cleanup_task.add_done_callback(_on_background_cleanup_done)
+                    break
                 try:
-                    os.killpg(pgid, signal.SIGKILL)
-                    await asyncio.wait_for(proc.wait(), timeout=0.5)
-                except (ProcessLookupError, PermissionError, asyncio.TimeoutError):
-                    pass
+                    cleanup_status = await asyncio.wait_for(asyncio.shield(cleanup_task), timeout=remaining)
+                except asyncio.CancelledError as ce:
+                    if first_cancel is None:
+                        first_cancel = ce  # 锁定首个原始取消异常
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "MCP cleanup task timed out against budget; status=CLEANUP_PENDING_TIMEOUT; transferring to background supervisor"
+                    )
+                    _PENDING_CLEANUP_TASKS.add(cleanup_task)
+                    cleanup_task.add_done_callback(_on_background_cleanup_done)
+                    break
+                except Exception as exc:
+                    cleanup_exc = exc
+                    logger.exception("MCP cleanup task raised exception: %s", exc)
+                    break
+
+            # 若前台正常等待完成，必须显式消费其异常或返回值
+            if cleanup_task.done() and not cleanup_task.cancelled():
+                if cleanup_exc is None:
+                    cleanup_exc = cleanup_task.exception()
+                if cleanup_exc is None and cleanup_status is None:
+                    cleanup_status = cleanup_task.result()
+
+            if first_cancel is not None:
+                if cleanup_exc is not None:
+                    first_cancel.__context__ = cleanup_exc
+                raise first_cancel
+            elif cleanup_exc is not None:
+                raise cleanup_exc
 
 
 async def test_sse_mcp_server(
@@ -1508,12 +1784,11 @@ class McpServerManager:
                     except Exception as e:
                         raise SecurityError(f"Command verification failed for {command}: {e}")
                     test_kwargs["command"] = command
-                if project_root:
-                    test_kwargs["project_root"] = project_root
+                test_kwargs["project_root"] = project_root or self.config_dir
 
                 env = effective_cfg.get("env")
                 validate_mcp_env(env)
-                validate_stdio_args(args, project_root=project_root, env=env)
+                validate_stdio_args(args, project_root=test_kwargs["project_root"], env=env)
                 tools = await test_stdio_mcp_server(
                     args=args, env=env, timeout=timeout, **test_kwargs
                 )
@@ -1540,7 +1815,6 @@ class McpServerManager:
         """Add new server or update existing server with secret retention."""
         if not isinstance(server_data, dict):
             raise DashboardApiError("INVALID_PARAM", "server_data must be a dictionary")
-        validate_mcp_env(server_data.get("env"))
 
         name = server_data.get("name")
         if not isinstance(name, str) or not re.match(r"^[a-zA-Z0-9_\-]{1,64}$", name):
@@ -1552,28 +1826,21 @@ class McpServerManager:
 
         validated_server = copy.deepcopy(server_data)
         validated_server["transport"] = transport
-        validate_mcp_env(validated_server.get("env"))
 
         if transport == "stdio":
             command = validated_server.get("command")
-            if not command:
-                validated_server["command"] = sys.executable
-            else:
-                if not isinstance(command, str) or not command.strip():
-                    raise DashboardApiError("INVALID_PARAM", "command must be a non-empty string if provided")
-                try:
-                    fd, _, _ = inspect_and_open_verified_exe(command)
-                    _safe_close(fd)
-                except DashboardApiError:
-                    raise
-                except Exception as e:
-                    raise SecurityError(f"Command verification failed for {command}: {e}")
-
             args = validated_server.get("args")
-            if not args or not isinstance(args, (list, tuple)):
-                raise DashboardApiError("INVALID_PARAM", "stdio transport requires args list")
-            validate_stdio_args(args, env=validated_server.get("env"))
+            env = validated_server.get("env")
+            norm_cmd, norm_args, _, _ = normalize_stdio_mcp_config(
+                command=command,
+                args=args,
+                env=env,
+                config_dir=self.config_dir,
+            )
+            validated_server["command"] = norm_cmd
+            validated_server["args"] = norm_args
         elif transport == "sse":
+            validate_mcp_env(validated_server.get("env"))
             url = validated_server.get("url")
             if not url or not isinstance(url, str):
                 raise DashboardApiError("INVALID_PARAM", "sse transport requires url string")
@@ -1603,7 +1870,6 @@ class McpServerManager:
         """Patch an existing MCP server configuration by name with secret retention."""
         if not isinstance(patch_data, dict):
             raise DashboardApiError("INVALID_PARAM", "patch_data must be a dictionary")
-        validate_mcp_env(patch_data.get("env"))
 
         if not isinstance(name, str) or not re.match(r"^[a-zA-Z0-9_\-]{1,64}$", name):
             raise DashboardApiError("INVALID_PARAM", "Invalid server name")
@@ -1633,28 +1899,21 @@ class McpServerManager:
             merged_data.update(patch_data)
             merged_data["name"] = target_name
             merged_data["transport"] = transport
-            validate_mcp_env(merged_data.get("env"))
 
             if transport == "stdio":
                 command = merged_data.get("command")
-                if not command:
-                    merged_data["command"] = sys.executable
-                else:
-                    if not isinstance(command, str) or not command.strip():
-                        raise DashboardApiError("INVALID_PARAM", "command must be a non-empty string if provided")
-                    try:
-                        fd, _, _ = inspect_and_open_verified_exe(command)
-                        _safe_close(fd)
-                    except DashboardApiError:
-                        raise
-                    except Exception as e:
-                        raise SecurityError(f"Command verification failed for {command}: {e}")
-
                 args = merged_data.get("args")
-                if not args or not isinstance(args, (list, tuple)):
-                    raise DashboardApiError("INVALID_PARAM", "stdio transport requires args list")
-                validate_stdio_args(args, env=merged_data.get("env"))
+                env = merged_data.get("env")
+                norm_cmd, norm_args, _, _ = normalize_stdio_mcp_config(
+                    command=command,
+                    args=args,
+                    env=env,
+                    config_dir=self.config_dir,
+                )
+                merged_data["command"] = norm_cmd
+                merged_data["args"] = norm_args
             elif transport == "sse":
+                validate_mcp_env(merged_data.get("env"))
                 url = merged_data.get("url")
                 if not url or not isinstance(url, str):
                     raise DashboardApiError("INVALID_PARAM", "sse transport requires url string")
