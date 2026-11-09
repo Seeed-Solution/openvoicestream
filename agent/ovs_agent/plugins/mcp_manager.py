@@ -35,7 +35,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Sequence
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import aiohttp
 from aiohttp import web
@@ -974,6 +974,69 @@ def sanitize_server_config(server: dict[str, Any]) -> dict[str, Any]:
     return s
 
 
+def _normalize_cmd_str(cmd: str | None) -> str | None:
+    if not cmd:
+        return None
+    try:
+        resolved = shutil.which(cmd)
+        if resolved:
+            return os.path.realpath(resolved)
+        return os.path.realpath(cmd)
+    except Exception:
+        return cmd
+
+
+def is_mcp_target_matched(new_cfg: dict[str, Any], existing_cfg: dict[str, Any] | None) -> bool:
+    """Check if new_cfg targets the same destination as existing_cfg."""
+    if not existing_cfg or not isinstance(existing_cfg, dict):
+        return False
+    existing_transport = existing_cfg.get("transport", "stdio").strip().lower()
+    req_transport = new_cfg.get("transport", existing_transport).strip().lower()
+    if req_transport != existing_transport:
+        return False
+    if req_transport == "sse":
+        req_url = new_cfg.get("url")
+        existing_url = existing_cfg.get("url")
+        if req_url is not None and existing_url is not None and req_url != existing_url:
+            return False
+        return True
+    if req_transport == "stdio":
+        req_cmd = new_cfg.get("command")
+        existing_cmd = existing_cfg.get("command")
+        req_args = new_cfg.get("args")
+        existing_args = existing_cfg.get("args")
+
+        norm_req_cmd = _normalize_cmd_str(req_cmd)
+        norm_exist_cmd = _normalize_cmd_str(existing_cmd)
+
+        if norm_req_cmd is not None and norm_exist_cmd is not None and norm_req_cmd != norm_exist_cmd:
+            return False
+        if req_args is not None and existing_args is not None and list(req_args) != list(existing_args):
+            return False
+        return True
+    return False
+
+
+def _check_no_masked_credentials(server_cfg: dict[str, Any]) -> None:
+    """Raise DashboardApiError if any masked credential is present."""
+    env = server_cfg.get("env")
+    if isinstance(env, dict):
+        for k, v in env.items():
+            if v == "******":
+                raise DashboardApiError(
+                    "INVALID_PARAM",
+                    f"Cannot retain masked credential '******' for env '{k}' when server target changes; please provide new secret",
+                )
+    hdrs = server_cfg.get("headers")
+    if isinstance(hdrs, dict):
+        for k, v in hdrs.items():
+            if v == "******":
+                raise DashboardApiError(
+                    "INVALID_PARAM",
+                    f"Cannot retain masked credential '******' for header '{k}' when server target changes; please provide new secret",
+                )
+
+
 def merge_server_secrets(
     new_server: dict[str, Any], existing_server: dict[str, Any] | None
 ) -> dict[str, Any]:
@@ -982,7 +1045,8 @@ def merge_server_secrets(
         raise DashboardApiError("INVALID_PARAM", "new_server must be a dictionary")
     validate_mcp_env(new_server.get("env"))
     s = copy.deepcopy(new_server)
-    if not existing_server:
+    if not existing_server or not is_mcp_target_matched(s, existing_server):
+        _check_no_masked_credentials(s)
         return s
 
     # Merge env
@@ -1357,16 +1421,18 @@ async def test_stdio_mcp_server(
 async def test_sse_mcp_server(
     url: str, headers: dict[str, str] | None = None, timeout: float = 10.0
 ) -> list[dict[str, Any]]:
-    """Test SSE MCP server with DNS pinning, no proxy, and redirect blocking."""
+    """Test SSE MCP server with DNS pinning, no proxy, redirect blocking, and protocol handshake."""
     pinned_ip, _, port = await validate_and_pin_sse_url(url)
     resolver = PinnedResolver(pinned_ip, port)
     connector = aiohttp.TCPConnector(resolver=resolver)
     try:
+        req_headers = dict(headers or {})
+        req_headers.setdefault("Accept", "text/event-stream, application/json")
         async with aiohttp.ClientSession(connector=connector, trust_env=False) as session:
             try:
                 async with session.get(
                     url,
-                    headers=headers,
+                    headers=req_headers,
                     allow_redirects=False,
                     timeout=aiohttp.ClientTimeout(total=timeout),
                 ) as resp:
@@ -1382,9 +1448,125 @@ async def test_sse_mcp_server(
                         data = await resp.json()
                         tools = data.get("tools", [])
                         return [
-                            {"name": t.get("name", ""), "description": t.get("description", "")} for t in tools
+                            {"name": t.get("name", ""), "description": t.get("description", "")}
+                            for t in tools
+                            if isinstance(t, dict)
                         ]
-                    return []
+
+                    if "text/event-stream" not in content_type:
+                        raise DashboardApiError(
+                            "CONNECTION_FAILED",
+                            f"Invalid content-type for MCP SSE server: expected 'text/event-stream', got '{content_type}'",
+                        )
+
+                    # Handshake: Read lines until finding endpoint event
+                    endpoint_path = None
+                    current_event = None
+                    line_count = 0
+                    async for raw_line in resp.content:
+                        line_count += 1
+                        if line_count > 100:
+                            break
+                        line = raw_line.decode("utf-8", errors="replace").strip()
+                        if line.startswith("event:"):
+                            current_event = line.split(":", 1)[1].strip()
+                        elif line.startswith("data:") and current_event == "endpoint":
+                            endpoint_path = line.split(":", 1)[1].strip()
+                            break
+                        elif not line:
+                            current_event = None
+
+                    if not endpoint_path:
+                        # Connected to SSE, but no endpoint event found
+                        return []
+
+                    # Validate post target
+                    post_url = urljoin(url, endpoint_path)
+                    await validate_and_pin_sse_url(post_url)
+
+                    # Initialize POST
+                    init_payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "clientInfo": {"name": "openvoicestream", "version": "1.0"},
+                        },
+                    }
+                    post_headers = dict(headers or {})
+                    post_headers["Content-Type"] = "application/json"
+                    async with session.post(
+                        post_url,
+                        json=init_payload,
+                        headers=post_headers,
+                        allow_redirects=False,
+                        timeout=aiohttp.ClientTimeout(total=timeout),
+                    ) as p_resp:
+                        if p_resp.status in (301, 302, 303, 307, 308):
+                            raise DashboardApiError(
+                                "CONNECTION_FAILED",
+                                f"Redirect not allowed on MCP message endpoint (status {p_resp.status})",
+                            )
+                        if p_resp.status >= 400:
+                            raise DashboardApiError(
+                                "CONNECTION_FAILED", f"MCP initialize POST failed with HTTP {p_resp.status}"
+                            )
+
+                    # Request tools/list
+                    tools_payload = {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/list",
+                        "params": {},
+                    }
+                    async with session.post(
+                        post_url,
+                        json=tools_payload,
+                        headers=post_headers,
+                        allow_redirects=False,
+                        timeout=aiohttp.ClientTimeout(total=timeout),
+                    ) as p_resp:
+                        if p_resp.status in (301, 302, 303, 307, 308):
+                            raise DashboardApiError(
+                                "CONNECTION_FAILED",
+                                f"Redirect not allowed on MCP tools/list endpoint (status {p_resp.status})",
+                            )
+                        if p_resp.status >= 400:
+                            raise DashboardApiError(
+                                "CONNECTION_FAILED", f"MCP tools/list POST failed with HTTP {p_resp.status}"
+                            )
+
+                    # Read tools response from SSE stream
+                    tools: list[dict[str, Any]] = []
+                    current_event = None
+                    msg_count = 0
+                    async for raw_line in resp.content:
+                        msg_count += 1
+                        if msg_count > 200:
+                            break
+                        line = raw_line.decode("utf-8", errors="replace").strip()
+                        if line.startswith("event:"):
+                            current_event = line.split(":", 1)[1].strip()
+                        elif line.startswith("data:"):
+                            data_str = line.split(":", 1)[1].strip()
+                            try:
+                                msg = json.loads(data_str)
+                                if msg.get("id") == 2 and "result" in msg:
+                                    raw_tools = msg["result"].get("tools", [])
+                                    tools = [
+                                        {"name": t.get("name", ""), "description": t.get("description", "")}
+                                        for t in raw_tools
+                                        if isinstance(t, dict)
+                                    ]
+                                    break
+                            except Exception:
+                                pass
+                        elif not line:
+                            current_event = None
+
+                    return tools
             except asyncio.TimeoutError:
                 raise DashboardApiError("TEST_TIMEOUT", "MCP server test connection timed out")
             except DashboardApiError:
@@ -1954,6 +2136,15 @@ class McpServerManager:
                 if not url or not isinstance(url, str):
                     raise DashboardApiError("INVALID_PARAM", "sse transport requires url string")
                 await validate_and_pin_sse_url(url)
+
+            if not is_mcp_target_matched(merged_data, existing):
+                logger.warning(
+                    "Target changed for server '%s'; dropping existing credentials", target_name
+                )
+                if "headers" not in patch_data:
+                    merged_data.pop("headers", None)
+                if "env" not in patch_data:
+                    merged_data.pop("env", None)
 
             final_server = merge_server_secrets(merged_data, existing)
             validate_mcp_env(final_server.get("env"))

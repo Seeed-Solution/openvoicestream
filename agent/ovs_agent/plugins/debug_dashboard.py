@@ -11,6 +11,7 @@ Strictly a debugging aid. No auth, no TLS, no CORS handling.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import errno
 import json
 import logging
@@ -47,6 +48,24 @@ from .mcp_manager import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.asynccontextmanager
+async def _async_timeout(delay: float):
+    """Asyncio timeout compatible with Python >= 3.10."""
+    if getattr(asyncio, "timeout", None) is not None:
+        async with asyncio.timeout(delay):
+            yield
+    else:
+        loop = asyncio.get_running_loop()
+        task = asyncio.current_task()
+        handle = loop.call_later(delay, task.cancel)
+        try:
+            yield
+        except asyncio.CancelledError:
+            raise asyncio.TimeoutError() from None
+        finally:
+            handle.cancel()
 
 _STATIC_DIR = Path(__file__).with_name("static")
 _INDEX_HTML = _STATIC_DIR / "dashboard.html"
@@ -2126,7 +2145,7 @@ class DebugDashboardPlugin(Plugin):
 
         t0 = time.monotonic()
         try:
-            async with asyncio.timeout(5.0):
+            async with _async_timeout(5.0):
                 headers = {"Accept": "application/json"}
                 if test_key and test_key != "EMPTY":
                     headers["Authorization"] = f"Bearer {test_key}"

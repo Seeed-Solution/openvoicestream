@@ -2174,5 +2174,86 @@ def test_safe_replace_ebusy_bind_mount_fallback(tmp_path):
         assert exc_info.value.errno == errno.EIO
 
 
+@pytest.mark.asyncio
+async def test_target_changed_clears_old_credentials(dashboard_env):
+    """Codex Review Finding P1: Changing MCP server URL or command must not leak old credentials."""
+    manager = dashboard_env["plugin"]._mcp_manager
+
+    # 1. Add initial SSE server with Authorization header
+    with patch("ovs_agent.plugins.mcp_manager.validate_and_pin_sse_url", return_value=("1.2.3.3", "api.alpha.com", 443)):
+        await manager.add_or_update_server({
+            "name": "sse_auth_test",
+            "transport": "sse",
+            "url": "https://api.alpha.com/sse",
+            "headers": {"Authorization": "Bearer alpha_secret_token"},
+        })
+
+    # Verify secret is saved
+    servers = manager.persisted_servers
+    srv = next(s for s in servers if s["name"] == "sse_auth_test")
+    assert srv["headers"]["Authorization"] == "Bearer alpha_secret_token"
+
+    # 2. Patch URL to a new target WITHOUT providing new headers -> old headers must be dropped
+    with patch("ovs_agent.plugins.mcp_manager.validate_and_pin_sse_url", return_value=("1.2.3.4", "api.beta.com", 443)):
+        await manager.patch_server("sse_auth_test", {
+            "url": "https://api.beta.com/sse",
+        })
+
+    servers = manager.persisted_servers
+    srv = next(s for s in servers if s["name"] == "sse_auth_test")
+    assert srv["url"] == "https://api.beta.com/sse"
+    assert "headers" not in srv or not srv.get("headers")
+
+    # 3. Patch URL to another target while attempting to send masked '******' -> must raise INVALID_PARAM
+    with patch("ovs_agent.plugins.mcp_manager.validate_and_pin_sse_url", return_value=("1.2.3.5", "api.gamma.com", 443)):
+        with pytest.raises(DashboardApiError) as exc_info:
+            await manager.patch_server("sse_auth_test", {
+                "url": "https://api.gamma.com/sse",
+                "headers": {"Authorization": "******"},
+            })
+        assert exc_info.value.code == "INVALID_PARAM"
+
+
+@pytest.mark.asyncio
+async def test_async_timeout_python_310_compatibility():
+    """Codex Review Finding P2: Verify timeout works even when asyncio.timeout is unavailable (Python 3.10)."""
+    from ovs_agent.plugins.debug_dashboard import _async_timeout
+
+    # Test under simulated Python 3.10 where hasattr(asyncio, 'timeout') is bypassed
+    with patch("asyncio.timeout", None):
+        t0 = time.monotonic()
+        with pytest.raises((asyncio.TimeoutError, TimeoutError)):
+            async with _async_timeout(0.05):
+                await asyncio.sleep(0.3)
+        elapsed = time.monotonic() - t0
+        assert elapsed < 0.25
+
+
+@pytest.mark.asyncio
+async def test_sse_test_rejects_html_and_verifies_handshake():
+    """Codex Review Finding P2: SSE testing must reject plain HTML pages."""
+    app = web.Application()
+
+    async def html_handler(request):
+        return web.Response(text="<html><body>Welcome</body></html>", content_type="text/html")
+
+    app.router.add_get("/not_mcp", html_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+
+    try:
+        with patch("ovs_agent.plugins.mcp_manager.validate_and_pin_sse_url", return_value=("127.0.0.1", "127.0.0.1", port)):
+            with pytest.raises(DashboardApiError) as exc_info:
+                await run_sse_test(f"http://127.0.0.1:{port}/not_mcp")
+            assert exc_info.value.code == "CONNECTION_FAILED"
+            assert "expected 'text/event-stream'" in str(exc_info.value)
+    finally:
+        await runner.cleanup()
+
+
+
 
 
