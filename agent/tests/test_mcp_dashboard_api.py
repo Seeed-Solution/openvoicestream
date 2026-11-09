@@ -2656,17 +2656,78 @@ async def test_active_servers_populates_runtime_status_from_bridge(dashboard_env
             assert active["dead_server"]["connected"] is False
             assert active["dead_server"]["tools"] == []
             assert "Process exited" in active["dead_server"]["error"]
-        active = {s["name"]: s for s in data["active_servers"]}
 
-        assert active["live_server"]["status"] == "connected"
-        assert active["live_server"]["connected"] is True
-        assert len(active["live_server"]["tools"]) == 1
-        assert active["live_server"]["tools"][0]["name"] == "weather"
 
-        assert active["dead_server"]["status"] == "failed"
-        assert active["dead_server"]["connected"] is False
-        assert active["dead_server"]["tools"] == []
-        assert "Process exited" in active["dead_server"]["error"]
+@pytest.mark.asyncio
+async def test_external_disk_modification_triggers_etag_mismatch_and_refreshes_state(tmp_path):
+    """Codex Review Finding P2: Reject stale writes when config was modified externally on disk."""
+    cfg_file = tmp_path / "agent-config.yaml"
+    cfg_file.write_text(
+        """
+mcp_servers:
+  - name: s1
+    transport: stdio
+    command: python3
+""",
+        encoding="utf-8",
+    )
+
+    manager = McpServerManager(config_path=str(cfg_file), active_servers=[])
+    old_etag = manager.persisted_config_etag
+
+    # External modification on disk
+    cfg_file.write_text(
+        """
+mcp_servers:
+  - name: s1
+    transport: stdio
+    command: python3
+  - name: s_external
+    transport: stdio
+    command: python3
+""",
+        encoding="utf-8",
+    )
+
+    # Calling commit_servers must detect the on-disk ETag change
+    with pytest.raises(DashboardApiError) as exc_info:
+        await manager.commit_servers([{"name": "s1_edited", "transport": "stdio", "command": "python3"}])
+
+    assert exc_info.value.code == "ETAG_MISMATCH"
+    assert "modified externally" in str(exc_info.value)
+    # Manager's cached state must have refreshed to the external disk content
+    assert manager.persisted_config_etag != old_etag
+    assert len(manager.persisted_servers) == 2
+    assert manager.persisted_servers[1]["name"] == "s_external"
+
+
+@pytest.mark.asyncio
+async def test_sse_test_rejects_stream_without_endpoint_event():
+    """Codex Review Finding P2: SSE test must reject streams that do not emit endpoint event."""
+    app = web.Application()
+
+    async def sse_no_endpoint_handler(request):
+        resp = web.StreamResponse(status=200, headers={"Content-Type": "text/event-stream"})
+        await resp.prepare(request)
+        # Emits a comment/ping instead of endpoint event, then closes stream
+        await resp.write(b": ping\n\n")
+        return resp
+
+    app.router.add_get("/sse", sse_no_endpoint_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+
+    try:
+        with patch("ovs_agent.plugins.mcp_manager.validate_and_pin_sse_url", return_value=("127.0.0.1", "127.0.0.1", port)):
+            with pytest.raises(DashboardApiError) as exc_info:
+                await run_sse_test(f"http://127.0.0.1:{port}/sse", timeout=2.0)
+            assert exc_info.value.code == "CONNECTION_FAILED"
+            assert "did not emit required MCP 'endpoint' event" in str(exc_info.value)
+    finally:
+        await runner.cleanup()
 
 
 

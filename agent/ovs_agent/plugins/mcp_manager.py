@@ -1470,15 +1470,6 @@ async def test_sse_mcp_server(
                         raise DashboardApiError("CONNECTION_FAILED", f"SSE endpoint returned HTTP {resp.status}")
 
                     content_type = resp.headers.get("Content-Type", "")
-                    if "application/json" in content_type:
-                        data = await resp.json()
-                        tools = data.get("tools", [])
-                        return [
-                            {"name": t.get("name", ""), "description": t.get("description", "")}
-                            for t in tools
-                            if isinstance(t, dict)
-                        ]
-
                     if "text/event-stream" not in content_type:
                         raise DashboardApiError(
                             "CONNECTION_FAILED",
@@ -1504,8 +1495,10 @@ async def test_sse_mcp_server(
                             current_event = None
 
                     if not endpoint_path:
-                        # Connected to SSE, but no endpoint event found
-                        return []
+                        raise DashboardApiError(
+                            "CONNECTION_FAILED",
+                            "SSE connection established but server did not emit required MCP 'endpoint' event",
+                        )
 
                     # Validate post target and enforce same-origin to prevent credential exfiltration
                     post_url = urljoin(url, endpoint_path)
@@ -1886,6 +1879,19 @@ class McpServerManager:
 
         if len(prior_raw_bytes) > MAX_CONFIG_SIZE:
             raise ConfigPersistenceError("FILE_TOO_LARGE", "Existing file too large")
+
+        # Check if on-disk MCP config was modified externally since last read
+        on_disk_mcp_servers = self.parse_config(prior_raw_bytes)
+        on_disk_etag = self.calculate_etag(on_disk_mcp_servers)
+        if on_disk_etag != self._persisted_config_etag:
+            # Refresh internal cached state to reflect external changes and reject stale write
+            self._persisted_mcp_servers = on_disk_mcp_servers
+            self._persisted_file_sha256 = hashlib.sha256(prior_raw_bytes).hexdigest()
+            self._persisted_config_etag = on_disk_etag
+            raise DashboardApiError(
+                "ETAG_MISMATCH",
+                "Configuration file was modified externally on disk, please refresh",
+            )
 
         new_raw_bytes = self.serialize_config(new_servers, prior_raw_bytes)
         if len(new_raw_bytes) > MAX_CONFIG_SIZE:
