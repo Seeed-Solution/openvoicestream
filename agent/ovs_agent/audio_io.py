@@ -89,6 +89,7 @@ class AudioIO:
         except (TypeError, ValueError):
             self._mic_channel_select = None
         self.input_sr = input_sr
+        self._actual_input_sr = input_sr
         self.output_sr = output_sr  # fixed device output rate
         # Source rate of incoming TTS PCM. Defaults to output_sr (no resample).
         # When the TTS model emits a different rate (matcha=16k vs qwen3=24k),
@@ -241,38 +242,127 @@ class AudioIO:
     def _make_input_stream_callback(self):
         """Return the sounddevice callback for the input stream.
 
-        Mono devices get ``self._input_callback`` unchanged. Multi-channel
-        devices get it wrapped in a downmix so the rest of the pipeline is
-        channel-count agnostic.
+        Mono devices running at matching sample rate get ``self._input_callback`` unchanged.
+        Multi-channel or sample-rate mismatched devices get it wrapped in a downmix/resample
+        so the rest of the pipeline is channel-count and sample-rate agnostic (delivering
+        ``self.input_sr`` mono int16 chunks).
         """
-        if self._mic_channels == 1:
+        ch = self._mic_channels
+        sel = self._mic_channel_select
+        src_sr = getattr(self, "_actual_input_sr", self.input_sr)
+        target_sr = self.input_sr
+
+        if ch == 1 and src_sr == target_sr:
             return self._input_callback
 
         upstream_cb = self._input_callback
-        ch = self._mic_channels
-        sel = self._mic_channel_select
 
-        def _downmix_cb(indata, frames, time_info, status):
+        def _downmix_and_resample_cb(indata, frames, time_info, status):
             try:
-                arr = np.frombuffer(indata, dtype=np.int16).reshape(-1, ch)
-                if sel is not None and 0 <= sel < ch:
-                    mono_arr = arr[:, sel]
+                if ch > 1:
+                    arr = np.frombuffer(indata, dtype=np.int16).reshape(-1, ch)
+                    if sel is not None and 0 <= sel < ch:
+                        mono_arr = arr[:, sel]
+                    else:
+                        # Symmetric-array fallback: mean across channels. On
+                        # reSpeaker XVF3800 this mixes the AEC reference channel
+                        # into the voice — pin mic_channel_select instead.
+                        mono_arr = np.mean(arr, axis=1).astype(np.int16)
                 else:
-                    # Symmetric-array fallback: mean across channels. On
-                    # reSpeaker XVF3800 this mixes the AEC reference channel
-                    # into the voice — pin mic_channel_select instead.
-                    mono_arr = np.mean(arr, axis=1).astype(np.int16)
-                mono = mono_arr.astype(np.int16).tobytes()
+                    mono_arr = np.frombuffer(indata, dtype=np.int16)
+
+                if src_sr != target_sr:
+                    if src_sr % target_sr == 0:
+                        step = src_sr // target_sr
+                        mono_arr = mono_arr[::step]
+                    else:
+                        n_out = int(round(len(mono_arr) * target_sr / src_sr))
+                        y = np.interp(
+                            np.linspace(0, len(mono_arr) - 1, n_out, dtype=np.float64),
+                            np.arange(len(mono_arr), dtype=np.float64),
+                            mono_arr.astype(np.float32),
+                        )
+                        mono_arr = np.clip(y, -32768, 32767).astype(np.int16)
+
+                mono = mono_arr.tobytes()
             except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("downmix failed (%s) — passing raw", exc)
+                logger.warning("audio input processing failed (%s) — passing raw", exc)
                 mono = bytes(indata)
             upstream_cb(mono, frames, time_info, status)
 
         if sel is not None:
-            logger.info("Opening mic with %d channels → select ch %d as mono", ch, sel)
+            logger.info("Opening mic with %d channels → select ch %d as mono (sr: %d→%d)", ch, sel, src_sr, target_sr)
         else:
-            logger.info("Opening mic with %d channels → mean downmix to mono", ch)
-        return _downmix_cb
+            logger.info("Opening mic with %d channels → downmix to mono (sr: %d→%d)", ch, src_sr, target_sr)
+        return _downmix_and_resample_cb
+
+    def _resolve_input_sample_rate(self, device, requested_sr: int) -> int:
+        """Resolve a sample rate supported by the input device.
+
+        Devices like the reSpeaker XVF3800 USB mic array strictly require
+        their native 48000 Hz hardware rate and reject 16000 Hz with
+        PortAudioError -9997 (Invalid sample rate). We detect this and
+        allow opening at 48000 Hz, with downsampling to 16000 Hz in the callback.
+        """
+        if sd is None:
+            return requested_sr
+        # 1. Try requested_sr first
+        try:
+            sd.check_input_settings(
+                device=device,
+                samplerate=requested_sr,
+                channels=self._mic_channels,
+                dtype="int16",
+            )
+            return requested_sr
+        except Exception:
+            pass
+
+        # 2. Try device default_samplerate
+        try:
+            if device is not None:
+                info = sd.query_devices(device, kind="input")
+            else:
+                info = sd.query_devices(kind="input")
+            dev_sr = int(info.get("default_samplerate") or 0)
+            if dev_sr > 0 and dev_sr != requested_sr:
+                try:
+                    sd.check_input_settings(
+                        device=device,
+                        samplerate=dev_sr,
+                        channels=self._mic_channels,
+                        dtype="int16",
+                    )
+                    logger.info(
+                        "Input device requires native rate %d Hz (requested %d Hz); will resample to %d Hz",
+                        dev_sr, requested_sr, requested_sr,
+                    )
+                    return dev_sr
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # 3. Try standard common rates
+        for candidate in (48000, 44100, 32000, 24000, 16000):
+            if candidate == requested_sr:
+                continue
+            try:
+                sd.check_input_settings(
+                    device=device,
+                    samplerate=candidate,
+                    channels=self._mic_channels,
+                    dtype="int16",
+                )
+                logger.info(
+                    "Input device accepted candidate rate %d Hz (requested %d Hz); will resample to %d Hz",
+                    candidate, requested_sr, requested_sr,
+                )
+                return candidate
+            except Exception:
+                pass
+
+        return requested_sr
 
     def _build_and_start_input_stream(self):
         """Construct + start a fresh RawInputStream. Closes the stream
@@ -284,9 +374,11 @@ class AudioIO:
         """
         device = self._resolve_input_device()
         self._refresh_input_profile(device)
+        self._actual_input_sr = self._resolve_input_sample_rate(device, self.input_sr)
+        chunk_frames = int(round(self._actual_input_sr * self.chunk_ms / 1000.0))
         stream = sd.RawInputStream(
-            samplerate=self.input_sr,
-            blocksize=self._chunk_frames,
+            samplerate=self._actual_input_sr,
+            blocksize=chunk_frames,
             device=device,
             channels=self._mic_channels,
             dtype="int16",

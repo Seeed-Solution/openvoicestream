@@ -369,3 +369,46 @@ def test_resolver_returns_same_product_token_after_alsa_card_index_drift(monkeyp
     ]
     second = devices.resolve_input_index("auto", wait_s=0.0, require_device=True)
     assert first == second == "XVF3800"
+
+
+def test_auto_input_resolves_48k_native_sample_rate_and_resamples(monkeypatch):
+    """Devices like XVF3800 only support 48000 Hz. AudioIO must resolve 48000 Hz
+    and resample audio chunks to 16000 Hz for downstream KWS / ASR."""
+    import numpy as np
+
+    fake_sd = _fake_respeaker_sd()
+    fake_sd.input_devices["xvf"]["default_samplerate"] = 48000
+
+    def fake_check_input_settings(device=None, samplerate=None, channels=None, dtype=None):
+        if samplerate != 48000:
+            raise RuntimeError(f"Invalid sample rate: {samplerate}")
+
+    fake_sd.check_input_settings = fake_check_input_settings
+
+    _wire_fake_audio(monkeypatch, fake_sd, lambda *args, **kwargs: "XVF3800")
+    audio = AudioIO(
+        input_device="auto",
+        input_sr=16000,
+        mic_channels=2,
+        mic_channel_select=0,
+    )
+    resolved_sr = audio._resolve_input_sample_rate("XVF3800", requested_sr=16000)
+    assert resolved_sr == 48000
+
+    # Test callback downmixing and downsampling 48k -> 16k
+    captured_mono = []
+    audio._actual_input_sr = 48000
+    audio._input_callback = lambda pcm, *args: captured_mono.append(pcm)
+
+    cb = audio._make_input_stream_callback()
+    # 4800 frames of stereo (2 ch) at 48kHz = 100ms
+    test_pcm = (np.ones((4800, 2), dtype=np.int16) * 1234).tobytes()
+    cb(test_pcm, 4800, None, 0)
+
+    assert len(captured_mono) == 1
+    # After downsample to 16kHz, length should be 1600 frames * 2 bytes = 3200 bytes
+    assert len(captured_mono[0]) == 3200
+    arr = np.frombuffer(captured_mono[0], dtype=np.int16)
+    assert len(arr) == 1600
+    assert arr[0] == 1234
+

@@ -937,7 +937,7 @@ class DebugDashboardPlugin(Plugin):
                 raw, f,
                 default_flow_style=False, allow_unicode=True, sort_keys=False,
             )
-        tmp.replace(path)
+        _safe_replace(str(tmp), str(path))
 
     async def _api_wake(self, request):  # noqa: ANN001
         from aiohttp import web
@@ -1382,7 +1382,7 @@ class DebugDashboardPlugin(Plugin):
                 json.dump({"version": 1, "phrases": phrases}, stream, ensure_ascii=False)
                 stream.write("\n")
             os.chmod(tmp, 0o600)
-            tmp.replace(path)
+            _safe_replace(str(tmp), str(path))
         except Exception:
             try:
                 tmp.unlink(missing_ok=True)

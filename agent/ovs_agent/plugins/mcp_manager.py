@@ -303,10 +303,33 @@ def _safe_fsync_file(fd: int) -> None:
 
 
 def _safe_replace(src: str, dst: str) -> None:
-    """Atomically replace src -> dst."""
+    """Atomically replace src -> dst, with bind-mount fallback."""
     try:
         os.replace(src, dst)
     except OSError as e:
+        if e.errno == errno.EBUSY:
+            # Docker single-file bind mount point: cannot rename over mount point.
+            # Fall back to copying content directly into the existing file inode.
+            try:
+                with open(src, "rb") as s_fp, open(dst, "wb") as d_fp:
+                    shutil.copyfileobj(s_fp, d_fp)
+                    d_fp.flush()
+                    os.fsync(d_fp.fileno())
+                try:
+                    os.unlink(src)
+                except OSError:
+                    pass
+                try:
+                    os.chmod(dst, 0o600)
+                except OSError:
+                    pass
+                return
+            except OSError as write_err:
+                raise ConfigPersistenceError(
+                    "REPLACE_FAILED",
+                    f"Replace (bind-mount copy) {src} -> {dst} failed: {write_err}",
+                    write_err.errno,
+                ) from write_err
         raise ConfigPersistenceError("REPLACE_FAILED", f"Replace {src} -> {dst} failed: {e}", e.errno) from e
 
 

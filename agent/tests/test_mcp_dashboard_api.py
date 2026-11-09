@@ -2132,4 +2132,34 @@ async def test_add_server_empty_args_yields_missing_argument(dashboard_env):
         assert data["code"] == "MISSING_ARGUMENT"
 
 
+def test_safe_replace_ebusy_bind_mount_fallback(tmp_path):
+    """Verify _safe_replace falls back to copying content directly into target
+    when os.replace fails with [Errno 16] EBUSY (simulating Docker bind-mounted files)."""
+    from ovs_agent.plugins.mcp_manager import _safe_replace
+    src_file = tmp_path / "config.yaml.tmp.12345"
+    dst_file = tmp_path / "config.yaml"
+
+    dst_file.write_text("initial: original_content\n", encoding="utf-8")
+    src_file.write_text("updated: bind_mount_content\n", encoding="utf-8")
+
+    orig_replace = os.replace
+
+    def mock_replace(src, dst):
+        if dst == str(dst_file):
+            raise OSError(errno.EBUSY, "Device or resource busy (simulated bind mount)")
+        return orig_replace(src, dst)
+
+    with patch("ovs_agent.plugins.mcp_manager.os.replace", side_effect=mock_replace):
+        _safe_replace(str(src_file), str(dst_file))
+
+    # Verify dst_file got the new content
+    assert dst_file.read_text(encoding="utf-8") == "updated: bind_mount_content\n"
+    # Verify src_file was cleaned up
+    assert not src_file.exists()
+    # Verify mode is 0600
+    st = dst_file.stat()
+    assert stat.S_IMODE(st.st_mode) == 0o600
+
+
+
 
