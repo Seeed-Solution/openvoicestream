@@ -329,25 +329,26 @@ async def test_t2_stdio_whitelist_and_proc_fd_exec(dashboard_env, tmp_path):
 
     # 3. Parent directory permission tampering raises SecurityError
     real_st = os.stat(sys.executable)
-    with patch("os.stat") as mock_stat:
-        # World writable mode on parent (without sticky bit)
-        tampered_st = os.stat_result((
-            (real_st.st_mode & ~stat.S_ISVTX) | 0o002,
-            real_st.st_ino,
-            real_st.st_dev,
-            real_st.st_nlink,
-            os.getuid(),
-            real_st.st_gid,
-            real_st.st_size,
-            real_st.st_atime,
-            real_st.st_mtime,
-            real_st.st_ctime,
-        ))
-        mock_stat.return_value = tampered_st
-        with pytest.raises(SecurityError) as sec_exc:
-            inspect_and_open_verified_exe()
-        assert sec_exc.value.code == "SECURITY_VIOLATION"
-        assert sec_exc.value.status == 400
+    for bad_mode in (0o002, 0o020):
+        with patch("os.stat") as mock_stat:
+            # Group or world writable mode on parent (without sticky bit)
+            tampered_st = os.stat_result((
+                (real_st.st_mode & ~stat.S_ISVTX) | bad_mode,
+                real_st.st_ino,
+                real_st.st_dev,
+                real_st.st_nlink,
+                os.getuid(),
+                real_st.st_gid,
+                real_st.st_size,
+                real_st.st_atime,
+                real_st.st_mtime,
+                real_st.st_ctime,
+            ))
+            mock_stat.return_value = tampered_st
+            with pytest.raises(SecurityError) as sec_exc:
+                inspect_and_open_verified_exe()
+            assert sec_exc.value.code == "SECURITY_VIOLATION"
+            assert sec_exc.value.status == 400
 
     # 4. FD lifecycle: exe_fd unconditionally closed in finally
     opened_fds = []
