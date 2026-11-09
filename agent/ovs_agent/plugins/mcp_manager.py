@@ -2237,6 +2237,7 @@ class McpServerManager:
         try:
             validate_mcp_env(server_cfg.get("env"))
             name = server_cfg.get("name")
+            existing: dict[str, Any] | None = None
             effective_cfg = copy.deepcopy(server_cfg)
             if name and isinstance(name, str):
                 existing = next((s for s in self._persisted_mcp_servers if s.get("name") == name), None)
@@ -2300,8 +2301,8 @@ class McpServerManager:
                 url = effective_cfg.get("url")
                 if not url:
                     raise DashboardApiError("INVALID_PARAM", "sse transport requires url")
-                if "******" in url and existing and existing.get("url"):
-                    if url == sanitize_mcp_url(existing["url"]):
+                if "******" in url:
+                    if existing and existing.get("url") and url == sanitize_mcp_url(existing["url"]):
                         url = existing["url"]
                         effective_cfg["url"] = url
                     else:

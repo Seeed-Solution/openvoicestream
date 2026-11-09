@@ -3218,6 +3218,22 @@ async def test_pipeline_mode_active_preserves_startup_mode_after_save(dashboard_
         assert data2["pipeline_mode_active"] == "always_on"
 
 
+@pytest.mark.asyncio
+async def test_unnamed_sse_test_with_masked_credentials_rejected(tmp_path):
+    """Codex Review Finding P2: Unnamed SSE test requests with masked credentials reject without UnboundLocalError."""
+    cfg_file = tmp_path / "agent-config.yaml"
+    manager = McpServerManager(config_path=str(cfg_file), active_servers=[])
+
+    test_req = {
+        "transport": "sse",
+        "url": "https://example.com/sse?token=******",
+    }
+    with pytest.raises(DashboardApiError) as exc_info:
+        await manager.test_server(test_req)
+    assert exc_info.value.code == "INVALID_PARAM"
+    assert "masked credentials" in str(exc_info.value)
+
+
 
 
 
