@@ -1641,8 +1641,23 @@ class DebugDashboardPlugin(Plugin):
                         unl_err.errno,
                     ) from unl_err
 
+            if not replaced:
+                # If replacement failed (e.g. during bind-mount copy), check if target was partially written
+                try:
+                    if os.path.exists(path):
+                        v_fd = _safe_open_readonly(str(path))
+                        try:
+                            cur_bytes = _read_all_bounded(v_fd)
+                        finally:
+                            _safe_close(v_fd)
+                        if cur_bytes != prior_bytes:
+                            # Target content diverged; force rollback to restore prior_bytes
+                            replaced = True
+                except Exception:
+                    replaced = True
+
             if replaced:
-                # Replacement succeeded but verification or directory fsync failed.
+                # Replacement succeeded or target was partially written but verification/copy failed.
                 # Must perform safe rollback to restore prior_bytes.
                 restore_tmp = f"{path}.tmp.{uuid.uuid4().hex}"
                 r_fd = -1

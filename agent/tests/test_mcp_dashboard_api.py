@@ -826,7 +826,7 @@ mcp_servers:
     assert exc.value.code == "FILE_TOO_LARGE"
     assert exc.value.status == 400
 
-    # 2. Phase 1 failure with corrupted backup triggers CONFIG_RECOVERY_REQUIRED
+    # 2. Phase 1 failure when target is untouched does NOT trigger CONFIG_RECOVERY_REQUIRED
     real_replace = _safe_replace
 
     def replace_fail_on_backup(src, dst):
@@ -835,18 +835,15 @@ mcp_servers:
         return real_replace(src, dst)
 
     with patch("ovs_agent.plugins.mcp_manager._safe_replace", side_effect=replace_fail_on_backup):
-        with pytest.raises(ConfigPersistenceError) as exc:
+        with pytest.raises(OSError):
             await mgr.commit_servers([{"name": "new_s", "transport": "stdio", "args": ["-m", "ha_mcp"]}])
-        assert exc.value.code == "CONFIG_RECOVERY_REQUIRED"
-        assert exc.value.status == 500
-        assert mgr.config_recovery_required is True
+        # Target was untouched: must not enter recovery mode or lock configuration
+        assert not mgr.config_recovery_required
+        marker_file = tmp_path / ".config_recovery_required"
+        assert not marker_file.exists()
+        assert mgr.persisted_servers[0]["name"] == "s1"
 
     # 3. Phase 2 failure: rollback restores state and syncs memory
-    mgr._config_recovery_required = False
-    marker_file = tmp_path / ".config_recovery_required"
-    marker_file.unlink(missing_ok=True)
-
-    # Let Phase 1 succeed, but fail during Phase 2 _safe_replace into target_path
     failed_once = False
     real_replace = _safe_replace
 
@@ -2410,6 +2407,92 @@ async def test_sse_handshake_initialize_error_rejected():
     finally:
         stop_event.set()
         await runner.cleanup()
+
+
+def test_safe_replace_bind_mount_copy_failure_restores_original(tmp_path):
+    """Codex Review Finding P1: If bind-mount fallback copy fails, dst must be restored to original content."""
+    from ovs_agent.plugins.mcp_manager import ConfigPersistenceError, _safe_replace
+
+    src_file = tmp_path / "config.yaml.tmp.copy_fail"
+    dst_file = tmp_path / "config.yaml"
+
+    original_text = "original_key: persistent_safe_value\n"
+    dst_file.write_text(original_text, encoding="utf-8")
+    src_file.write_text("corrupted_key: bad_write\n", encoding="utf-8")
+
+    orig_replace = os.replace
+
+    def mock_replace(src, dst):
+        if dst == str(dst_file):
+            raise OSError(errno.EBUSY, "Simulated bind mount")
+        return orig_replace(src, dst)
+
+    def mock_copyfileobj(fsrc, fdst, length=None):
+        # Truncate occurs on open, now simulate disk full during write
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    with patch("ovs_agent.plugins.mcp_manager.os.replace", side_effect=mock_replace), \
+         patch("ovs_agent.plugins.mcp_manager.shutil.copyfileobj", side_effect=mock_copyfileobj):
+        with pytest.raises(ConfigPersistenceError) as exc_info:
+            _safe_replace(str(src_file), str(dst_file))
+        assert exc_info.value.code == "REPLACE_FAILED"
+
+    # Destination file must have been restored to its original content!
+    assert dst_file.read_text(encoding="utf-8") == original_text
+
+
+@pytest.mark.asyncio
+async def test_stdio_mcp_test_handles_interleaved_notifications(tmp_path):
+    """Codex Review Finding P2: Stdio MCP test must match request ID and skip interleaved notifications."""
+    from ovs_agent.plugins.mcp_manager import test_stdio_mcp_server
+
+    script = tmp_path / "mock_mcp_server.py"
+    script.write_text(
+        """import sys, json
+
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    msg = json.loads(line)
+    method = msg.get("method")
+    msg_id = msg.get("id")
+
+    if method == "initialize":
+        # Send initialize response
+        resp = {"jsonrpc": "2.0", "id": msg_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {}, "serverInfo": {"name": "mock", "version": "1.0"}}}
+        sys.stdout.write(json.dumps(resp) + "\\n")
+        sys.stdout.flush()
+    elif method == "notifications/initialized":
+        pass
+    elif method == "tools/list":
+        # Send an interleaved notification BEFORE the tools/list response!
+        notif = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed", "params": {}}
+        sys.stdout.write(json.dumps(notif) + "\\n")
+        sys.stdout.flush()
+
+        # Then send actual response for id
+        resp = {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "tools": [{"name": "discovered_tool", "description": "Successfully parsed tool"}]
+            }
+        }
+        sys.stdout.write(json.dumps(resp) + "\\n")
+        sys.stdout.flush()
+""",
+        encoding="utf-8",
+    )
+
+    tools = await test_stdio_mcp_server(
+        command=sys.executable,
+        args=[str(script)],
+        timeout=3.0,
+    )
+    assert len(tools) == 1
+    assert tools[0]["name"] == "discovered_tool"
+    assert tools[0]["description"] == "Successfully parsed tool"
 
 
 

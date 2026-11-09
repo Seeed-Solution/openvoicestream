@@ -314,6 +314,18 @@ def _safe_replace(src: str, dst: str) -> None:
             )
             # Docker single-file bind mount point: cannot rename over mount point.
             # Fall back to copying content directly into the existing file inode.
+            # Pre-read original content so we can restore dst if copy or fsync fails.
+            original_dst_bytes: bytes | None = None
+            try:
+                flags_ro = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+                ro_fd = os.open(dst, flags_ro)
+                try:
+                    original_dst_bytes = _read_all_bounded(ro_fd, MAX_CONFIG_SIZE)
+                finally:
+                    os.close(ro_fd)
+            except Exception:
+                pass
+
             try:
                 flags = os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
                 dst_fd = os.open(dst, flags)
@@ -334,6 +346,19 @@ def _safe_replace(src: str, dst: str) -> None:
                     pass
                 return
             except OSError as write_err:
+                # If copy/fsync failed after truncation, restore the original content
+                if original_dst_bytes is not None:
+                    try:
+                        restore_flags = os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+                        r_fd = os.open(dst, restore_flags)
+                        try:
+                            _write_all(r_fd, original_dst_bytes)
+                            _safe_fsync_file(r_fd)
+                        finally:
+                            os.close(r_fd)
+                        logger.info("Successfully restored original content of %s after failed bind-mount copy", dst)
+                    except Exception as rest_err:
+                        logger.critical("FATAL: Failed to restore %s after failed bind-mount copy: %s", dst, rest_err)
                 raise ConfigPersistenceError(
                     "REPLACE_FAILED",
                     f"Replace (bind-mount copy) {src} -> {dst} failed: {write_err}",
@@ -1244,21 +1269,36 @@ async def test_stdio_mcp_server(
             proc.stdin.write((json.dumps(init_req) + "\n").encode("utf-8"))
             await proc.stdin.drain()
 
-            init_line = await proc.stdout.readline()
-            if not init_line:
-                if drain_error is not None:
-                    raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain error: {drain_error}")
-                raw_err = stderr_tail.decode("utf-8", errors="replace").strip()
-                if raw_err:
-                    redacted = redact_sensitive_text(raw_err)
-                    raise DashboardApiError("CONNECTION_FAILED", f"Empty response from MCP server; stderr: {redacted}")
-                raise DashboardApiError("CONNECTION_FAILED", "Empty response from MCP server during initialize")
-            if drain_error is not None:
-                raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain error: {drain_error}")
-            try:
-                init_resp = json.loads(init_line.decode("utf-8"))
-            except Exception as e:
-                raise DashboardApiError("CONNECTION_FAILED", f"Invalid JSON during initialize: {e}") from e
+            async def _read_jsonrpc_response(expected_id: int, phase: str) -> dict[str, Any]:
+                line_count = 0
+                while line_count < 100:
+                    line_count += 1
+                    line_bytes = await proc.stdout.readline()
+                    if not line_bytes:
+                        if drain_error is not None:
+                            raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain error: {drain_error}")
+                        raw_err = stderr_tail.decode("utf-8", errors="replace").strip()
+                        if raw_err:
+                            redacted = redact_sensitive_text(raw_err)
+                            raise DashboardApiError("CONNECTION_FAILED", f"Empty response from MCP server; stderr: {redacted}")
+                        raise DashboardApiError("CONNECTION_FAILED", f"Empty response from MCP server during {phase}")
+                    if drain_error is not None:
+                        raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain error: {drain_error}")
+                    line_str = line_bytes.decode("utf-8", errors="replace").strip()
+                    if not line_str:
+                        continue
+                    try:
+                        msg = json.loads(line_str)
+                    except Exception as e:
+                        raise DashboardApiError("CONNECTION_FAILED", f"Invalid JSON during {phase}: {e}") from e
+                    if isinstance(msg, dict) and msg.get("id") == expected_id:
+                        return msg
+                raise DashboardApiError(
+                    "CONNECTION_FAILED",
+                    f"MCP server did not return response for request id {expected_id} during {phase}",
+                )
+
+            init_resp = await _read_jsonrpc_response(1, "initialize")
             if "error" in init_resp:
                 raise DashboardApiError("CONNECTION_FAILED", f"MCP initialize error: {init_resp['error']}")
 
@@ -1270,21 +1310,7 @@ async def test_stdio_mcp_server(
             proc.stdin.write((json.dumps(list_req) + "\n").encode("utf-8"))
             await proc.stdin.drain()
 
-            list_line = await proc.stdout.readline()
-            if not list_line:
-                if drain_error is not None:
-                    raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain error: {drain_error}")
-                raw_err = stderr_tail.decode("utf-8", errors="replace").strip()
-                if raw_err:
-                    redacted = redact_sensitive_text(raw_err)
-                    raise DashboardApiError("CONNECTION_FAILED", f"Empty response from MCP server; stderr: {redacted}")
-                raise DashboardApiError("CONNECTION_FAILED", "Empty response from MCP server during tools/list")
-            if drain_error is not None:
-                raise DashboardApiError("CONNECTION_FAILED", f"MCP stderr drain error: {drain_error}")
-            try:
-                list_resp = json.loads(list_line.decode("utf-8"))
-            except Exception as e:
-                raise DashboardApiError("CONNECTION_FAILED", f"Invalid JSON during tools/list: {e}") from e
+            list_resp = await _read_jsonrpc_response(2, "tools/list")
             if "error" in list_resp:
                 raise DashboardApiError("CONNECTION_FAILED", f"MCP tools/list error: {list_resp['error']}")
 
@@ -1881,12 +1907,35 @@ class McpServerManager:
 
             _safe_replace(backup_tmp, backup_path)
             _safe_fsync_dir(dirpath)
-        except Exception:
+        except Exception as exc:
             try:
                 os.unlink(backup_tmp)
             except OSError:
                 pass
 
+            # Phase 1 failed before mutating target_path.
+            # If target_path is untouched, do NOT enter recovery mode or lock configuration.
+            target_intact = False
+            if expected_prior_file_sha256 is not None and os.path.exists(target_path):
+                t_fd = -1
+                try:
+                    t_fd = _safe_open_readonly(target_path)
+                    cur_bytes = _read_all_bounded(t_fd, MAX_CONFIG_SIZE)
+                    if hashlib.sha256(cur_bytes).hexdigest() == expected_prior_file_sha256:
+                        target_intact = True
+                except Exception:
+                    pass
+                finally:
+                    if t_fd >= 0:
+                        _safe_close(t_fd)
+            elif expected_prior_file_sha256 is None and not os.path.exists(target_path):
+                target_intact = True
+
+            if target_intact:
+                logger.error("Phase 1 backup creation failed: %s; target configuration is untouched", exc)
+                raise
+
+            # Only if target_path was damaged or untrusted do we check backup and enter recovery
             backup_valid = False
             if os.path.exists(backup_path):
                 bfd = -1
