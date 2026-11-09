@@ -1005,13 +1005,33 @@ def _normalize_cmd_str(cmd: str | None) -> str | None:
     try:
         resolved = shutil.which(cmd)
         if resolved:
-            return os.path.realpath(resolved)
-        return os.path.realpath(cmd)
+            return os.path.normpath(resolved)
+        return os.path.normpath(cmd)
     except Exception:
         return cmd
 
 
-def is_mcp_target_matched(new_cfg: dict[str, Any], existing_cfg: dict[str, Any] | None) -> bool:
+def _normalize_args_for_comparison(args: Sequence[str] | None, config_dir: str | None = None) -> list[str] | None:
+    if args is None:
+        return None
+    if not isinstance(args, (list, tuple)) or not args:
+        return []
+    res = list(args)
+    if res and res[0] != "-m" and isinstance(res[0], str) and re.search(r"\.py$", res[0], re.I):
+        base_dir = config_dir if config_dir else os.getcwd()
+        abs_path = os.path.abspath(res[0]) if os.path.isabs(res[0]) else os.path.abspath(os.path.join(base_dir, res[0]))
+        try:
+            res[0] = os.path.realpath(abs_path)
+        except Exception:
+            res[0] = abs_path
+    return res
+
+
+def is_mcp_target_matched(
+    new_cfg: dict[str, Any],
+    existing_cfg: dict[str, Any] | None,
+    config_dir: str | None = None,
+) -> bool:
     """Check if new_cfg targets the same destination as existing_cfg."""
     if not existing_cfg or not isinstance(existing_cfg, dict):
         return False
@@ -1036,7 +1056,11 @@ def is_mcp_target_matched(new_cfg: dict[str, Any], existing_cfg: dict[str, Any] 
 
         if norm_req_cmd is not None and norm_exist_cmd is not None and norm_req_cmd != norm_exist_cmd:
             return False
-        if req_args is not None and existing_args is not None and list(req_args) != list(existing_args):
+
+        norm_req_args = _normalize_args_for_comparison(req_args, config_dir=config_dir)
+        norm_exist_args = _normalize_args_for_comparison(existing_args, config_dir=config_dir)
+
+        if norm_req_args is not None and norm_exist_args is not None and norm_req_args != norm_exist_args:
             return False
         return True
     return False
@@ -1063,14 +1087,16 @@ def _check_no_masked_credentials(server_cfg: dict[str, Any]) -> None:
 
 
 def merge_server_secrets(
-    new_server: dict[str, Any], existing_server: dict[str, Any] | None
+    new_server: dict[str, Any],
+    existing_server: dict[str, Any] | None,
+    config_dir: str | None = None,
 ) -> dict[str, Any]:
     """Perform atomic secret retention when updating server configuration."""
     if not isinstance(new_server, dict):
         raise DashboardApiError("INVALID_PARAM", "new_server must be a dictionary")
     validate_mcp_env(new_server.get("env"))
     s = copy.deepcopy(new_server)
-    if not existing_server or not is_mcp_target_matched(s, existing_server):
+    if not existing_server or not is_mcp_target_matched(s, existing_server, config_dir=config_dir):
         _check_no_masked_credentials(s)
         return s
 
@@ -2061,29 +2087,9 @@ class McpServerManager:
                 if not existing:
                     existing = next((s for s in self._active_mcp_servers if s.get("name") == name), None)
                 if existing:
-                    existing_transport = existing.get("transport", "stdio").strip().lower()
-                    req_transport = server_cfg.get("transport", existing_transport).strip().lower()
-
-                    target_matched = False
-                    if req_transport == existing_transport:
-                        if req_transport == "sse":
-                            req_url = server_cfg.get("url")
-                            existing_url = existing.get("url")
-                            if req_url is None or req_url == existing_url:
-                                target_matched = True
-                        elif req_transport == "stdio":
-                            req_cmd = server_cfg.get("command")
-                            existing_cmd = existing.get("command")
-                            req_args = server_cfg.get("args")
-                            existing_args = existing.get("args")
-
-                            cmd_matched = (req_cmd is None or req_cmd == existing_cmd)
-                            args_matched = (req_args is None or req_args == existing_args)
-                            if cmd_matched and args_matched:
-                                target_matched = True
-
+                    target_matched = is_mcp_target_matched(server_cfg, existing, config_dir=self.config_dir)
                     if target_matched:
-                        effective_cfg = merge_server_secrets(effective_cfg, existing)
+                        effective_cfg = merge_server_secrets(effective_cfg, existing, config_dir=self.config_dir)
                         if not effective_cfg.get("command") and existing.get("command"):
                             effective_cfg["command"] = existing["command"]
                         if not effective_cfg.get("transport") and existing.get("transport"):
@@ -2194,10 +2200,10 @@ class McpServerManager:
             idx = next((i for i, s in enumerate(new_servers) if s.get("name") == name), None)
             if idx is not None:
                 existing = new_servers[idx]
-                merged = merge_server_secrets(validated_server, existing)
+                merged = merge_server_secrets(validated_server, existing, config_dir=self.config_dir)
                 new_servers[idx] = merged
             else:
-                merged = merge_server_secrets(validated_server, None)
+                merged = merge_server_secrets(validated_server, None, config_dir=self.config_dir)
                 new_servers.append(merged)
 
             validate_mcp_env(merged.get("env"))
@@ -2259,7 +2265,7 @@ class McpServerManager:
                     raise DashboardApiError("INVALID_PARAM", "sse transport requires url string")
                 await validate_and_pin_sse_url(url)
 
-            if not is_mcp_target_matched(merged_data, existing):
+            if not is_mcp_target_matched(merged_data, existing, config_dir=self.config_dir):
                 logger.warning(
                     "Target changed for server '%s'; dropping existing credentials", target_name
                 )
@@ -2268,7 +2274,7 @@ class McpServerManager:
                 if "env" not in patch_data:
                     merged_data.pop("env", None)
 
-            final_server = merge_server_secrets(merged_data, existing)
+            final_server = merge_server_secrets(merged_data, existing, config_dir=self.config_dir)
             validate_mcp_env(final_server.get("env"))
             new_servers[idx] = final_server
 

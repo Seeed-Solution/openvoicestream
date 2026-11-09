@@ -155,6 +155,14 @@ class McpBridgePlugin(Plugin):
         conn = next((c for c in self._connections if c.name == server_name), None)
         if conn is None:
             return {"status": "stopped", "connected": False, "tools": [], "error": "Not configured in active bridge"}
+        error = getattr(conn, "_error", None)
+        if error:
+            return {
+                "status": "failed",
+                "connected": False,
+                "tools": [],
+                "error": error,
+            }
         if conn.is_connected:
             return {
                 "status": "connected",
@@ -166,12 +174,11 @@ class McpBridgePlugin(Plugin):
                 ],
                 "error": None,
             }
-        error = getattr(conn, "_error", None) or "Connection closed"
         return {
             "status": "failed",
             "connected": False,
             "tools": [],
-            "error": error,
+            "error": "Connection closed",
         }
 
     async def stop(self) -> None:

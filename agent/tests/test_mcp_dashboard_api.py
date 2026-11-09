@@ -2730,6 +2730,63 @@ async def test_sse_test_rejects_stream_without_endpoint_event():
         await runner.cleanup()
 
 
+@pytest.mark.asyncio
+async def test_patch_relative_script_retains_credentials(tmp_path):
+    """Codex Review Finding P2: Target matching must normalize relative script paths before comparing."""
+    cfg_file = tmp_path / "agent-config.yaml"
+    script = tmp_path / "tool.py"
+    script.write_text("print('hello')\n", encoding="utf-8")
+
+    cfg_file.write_text(
+        """
+mcp_servers:
+  - name: rel_server
+    transport: stdio
+    command: python3
+    args:
+      - tool.py
+    env:
+      API_KEY: my_precious_secret
+""",
+        encoding="utf-8",
+    )
+
+    manager = McpServerManager(config_path=str(cfg_file), active_servers=[])
+    # Patch with masked secret and relative script path
+    patch_payload = {
+        "args": ["tool.py"],
+        "env": {"API_KEY": "******", "NEW_VAR": "new_val"},
+    }
+    updated = await manager.patch_server("rel_server", patch_payload)
+    srv = next(s for s in updated if s["name"] == "rel_server")
+    # Secret must be retained!
+    assert srv["env"]["API_KEY"] == "my_precious_secret"
+    assert srv["env"]["NEW_VAR"] == "new_val"
+
+
+def test_bridge_status_surfaces_tool_discovery_failure():
+    """Codex Review Finding P2: Surface discovery failures when list_tools fails after connect."""
+    from ovs_agent.mcp.plugin import McpBridgePlugin
+
+    class MockApp:
+        plugins = []
+        config = None
+
+    class MockConn:
+        def __init__(self):
+            self.name = "failing_server"
+            self.is_connected = True
+            self._tools = []
+            self._error = "list_tools timeout or protocol error"
+
+    bridge = McpBridgePlugin(MockApp(), connections=[MockConn()])
+    status = bridge.get_server_runtime_status("failing_server")
+    assert status["status"] == "failed"
+    assert status["connected"] is False
+    assert status["tools"] == []
+    assert "protocol error" in status["error"]
+
+
 
 
 
