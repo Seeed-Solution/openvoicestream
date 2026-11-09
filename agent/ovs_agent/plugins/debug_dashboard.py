@@ -2034,6 +2034,8 @@ class DebugDashboardPlugin(Plugin):
         from aiohttp import web
 
         cfg = getattr(self.app, "config", None)
+        fn = getattr(cfg, "server_loop_enabled", None)
+        server_loop = bool(fn()) if callable(fn) else bool(getattr(cfg, "server_loop", False))
         backend = str(getattr(cfg, "llm_backend", "edge_llm") or "edge_llm")
         base_url = str(getattr(cfg, "llm_base_url", "http://localhost:8000/v1") or "http://localhost:8000/v1")
         model = str(getattr(cfg, "llm_model", "qwen2.5-3b-instruct") or "qwen2.5-3b-instruct")
@@ -2050,6 +2052,8 @@ class DebugDashboardPlugin(Plugin):
             "has_api_key": has_api_key,
             "api_key_masked": api_key_masked,
             "pending_restart": pending_restart,
+            "server_loop": server_loop,
+            "editable": not server_loop,
         })
 
     async def _api_llm_config_post(self, request: web.Request) -> web.Response:
@@ -2076,6 +2080,17 @@ class DebugDashboardPlugin(Plugin):
             cfg = getattr(self.app, "config", None)
             if cfg is None:
                 return web.json_response({"ok": False, "error": "配置未加载"}, status=500)
+
+            fn = getattr(cfg, "server_loop_enabled", None)
+            server_loop = bool(fn()) if callable(fn) else bool(getattr(cfg, "server_loop", False))
+            if server_loop:
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": "当前运行在服务端回环模式（server_loop: true），LLM 端点由语音服务端统一管理，禁止在客户端修改",
+                    },
+                    status=403,
+                )
 
             src = getattr(cfg, "_source_path", None)
             if not src or not Path(src).is_file():

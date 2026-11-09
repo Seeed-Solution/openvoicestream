@@ -284,6 +284,15 @@
       btnLlmApiKeyToggle.setAttribute("aria-pressed", "false");
       btnLlmApiKeyToggle.setAttribute("aria-label", "显示密钥");
       llmSetPending(d.pending_restart === true);
+      if (d.server_loop || d.editable === false) {
+        llmBackend.disabled = true;
+        llmBaseUrl.disabled = true;
+        llmModel.disabled = true;
+        llmApiKey.disabled = true;
+        btnLlmSave.disabled = true;
+        btnLlmTest.disabled = true;
+        llmShowResult("warn", "当前运行在服务端回环模式（server_loop），LLM 端点由语音服务端统一托管，客户端配置已锁定。");
+      }
     } catch (e) {
       showToast("加载 LLM 端点配置失败: " + e.message, "error");
     }

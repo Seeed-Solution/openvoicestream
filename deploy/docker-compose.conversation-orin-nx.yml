@@ -180,7 +180,7 @@ services:
     group_add: ["29"]
     volumes:
       - /dev/snd:/dev/snd
-      - ./conversation/agent-config.yaml:/opt/voice/config/agent-config.yaml:ro
+      - ./conversation/agent-config.yaml:/opt/voice/config/agent-config.yaml
       - ./conversation/audio_profiles.yaml:/opt/voice/config/audio_profiles.yaml:ro
       - agent-state:/var/lib/ovs-agent
     environment:

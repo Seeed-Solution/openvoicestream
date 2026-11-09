@@ -3095,6 +3095,40 @@ async def test_reply_alternatives_list_preserved_when_saving_unrelated_settings(
             assert disk_data["sleep_timeout_s"] == 45.0
 
 
+@pytest.mark.asyncio
+async def test_llm_config_locked_when_server_loop_enabled(dashboard_env):
+    """Codex Review Finding P2: Guard LLM endpoint editing when server-loop mode is active."""
+    plugin = dashboard_env["plugin"]
+    base_url = dashboard_env["base_url"]
+
+    # Enable server-loop mode on app config
+    plugin.app.config.server_loop = True
+
+    async with aiohttp.ClientSession() as session:
+        # GET returns editable: False and server_loop: True
+        async with session.get(f"{base_url}/api/llm/config") as get_resp:
+            assert get_resp.status == 200
+            data = await get_resp.json()
+            assert data["server_loop"] is True
+            assert data["editable"] is False
+
+        # POST is rejected with HTTP 403
+        payload = {
+            "llm_backend": "openai_compat",
+            "llm_base_url": "https://api.openai.com/v1",
+            "llm_model": "gpt-4o",
+        }
+        async with session.post(
+            f"{base_url}/api/llm/config",
+            json=payload,
+            headers={"Origin": base_url},
+        ) as post_resp:
+            assert post_resp.status == 403
+            err_data = await post_resp.json()
+            assert err_data["ok"] is False
+            assert "server_loop" in err_data["error"]
+
+
 
 
 
