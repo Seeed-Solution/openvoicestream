@@ -1127,13 +1127,18 @@
 
   // ── controls ─────────────────────────────────────────────────────
   function controlToken() {
+    let urlToken = "";
     try {
       const urlParams = new URLSearchParams(window.location.search);
-      const urlToken = urlParams.get("control_token") || urlParams.get("token");
-      if (urlToken) {
-        localStorage.setItem("ovs_control_token", urlToken.trim());
-        return urlToken.trim();
-      }
+      urlToken = (urlParams.get("control_token") || urlParams.get("token") || "").trim();
+    } catch (_) {}
+    if (urlToken) {
+      try {
+        localStorage.setItem("ovs_control_token", urlToken);
+      } catch (_) {}
+      return urlToken;
+    }
+    try {
       return (localStorage.getItem("ovs_control_token") || "").trim();
     } catch (_) {
       return "";
