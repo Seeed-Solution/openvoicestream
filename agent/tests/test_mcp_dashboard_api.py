@@ -2141,6 +2141,7 @@ def test_safe_replace_ebusy_bind_mount_fallback(tmp_path):
 
     dst_file.write_text("initial: original_content\n", encoding="utf-8")
     src_file.write_text("updated: bind_mount_content\n", encoding="utf-8")
+    os.chmod(src_file, 0o640)
 
     orig_replace = os.replace
 
@@ -2156,10 +2157,17 @@ def test_safe_replace_ebusy_bind_mount_fallback(tmp_path):
     assert dst_file.read_text(encoding="utf-8") == "updated: bind_mount_content\n"
     # Verify src_file was cleaned up
     assert not src_file.exists()
-    # Verify mode is 0600
+    # Verify copymode preserved src mode (0640)
     st = dst_file.stat()
-    assert stat.S_IMODE(st.st_mode) == 0o600
+    assert stat.S_IMODE(st.st_mode) == 0o640
 
+    # Non-EBUSY error should raise directly
+    src_file.write_text("retry\n", encoding="utf-8")
 
+    def mock_replace_eio(src, dst):
+        raise OSError(errno.EIO, "Disk I/O error")
 
-
+    with patch("ovs_agent.plugins.mcp_manager.os.replace", side_effect=mock_replace_eio):
+        with pytest.raises(ConfigPersistenceError) as exc_info:
+            _safe_replace(str(src_file), str(dst_file))
+        assert exc_info.value.errno == errno.EIO

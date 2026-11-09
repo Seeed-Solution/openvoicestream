@@ -285,10 +285,11 @@ class AudioIO:
                         mono_arr = np.clip(y, -32768, 32767).astype(np.int16)
 
                 mono = mono_arr.tobytes()
+                out_frames = len(mono_arr)
             except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("audio input processing failed (%s) — passing raw", exc)
-                mono = bytes(indata)
-            upstream_cb(mono, frames, time_info, status)
+                logger.warning("audio input processing failed (%s) — dropping corrupted chunk", exc)
+                return
+            upstream_cb(mono, out_frames, time_info, status)
 
         if sel is not None:
             logger.info("Opening mic with %d channels → select ch %d as mono (sr: %d→%d)", ch, sel, src_sr, target_sr)
@@ -306,6 +307,7 @@ class AudioIO:
         """
         if sd is None:
             return requested_sr
+
         # 1. Try requested_sr first
         try:
             sd.check_input_settings(
@@ -318,14 +320,35 @@ class AudioIO:
         except Exception:
             pass
 
-        # 2. Try device default_samplerate
+        # 2. Try integer multiples of requested_sr (e.g. 48000, 32000, 96000 for 16000)
+        multiples = [
+            m for m in (48000, 32000, 96000)
+            if m % requested_sr == 0 and m != requested_sr
+        ]
+        for mult in multiples:
+            try:
+                sd.check_input_settings(
+                    device=device,
+                    samplerate=mult,
+                    channels=self._mic_channels,
+                    dtype="int16",
+                )
+                logger.info(
+                    "Input device requires native rate %d Hz (exact multiple of %d Hz); will downsample to %d Hz",
+                    mult, requested_sr, requested_sr,
+                )
+                return mult
+            except Exception:
+                pass
+
+        # 3. Try device default_samplerate
         try:
             if device is not None:
                 info = sd.query_devices(device, kind="input")
             else:
                 info = sd.query_devices(kind="input")
             dev_sr = int(info.get("default_samplerate") or 0)
-            if dev_sr > 0 and dev_sr != requested_sr:
+            if dev_sr > 0 and dev_sr != requested_sr and dev_sr not in multiples:
                 try:
                     sd.check_input_settings(
                         device=device,
@@ -333,19 +356,25 @@ class AudioIO:
                         channels=self._mic_channels,
                         dtype="int16",
                     )
-                    logger.info(
-                        "Input device requires native rate %d Hz (requested %d Hz); will resample to %d Hz",
-                        dev_sr, requested_sr, requested_sr,
-                    )
+                    if dev_sr < requested_sr:
+                        logger.warning(
+                            "Input device selected native rate %d Hz is lower than requested %d Hz (bandwidth degraded)",
+                            dev_sr, requested_sr,
+                        )
+                    else:
+                        logger.info(
+                            "Input device requires default rate %d Hz (requested %d Hz); will resample to %d Hz",
+                            dev_sr, requested_sr, requested_sr,
+                        )
                     return dev_sr
                 except Exception:
                     pass
         except Exception:
             pass
 
-        # 3. Try standard common rates
-        for candidate in (48000, 44100, 32000, 24000, 16000):
-            if candidate == requested_sr:
+        # 4. Try standard common rates
+        for candidate in (48000, 44100, 32000, 24000, 22050, 16000, 8000):
+            if candidate == requested_sr or candidate in multiples:
                 continue
             try:
                 sd.check_input_settings(
@@ -354,10 +383,16 @@ class AudioIO:
                     channels=self._mic_channels,
                     dtype="int16",
                 )
-                logger.info(
-                    "Input device accepted candidate rate %d Hz (requested %d Hz); will resample to %d Hz",
-                    candidate, requested_sr, requested_sr,
-                )
+                if candidate < requested_sr:
+                    logger.warning(
+                        "Input device accepted candidate rate %d Hz is lower than requested %d Hz (bandwidth degraded)",
+                        candidate, requested_sr,
+                    )
+                else:
+                    logger.info(
+                        "Input device accepted candidate rate %d Hz (requested %d Hz); will resample to %d Hz",
+                        candidate, requested_sr, requested_sr,
+                    )
                 return candidate
             except Exception:
                 pass
@@ -517,10 +552,16 @@ class AudioIO:
         try:
             dev_idx = self._input_stream.device
             name = sd.query_devices(dev_idx)["name"] if dev_idx is not None else "(default)"
-            logger.info(
-                "input stream open: device=%s sr=%d chunk=%d",
-                name, self.input_sr, self._chunk_frames,
-            )
+            if getattr(self, "_actual_input_sr", self.input_sr) != self.input_sr:
+                logger.info(
+                    "input stream open: device=%s capture_sr=%d -> pipeline_sr=%d chunk=%d",
+                    name, self._actual_input_sr, self.input_sr, self._chunk_frames,
+                )
+            else:
+                logger.info(
+                    "input stream open: device=%s sr=%d chunk=%d",
+                    name, self.input_sr, self._chunk_frames,
+                )
         except Exception:  # pragma: no cover - defensive
             pass
 

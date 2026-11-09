@@ -412,3 +412,44 @@ def test_auto_input_resolves_48k_native_sample_rate_and_resamples(monkeypatch):
     assert len(arr) == 1600
     assert arr[0] == 1234
 
+
+def test_auto_input_multiple_probe_priority(monkeypatch):
+    """Integer multiples of 16kHz (e.g. 48kHz, 32kHz) take precedence over default (e.g. 44.1kHz)."""
+    fake_sd = _fake_respeaker_sd()
+    fake_sd.input_devices["xvf"]["default_samplerate"] = 44100
+
+    def fake_check_input_settings(device=None, samplerate=None, channels=None, dtype=None):
+        if samplerate not in (44100, 48000):
+            raise RuntimeError(f"Invalid rate: {samplerate}")
+
+    fake_sd.check_input_settings = fake_check_input_settings
+    _wire_fake_audio(monkeypatch, fake_sd, lambda *args, **kwargs: "XVF3800")
+    audio = AudioIO(
+        input_device="auto",
+        input_sr=16000,
+        mic_channels=2,
+        mic_channel_select=0,
+    )
+    resolved_sr = audio._resolve_input_sample_rate("XVF3800", requested_sr=16000)
+    assert resolved_sr == 48000
+
+
+def test_auto_input_corrupted_chunk_dropped(monkeypatch):
+    """When downmix/resample raises an exception, the corrupted chunk must be dropped."""
+    fake_sd = _fake_respeaker_sd()
+    _wire_fake_audio(monkeypatch, fake_sd, lambda *args, **kwargs: "XVF3800")
+    audio = AudioIO(
+        input_device="auto",
+        input_sr=16000,
+        mic_channels=2,
+        mic_channel_select=0,
+    )
+    audio._actual_input_sr = 48000
+    captured = []
+    audio._input_callback = lambda pcm, *args: captured.append(pcm)
+
+    cb = audio._make_input_stream_callback()
+    # Malformed byte length (odd number of bytes)
+    cb(b"\x00\x01\x02", 3, None, 0)
+    assert len(captured) == 0
+

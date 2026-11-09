@@ -303,24 +303,33 @@ def _safe_fsync_file(fd: int) -> None:
 
 
 def _safe_replace(src: str, dst: str) -> None:
-    """Atomically replace src -> dst, with bind-mount fallback."""
+    """Atomically replace src -> dst, falling back to direct copy on bind mounts."""
     try:
         os.replace(src, dst)
     except OSError as e:
         if e.errno == errno.EBUSY:
+            logger.warning(
+                "Target %s is a single-file bind mount point; replacing via direct copy (atomic rename degraded)",
+                dst,
+            )
             # Docker single-file bind mount point: cannot rename over mount point.
             # Fall back to copying content directly into the existing file inode.
             try:
-                with open(src, "rb") as s_fp, open(dst, "wb") as d_fp:
-                    shutil.copyfileobj(s_fp, d_fp)
-                    d_fp.flush()
-                    os.fsync(d_fp.fileno())
+                flags = os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+                dst_fd = os.open(dst, flags)
                 try:
-                    os.unlink(src)
+                    with open(src, "rb") as s_fp, open(dst_fd, "wb", closefd=False) as d_fp:
+                        shutil.copyfileobj(s_fp, d_fp)
+                        d_fp.flush()
+                        os.fsync(dst_fd)
+                finally:
+                    os.close(dst_fd)
+                try:
+                    shutil.copymode(src, dst)
                 except OSError:
                     pass
                 try:
-                    os.chmod(dst, 0o600)
+                    os.unlink(src)
                 except OSError:
                     pass
                 return
