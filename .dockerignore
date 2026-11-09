@@ -19,6 +19,11 @@ deploy/
 .git/
 # Do not COPY the submodule's host-only experiment venv into the RK image.
 third_party/rkvoice-stream/.venv/
+server/tests/
+deploy/artifacts/*-release-gate/
+voices/minimax_shaonv/
+voices/samples/
+voices/zgl_matcha_pipeline/
 *.md
 !agent/README.md
 LICENSE

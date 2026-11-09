@@ -238,6 +238,6 @@ def test_mcp_config_parsing(clean_registry):
     conn2 = plugin._connections[1]
     assert conn2.name == "local_arm"
     assert conn2.transport == "stdio"
-    assert conn2.command == "python3"
+    assert conn2.command.endswith("python3")
     assert conn2.args == ["-m", "arm_mcp"]
     assert conn2.timeout_s == 15.0

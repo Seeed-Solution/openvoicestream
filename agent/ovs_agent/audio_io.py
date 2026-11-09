@@ -290,8 +290,13 @@ class AudioIO:
                     mono = self._resample_int16(mono, device_sr, cfg_sr)
                     frames = len(mono) // 2
             except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("input adapt failed (%s) — passing raw", exc)
-                mono = bytes(indata)
+                logger.warning("input adapt failed (%s) — dropping chunk", exc)
+                if status is not None:
+                    try:
+                        status.input_overflow = True
+                    except Exception:
+                        pass
+                return
             upstream_cb(mono, frames, time_info, status)
 
         return _adapt_cb
@@ -372,15 +377,69 @@ class AudioIO:
         Query the device and prefer its declared ``default_samplerate``,
         which is the rate PortAudio is guaranteed to open. Falls back to the
         configured rate when the query fails or returns something outside a
-        plausible capture range.
+        plausible capture range. Probes integer multiples and common rates
+        via check_input_settings when possible.
         """
+        if sd is None:
+            return self.input_sr
+
+        # 1. Check if requested rate is supported
+        try:
+            sd.check_input_settings(
+                device=device,
+                samplerate=self.input_sr,
+                channels=self._mic_channels,
+                dtype="int16",
+            )
+            return self.input_sr
+        except Exception:
+            pass
+
+        # 2. Try integer multiples of input_sr (e.g. 48000, 32000, 96000 for 16000)
+        multiples = [
+            m for m in (48000, 32000, 96000)
+            if m % self.input_sr == 0 and m != self.input_sr
+        ]
+        for mult in multiples:
+            try:
+                sd.check_input_settings(
+                    device=device,
+                    samplerate=mult,
+                    channels=self._mic_channels,
+                    dtype="int16",
+                )
+                logger.info(
+                    "Input device requires native rate %d Hz (exact multiple of %d Hz); will downsample to %d Hz",
+                    mult, self.input_sr, self.input_sr,
+                )
+                return mult
+            except Exception:
+                pass
+
+        # 3. Try device default_samplerate
         try:
             info = sd.query_devices(device, kind="input")
             sr = int(info.get("default_samplerate") or 0)
             if 8000 <= sr <= 192000:
+                try:
+                    sd.check_input_settings(
+                        device=device,
+                        samplerate=sr,
+                        channels=self._mic_channels,
+                        dtype="int16",
+                    )
+                    if sr < self.input_sr:
+                        logger.warning(
+                            "Input device rate %d Hz < requested %d Hz; upsampling may degrade audio quality",
+                            sr, self.input_sr,
+                        )
+                    return sr
+                except Exception:
+                    pass
                 return sr
         except Exception:
             pass
+
         return self.input_sr
 
     def _resolve_input_device(self):
@@ -686,12 +745,12 @@ class AudioIO:
                 outdata[n:needed] = b"\x00" * (needed - n)
 
     def _ensure_output(self) -> None:
+        if self._output_stream is not None:
+            return
         if sd is None:  # pragma: no cover - hardware-dependent
             raise RuntimeError(
                 f"sounddevice unavailable: {_SD_IMPORT_ERR!r}. Install libportaudio2."
             )
-        if self._output_stream is not None:
-            return
         self._ensure_playback_buffer()
         device = self._resolve_output_device()
         # Query the device's preferred sample rate. macOS Bluetooth in HFP

@@ -111,11 +111,20 @@ jobs:
       - name: Checkout voxedge (sibling for editable uv source)
         run: git clone --depth 1 https://github.com/suharvest/voxedge.git ../voxedge
 
+      - name: Secure runner Python permissions
+        run: |
+          sudo chmod -R go-w /opt/hostedtoolcache 2>/dev/null || chmod -R go-w /opt/hostedtoolcache 2>/dev/null || true
+          p="$pythonLocation"
+          while [ -n "$p" ] && [ "$p" != "/" ]; do
+            sudo chmod go-w "$p" 2>/dev/null || chmod go-w "$p" 2>/dev/null || true
+            p="$(dirname "$p")"
+          done
+
       # The grasp / vision test modules import cv2, scipy, onnxruntime and pin,
       # which live in the agent's `rebot` optional extra (see pyproject.toml).
       # A plain `uv run pytest` only syncs base + dev deps, so those 12 modules
       # fail collection with `ModuleNotFoundError: No module named 'cv2'`.
-      # Install the rebot extra so the vision-grasp suite runs.
+      # Install the rebot and mcp extras so all agent suites run.
       - name: Agent unit tests
         working-directory: agent
-        run: uv run --extra rebot pytest tests --ignore=tests/e2e --ignore=tests/test_e2e_orin.py
+        run: uv run --extra rebot --extra mcp pytest tests --ignore=tests/e2e --ignore=tests/test_e2e_orin.py

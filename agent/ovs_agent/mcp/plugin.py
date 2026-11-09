@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from ovs_agent.plugin import Plugin
@@ -57,12 +58,28 @@ class McpBridgePlugin(Plugin):
             name = str(item.get("name") or f"mcp_{idx}")
             transport = str(item.get("transport") or "stdio").strip().lower()
             try:
+                command = item.get("command")
+                args = item.get("args") or []
+                env = item.get("env")
+                cwd = None
+                if transport == "stdio":
+                    from ovs_agent.plugins.mcp_manager import normalize_stdio_mcp_config
+                    cfg_obj = getattr(self.app, "config", None)
+                    cfg_path = getattr(cfg_obj, "_source_path", None) or getattr(cfg_obj, "config_path", None)
+                    config_dir = os.path.dirname(os.path.abspath(str(cfg_path))) if cfg_path else os.getcwd()
+                    command, args, env, cwd = normalize_stdio_mcp_config(
+                        command=command,
+                        args=args,
+                        env=env,
+                        config_dir=config_dir,
+                    )
                 conn = McpConnection(
                     name=name,
                     transport=transport,
-                    command=item.get("command"),
-                    args=item.get("args"),
-                    env=item.get("env"),
+                    command=command,
+                    args=args,
+                    env=env,
+                    cwd=cwd,
                     url=item.get("url"),
                     headers=item.get("headers"),
                     timeout_s=float(item.get("timeout_s", 10.0)),
@@ -89,6 +106,8 @@ class McpBridgePlugin(Plugin):
             try:
                 await conn.connect()
                 tools = await conn.list_tools()
+                conn._tools = list(tools)
+                conn._error = None
                 for tool_meta in tools:
                     tname = tool_meta["name"]
                     if not tname:
@@ -124,10 +143,48 @@ class McpBridgePlugin(Plugin):
                     self.registry._tools[tname] = tool_obj
                     self._registered_tools.add(tname)
                     logger.info("Registered MCP tool: %s (from %s)", tname, conn.name)
-            except Exception:
+            except Exception as exc:
+                conn._tools = []
+                conn._error = str(exc)
                 logger.exception("Failed to connect or discover tools from MCP server '%s'", conn.name)
 
         logger.info("McpBridgePlugin started; registered %d tool(s)", len(self._registered_tools))
+
+    def get_server_runtime_status(self, server_name: str) -> dict[str, Any]:
+        """Return runtime connection status, error, and discovered tools for server_name."""
+        conn = next((c for c in self._connections if c.name == server_name), None)
+        if conn is None:
+            return {"status": "stopped", "connected": False, "tools": [], "error": "Not configured in active bridge"}
+        error = getattr(conn, "_error", None)
+        if error:
+            return {
+                "status": "failed",
+                "connected": False,
+                "tools": [],
+                "error": error,
+            }
+        if conn.is_connected:
+            return {
+                "status": "connected",
+                "connected": True,
+                "tools": [
+                    {
+                        "name": t.get("name", ""),
+                        "description": t.get("description", ""),
+                        "parameters": t.get("parameters") or t.get("inputSchema") or {},
+                        "inputSchema": t.get("inputSchema") or t.get("parameters") or {},
+                    }
+                    for t in getattr(conn, "_tools", [])
+                    if isinstance(t, dict)
+                ],
+                "error": None,
+            }
+        return {
+            "status": "failed",
+            "connected": False,
+            "tools": [],
+            "error": "Connection closed",
+        }
 
     async def stop(self) -> None:
         """Unregister MCP tools and cleanly shut down all connections."""

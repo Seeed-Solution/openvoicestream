@@ -116,10 +116,12 @@ class Plugin(ABC):
     # ── runtime config / mode-registry hooks ──────────────────────
 
     async def on_agent_settings_change(self, data: dict) -> None:
-        """Agent-level settings (pipeline_mode / sleep_timeout_s /
-        stop_words) were edited via the dashboard. data carries the
-        updated fields, e.g. {"pipeline_mode": str, "sleep_timeout_s":
-        float, "stop_words": list[str], "persisted": bool}. Default: no-op."""
+        """Agent-level settings (pipeline_mode / sleep_timeout_s / stop_words /
+        wake_reply_text / exit_words / exit_reply_text) were edited via the
+        dashboard. data carries the settings payload, e.g. {"pipeline_mode": str,
+        "sleep_timeout_s": float, "stop_words": list[str], "wake_reply_text": str,
+        "exit_words": list[str], "exit_reply_text": str, "persisted": bool,
+        "changed": list[str]}. Default: no-op."""
 
     async def on_mode_registered(self, data: dict) -> None:
         """A new AppMode was registered after ModeManager.start() — the

@@ -37,6 +37,7 @@ class McpConnection:
         command: str | None = None,
         args: Sequence[str] | None = None,
         env: dict[str, str] | None = None,
+        cwd: str | None = None,
         url: str | None = None,
         headers: dict[str, str] | None = None,
         timeout_s: float = 10.0,
@@ -47,6 +48,7 @@ class McpConnection:
         self.command = command
         self.args = list(args or [])
         self.env = dict(env or {}) if env else None
+        self.cwd = cwd
         self.url = url
         self.headers = dict(headers or {}) if headers else None
         self.timeout_s = float(timeout_s)
@@ -84,6 +86,7 @@ class McpConnection:
                     command=self.command,
                     args=self.args,
                     env=self.env,
+                    cwd=self.cwd,
                 )
                 read_stream, write_stream = await stack.enter_async_context(
                     stdio_client(server_params)

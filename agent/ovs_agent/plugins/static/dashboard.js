@@ -62,11 +62,13 @@
   function escape(s) {
     return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   }
-  function showToast(msg, kind) {
+  let toastTimer = null;
+  function showToast(msg, kind, ms) {
     toastEl.textContent = msg;
     toastEl.className = "toast " + (kind || "");
-    setTimeout(() => { toastEl.classList.add("hidden"); }, 2000);
-    toastEl.classList.remove("hidden");
+    // A newer toast must not be hidden by the previous one's timer.
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.classList.add("hidden"); }, ms || 2000);
   }
   function shouldRender(ev) {
     if (ev === "stats") return filters.stats;
@@ -184,17 +186,267 @@
     }
   }
 
+  function closeSettingsPanel() {
+    if (msPanel.classList.contains("hidden")) return;
+    msPanel.classList.add("hidden");
+    msBtn.focus();
+  }
+
   msBtn.addEventListener("click", async () => {
     if (msPanel.classList.contains("hidden")) {
       msPanel.classList.remove("hidden");
+      activateSettingsTab(desiredTab, { force: true });
+      if (translatorProbe === "idle" || translatorProbe === "failed") loadTranslatorRuntime({ silent: true });
       await loadModeOverrides(currentModeName);
       // Section moved into this panel: load its state too.
-      try { if (typeof loadAgentSettings === "function") await loadAgentSettings(); } catch (e) {}
+      try {
+        await Promise.all([loadAgentSettings(), loadWakewordRuntime(), loadLlmConfig()]);
+      } catch (e) {}
     } else {
       msPanel.classList.add("hidden");
     }
   });
-  $("msClose").addEventListener("click", () => msPanel.classList.add("hidden"));
+  $("msClose").addEventListener("click", closeSettingsPanel);
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape" || msPanel.classList.contains("hidden")) return;
+    // The MCP and voice-clone modals sit above the panel and handle their own Escape.
+    if (!$("mcpModal").classList.contains("hidden") || !$("voiceClonePanel").classList.contains("hidden")) return;
+    closeSettingsPanel();
+  });
+
+  // ── LLM endpoint & model ────────────────────────────────────────
+  // Global endpoint config, saved separately from the per-mode form above.
+  // The key never leaves the server: GET returns only a mask, and sending
+  // the mask back means "keep the saved key" (the server drops it when the
+  // origin changes).
+  const LLM_KEY_MASK = "●●●●●●";
+  const llmBackend = $("llmBackend");
+  const llmBaseUrl = $("llmBaseUrl");
+  const llmModel = $("llmModel");
+  const llmApiKey = $("llmApiKey");
+  const llmTestResult = $("llmTestResult");
+  const llmRestartAlert = $("llmRestartAlert");
+  const btnLlmTest = $("btnLlmTest");
+  const btnLlmSave = $("btnLlmSave");
+  const btnLlmApiKeyToggle = $("btnLlmApiKeyToggle");
+
+  function llmSetPending(on) { llmRestartAlert.classList.toggle("hidden", !on); }
+  function llmShowResult(kind, text) {
+    llmTestResult.className = "llm-test-result" + (kind ? " " + kind : "");
+    llmTestResult.textContent = text;
+  }
+  function llmClearResult() {
+    llmTestResult.className = "llm-test-result hidden";
+    llmTestResult.textContent = "";
+  }
+
+  // POSTs carry Origin/Referer for the server's same-origin CSRF check;
+  // referrerPolicy keeps the Referer even under a stricter page policy.
+  async function llmPost(path, body, timeoutMs) {
+    let r;
+    try {
+      r = await fetch(path, {
+        method: "POST", cache: "no-store", credentials: "same-origin",
+        referrerPolicy: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs || 10000),
+      });
+    } catch (e) {
+      const timeout = e && (e.name === "TimeoutError" || e.name === "AbortError");
+      throw new Error(timeout ? "请求超时，Agent 未响应" : "网络错误，无法连接 Agent");
+    }
+    let data = null;
+    try { data = await r.json(); } catch (_) {}
+    return { status: r.status, data: data || {} };
+  }
+
+  function llmPayload() {
+    return {
+      llm_backend: llmBackend.value,
+      llm_base_url: llmBaseUrl.value.trim(),
+      llm_model: llmModel.value.trim(),
+      llm_api_key: llmApiKey.value,
+    };
+  }
+
+  async function loadLlmConfig() {
+    try {
+      const r = await fetch("/api/llm/config", { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const d = await r.json();
+      const backend = d.llm_backend === "openai" ? "openai_compat" : d.llm_backend;
+      llmBackend.value = ["edge_llm", "openai_compat", "noop"].includes(backend) ? backend : "edge_llm";
+      llmBaseUrl.value = d.llm_base_url || "";
+      llmModel.value = d.llm_model || "";
+      llmApiKey.value = d.has_api_key ? LLM_KEY_MASK : "";
+      llmApiKey.type = "password";
+      btnLlmApiKeyToggle.setAttribute("aria-pressed", "false");
+      btnLlmApiKeyToggle.setAttribute("aria-label", "显示密钥");
+      llmSetPending(d.pending_restart === true);
+      if (d.server_loop || d.editable === false) {
+        llmBackend.disabled = true;
+        llmBaseUrl.disabled = true;
+        llmModel.disabled = true;
+        llmApiKey.disabled = true;
+        btnLlmSave.disabled = true;
+        btnLlmTest.disabled = true;
+        llmShowResult("warn", "当前运行在服务端回环模式（server_loop），LLM 端点由语音服务端统一托管，客户端配置已锁定。");
+      }
+    } catch (e) {
+      showToast("加载 LLM 端点配置失败: " + e.message, "error");
+    }
+  }
+
+  btnLlmApiKeyToggle.addEventListener("click", () => {
+    const show = llmApiKey.type === "password";
+    llmApiKey.type = show ? "text" : "password";
+    btnLlmApiKeyToggle.setAttribute("aria-pressed", show ? "true" : "false");
+    btnLlmApiKeyToggle.setAttribute("aria-label", show ? "隐藏密钥" : "显示密钥");
+  });
+  // Typing over the mask replaces it rather than appending to it.
+  llmApiKey.addEventListener("focus", () => { if (llmApiKey.value === LLM_KEY_MASK) llmApiKey.select(); });
+
+  btnLlmTest.addEventListener("click", async () => {
+    btnLlmTest.disabled = true;
+    llmShowResult("", "正在测试连接…");
+    try {
+      // Server bounds the probe at 5 s; allow headroom for the round trip.
+      const { status, data } = await llmPost("/api/llm/test", llmPayload(), 8000);
+      const lat = typeof data.latency_ms === "number" ? "（" + Math.round(data.latency_ms) + " ms）" : "";
+      const st = data.status ? "[" + data.status + "] " : "";
+      if (data.ok) llmShowResult("success", st + (data.message || "连接成功") + lat);
+      else llmShowResult("err", st + (data.error || data.message || "测试失败 (HTTP " + status + ")") + lat);
+    } catch (e) {
+      llmShowResult("err", e.message);
+    } finally {
+      btnLlmTest.disabled = false;
+    }
+  });
+
+  btnLlmSave.addEventListener("click", async () => {
+    btnLlmSave.disabled = true;
+    try {
+      const { status, data } = await llmPost("/api/llm/config", llmPayload(), 10000);
+      if (!data.ok) {
+        showToast("保存端点配置失败: " + (data.error || "HTTP " + status), "error", 5000);
+        return;
+      }
+      const changed = Array.isArray(data.changed) ? data.changed : [];
+      if (!changed.length) {
+        showToast("未检测到修改，端点配置保持不变", "info");
+        llmSetPending(data.pending_restart === true);
+        return;
+      }
+      llmSetPending(true);
+      showToast(
+        "端点配置已保存，需重启生效" + (data.key_cleared ? "（服务地址已变更，原 API 密钥已清除）" : ""),
+        "success", data.key_cleared ? 6000 : 3000
+      );
+      await loadLlmConfig();
+      llmSetPending(true);
+    } catch (e) {
+      showToast("保存端点配置失败: " + e.message, "error", 5000);
+    } finally {
+      btnLlmSave.disabled = false;
+    }
+  });
+
+  $("btnLlmRestartNow").addEventListener("click", () => triggerRestartAgent());
+
+  // ── settings panel tabs ─────────────────────────────────────────
+  // Sections are only regrouped into tab panels; every control keeps its id
+  // and listeners.
+  //
+  // desiredTab is the tab the user last chose (persisted); msActiveTab is the
+  // tab actually shown. They differ only while the desired tab is hidden,
+  // i.e. translator before its probe says the backend is available.
+  const MS_TAB_KEY = "ovs.dashboard.settingsTab";
+  const msBody = $("msBody");
+  const msTabs = Array.from(document.querySelectorAll("#msTabs .ms-tab"));
+  const msTabTranslator = $("msTab-translator");
+  let desiredTab = "prompt";
+  try { desiredTab = localStorage.getItem(MS_TAB_KEY) || "prompt"; } catch (_) {}
+  if (!msFindTab(desiredTab)) desiredTab = "prompt";
+  let msActiveTab = "prompt";
+  // idle | loading | available | noop | failed
+  let translatorProbe = "idle";
+
+  function msTabVisible(tab) { return !!tab && !tab.hidden; }
+  function msFindTab(name) { return msTabs.find((t) => t.dataset.tab === name) || null; }
+  function saveDesiredTab() {
+    try { localStorage.setItem(MS_TAB_KEY, desiredTab); } catch (_) {}
+  }
+
+  // Shows `name` if it is a visible tab, otherwise "prompt". Does not touch
+  // desiredTab.
+  function activateSettingsTab(name, opts) {
+    opts = opts || {};
+    let tab = msFindTab(name);
+    if (!msTabVisible(tab)) tab = msFindTab("prompt");
+    const changed = tab.dataset.tab !== msActiveTab || opts.force;
+    msTabs.forEach((t) => {
+      const on = t === tab;
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+      const panel = $(t.getAttribute("aria-controls"));
+      if (panel) panel.hidden = !on;
+    });
+    msActiveTab = tab.dataset.tab;
+    if (changed) msBody.scrollTop = 0;
+    if (!msPanel.classList.contains("hidden")) {
+      tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (opts.focus) tab.focus();
+    }
+  }
+
+  function onUserSelectTab(name, opts) {
+    desiredTab = name;
+    saveDesiredTab();
+    activateSettingsTab(name, opts);
+  }
+
+  // Applies a translator probe result: "available" | "noop" | "failed".
+  function setTranslatorProbe(state) {
+    translatorProbe = state;
+    if (!msTabTranslator) return;
+    msTabTranslator.hidden = state !== "available";
+    if (state === "available") {
+      if (desiredTab === "translator" && msActiveTab !== "translator") {
+        const hadFocus = msPanel.contains(document.activeElement);
+        activateSettingsTab("translator", { focus: hadFocus });
+      }
+      return;
+    }
+    if (msActiveTab === "translator") {
+      const hadFocus = msPanel.contains(document.activeElement);
+      activateSettingsTab("prompt", { focus: hadFocus });
+    }
+    // noop is a definite answer, so drop a translator intent; a failed probe
+    // keeps it for the next retry. Other intents are left alone either way.
+    if (state === "noop" && desiredTab === "translator") {
+      desiredTab = "prompt";
+      saveDesiredTab();
+    }
+  }
+
+  msTabs.forEach((tab) => {
+    tab.addEventListener("click", () => onUserSelectTab(tab.dataset.tab));
+    tab.addEventListener("keydown", (ev) => {
+      const visible = msTabs.filter(msTabVisible);
+      const i = visible.indexOf(tab);
+      let next = null;
+      if (ev.key === "ArrowRight") next = visible[(i + 1) % visible.length];
+      else if (ev.key === "ArrowLeft") next = visible[(i - 1 + visible.length) % visible.length];
+      else if (ev.key === "Home") next = visible[0];
+      else if (ev.key === "End") next = visible[visible.length - 1];
+      if (!next) return;
+      ev.preventDefault();
+      onUserSelectTab(next.dataset.tab);
+      next.focus();
+    });
+  });
+  activateSettingsTab(desiredTab, { force: true });
 
   function _parseTempOrNull(s) {
     if (s === "" || s === null || s === undefined) return null;
@@ -335,66 +587,376 @@
     } catch (_) {}
   });
 
-  // ── agent-settings card (#4) ────────────────────────────────────
-  const agentSettingsBody = $("agentSettingsBody");
-  const btnAgentSettingsToggle = $("btnAgentSettingsToggle");
+  // ── voice & wake settings card ──────────────────────────────────
   const setPipelineMode = $("setPipelineMode");
   const setSleepTimeout = $("setSleepTimeout");
   const setStopWords = $("setStopWords");
+  const setExitWords = $("setExitWords");
+  const setWakeReply = $("setWakeReply");
+  const setExitReply = $("setExitReply");
+  const wwPhrases = $("wwPhrases");
+  const REPLY_MAX_CHARS = 200;
+  // pipeline_mode as last reported by the server: a save that changes it
+  // needs a restart, so the toast has to say so.
+  let loadedPipelineMode = null;
+  let loadedWakewordPhrases = "";
+  let kwsAvailable = false;
+  let isVoiceSettingsSaving = false;
+  let isPartiallyApplied = false;
+
+  const splitLines = (v) => v.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  const splitPhrases = (v) => (v || "").split(/[,，、\n]/).map((x) => x.trim()).filter(Boolean);
+
+  async function readJson(r) {
+    let data = {};
+    try { data = await r.json(); } catch (_) {}
+    if (!r.ok || data.ok === false) {
+      const msg = (typeof data.error === "string" && data.error) || ("HTTP " + r.status);
+      throw new Error(data.request_id ? msg + "（request_id: " + data.request_id + "）" : msg);
+    }
+    return data;
+  }
 
   async function loadAgentSettings() {
     try {
-      const r = await fetch("/api/agent/settings");
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      const d = await r.json();
-      setPipelineMode.value = d.pipeline_mode || "always_on";
+      const d = await readJson(await fetch("/api/agent/settings"));
+      loadedPipelineMode = d.pipeline_mode || "always_on";
+      setPipelineMode.value = loadedPipelineMode;
+      const activeMode = d.pipeline_mode_active || loadedPipelineMode;
+      const pendingRestart = activeMode !== loadedPipelineMode;
+      const tag = $("modeRestartTag");
+      if (tag) {
+        tag.textContent = pendingRestart ? `待重启 (当前生效: ${activeMode})` : "⚠ 修改需重启生效";
+      }
+      const btnRestart = $("btnRestartAgent");
+      if (btnRestart) {
+        btnRestart.classList.toggle("hidden", !pendingRestart);
+      }
       setSleepTimeout.value = d.sleep_timeout_s != null ? String(d.sleep_timeout_s) : "30";
       setStopWords.value = (d.stop_words || []).join("\n");
-    } catch (e) { showToast("加载设置失败: " + e.message, "error"); }
-  }
-  function toggleAgentSettings() {
-    const hidden = agentSettingsBody.classList.toggle("hidden");
-    if (btnAgentSettingsToggle) btnAgentSettingsToggle.classList.toggle("open", !hidden);
-    if (!hidden) loadAgentSettings();
-  }
-  if (btnAgentSettingsToggle) {
-    btnAgentSettingsToggle.addEventListener("click", (e) => { e.stopPropagation(); toggleAgentSettings(); });
-    const h3 = $("agentSettingsCard")?.querySelector("h3");
-    if (h3) {
-      h3.addEventListener("click", (e) => {
-        if (e.target.id === "btnAgentSettingsToggle") return;
-        toggleAgentSettings();
-      });
+      setExitWords.value = (d.exit_words || []).join("\n");
+      setWakeReply.value = d.wake_reply_text || "";
+      setExitReply.value = d.exit_reply_text || "";
+      return true;
+    } catch (e) {
+      showToast("加载设置失败: " + e.message, "error");
+      return false;
     }
   }
-  $("btnAgentSettingsReload").addEventListener("click", loadAgentSettings);
+
+  $("btnAgentSettingsReload").addEventListener("click", async () => {
+    const ok = await loadAgentSettings();
+    if (ok) showToast("已恢复为当前生效值", "success");
+  });
+
   $("btnAgentSettingsSave").addEventListener("click", async () => {
-    const stop_words = setStopWords.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-    const sleep_timeout_s = parseFloat(setSleepTimeout.value);
-    if (!Number.isFinite(sleep_timeout_s) || sleep_timeout_s < 0) {
-      showToast("sleep_timeout_s 无效", "error"); return;
-    }
-    const body = {
-      pipeline_mode: setPipelineMode.value,
-      sleep_timeout_s,
-      stop_words,
-    };
+    if (isVoiceSettingsSaving) return;
+    const btn = $("btnAgentSettingsSave");
+    const btnWw = $("btnWwSave");
+    isVoiceSettingsSaving = true;
+    btn.disabled = true;
+    if (btnWw) btnWw.disabled = true;
+
     try {
-      const r = await fetch("/api/agent/settings", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        let msg = "HTTP " + r.status;
-        try { const j = await r.json(); if (j.error) msg = j.error; } catch (_) {}
-        throw new Error(msg);
+      const rawTimeout = setSleepTimeout.value.trim();
+      if (!/^\d+(\.\d+)?$/.test(rawTimeout)) {
+        showToast("休眠等待超时必须是 ≥ 0 的数字", "error"); setSleepTimeout.focus(); return;
       }
-      const data = await r.json();
-      showToast(
-        data.persisted ? "已保存（已写入 yaml）" : "运行时已生效，未持久化",
-        "success",
+      const sleep_timeout_s = parseFloat(rawTimeout);
+      if (!Number.isFinite(sleep_timeout_s) || sleep_timeout_s < 0 || sleep_timeout_s > 86400) {
+        showToast("休眠等待超时必须在 0 到 86400 秒之间", "error"); setSleepTimeout.focus(); return;
+      }
+      const wake_reply_text = setWakeReply.value.trim();
+      const exit_reply_text = setExitReply.value.trim();
+      if (wake_reply_text.length > REPLY_MAX_CHARS || exit_reply_text.length > REPLY_MAX_CHARS) {
+        showToast("问候语 / 道别语不超过 " + REPLY_MAX_CHARS + " 字", "error"); return;
+      }
+      const stop_words = splitLines(setStopWords.value);
+      const exit_words = splitLines(setExitWords.value);
+      const stopWordsLower = stop_words.map((w) => w.toLowerCase());
+      const overlap = exit_words.filter((w) => stopWordsLower.includes(w.toLowerCase()));
+      if (overlap.length) {
+        showToast("同一个词不能既是停下词又是退出词: " + overlap.join("、"), "error"); return;
+      }
+
+      const previousWakewordPhrases = loadedWakewordPhrases;
+      const currentPhrases = splitPhrases(wwPhrases.value);
+      const previousPhrasesList = splitPhrases(previousWakewordPhrases);
+      const wwChanged = kwsAvailable && (
+        currentPhrases.length !== previousPhrasesList.length ||
+        currentPhrases.some((p, i) => p !== previousPhrasesList[i])
       );
-    } catch (e) { showToast("保存失败: " + e.message, "error"); }
+
+      let kwsBodyJson = null;
+      if (wwChanged) {
+        kwsBodyJson = wakewordBody();
+        if (!kwsBodyJson) return;
+        try {
+          const vRes = await readJson(await fetch("/api/wakeword/validate", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: kwsBodyJson,
+          }));
+          if (!vRes || vRes.ok !== true) throw new Error(vRes?.error || "验证未通过");
+        } catch (err) {
+          showToast("唤醒词验证失败: " + err.message, "error", 5000);
+          wwPhrases.focus();
+          return;
+        }
+      }
+
+      const pipeline_mode = setPipelineMode.value;
+      const modeChanged = loadedPipelineMode !== null && pipeline_mode !== loadedPipelineMode;
+
+      let kwsApplied = false;
+      let kwsPersisted = false;
+      let kwsPersistError = null;
+
+      // Phase 2: High-risk runtime patch first
+      if (wwChanged && kwsBodyJson) {
+        try {
+          const kwsRes = await readJson(await fetch("/api/wakeword/runtime", {
+            method: "PATCH", headers: { "Content-Type": "application/json" }, body: kwsBodyJson,
+          }));
+          kwsApplied = true;
+          kwsPersisted = (kwsRes.persisted === true);
+          kwsPersistError = kwsRes.persist_error || null;
+        } catch (kwsErr) {
+          showToast("唤醒词应用失败: " + kwsErr.message + "（全局设置未提交，请修正后重试）", "error", 6000);
+          return;
+        }
+      }
+
+      // Phase 3: Settings POST
+      let data = null;
+      try {
+        data = await readJson(await fetch("/api/agent/settings", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pipeline_mode, sleep_timeout_s, stop_words, exit_words,
+            wake_reply_text, exit_reply_text,
+          }),
+        }));
+      } catch (settingsErr) {
+        // Compensating Rollback
+        if (kwsApplied) {
+          try {
+            const rollbackBody = JSON.stringify({ phrases: previousPhrasesList });
+            const rbRes = await readJson(await fetch("/api/wakeword/runtime", {
+              method: "PATCH", headers: { "Content-Type": "application/json" }, body: rollbackBody,
+            }));
+            const recon = await loadWakewordRuntime();
+            const verified = recon.ok && (
+              recon.phrases.length === previousPhrasesList.length &&
+              recon.phrases.every((p, i) => p === previousPhrasesList[i])
+            );
+            if (verified) {
+              isPartiallyApplied = false;
+              wwPhrases.value = previousWakewordPhrases;
+              showToast("全局设置保存失败: " + settingsErr.message + "（已自动回滚唤醒词修改）", "error", 7000);
+            } else {
+              isPartiallyApplied = true;
+              wwBadge.className = "vw-badge vw-badge-danger";
+              wwBadge.textContent = "部分生效(需核对)";
+              wwHint.classList.remove("hidden");
+              wwHint.textContent = "⚠ 唤醒词与全局配置处于部分生效状态，请刷新页面核对服务端实际配置。";
+              showToast("全局设置保存失败: " + settingsErr.message + "，且唤醒词回滚对账未通过，当前处于部分生效状态，请刷新核对", "error", 9000);
+            }
+          } catch (rbErr) {
+            isPartiallyApplied = true;
+            wwBadge.className = "vw-badge vw-badge-danger";
+            wwBadge.textContent = "部分生效(需核对)";
+            wwHint.classList.remove("hidden");
+            wwHint.textContent = "⚠ 唤醒词与全局配置处于部分生效状态，请刷新页面核对服务端实际配置。";
+            showToast("全局设置保存失败: " + settingsErr.message + "，且唤醒词回滚失败，当前处于部分生效状态，请刷新页面核对", "error", 9000);
+          }
+        } else {
+          showToast("保存失败: " + settingsErr.message, "error");
+        }
+        return;
+      }
+
+      // Full success: commit local state
+      isPartiallyApplied = false;
+      const settingsPersisted = (data.persisted === true);
+      const settingsChanged = Array.isArray(data.changed) ? data.changed : [];
+      loadedPipelineMode = data.pipeline_mode || pipeline_mode;
+      if (kwsApplied) {
+        loadedWakewordPhrases = wwPhrases.value.trim();
+      }
+
+      const activeMode = data.pipeline_mode_active || loadedPipelineMode;
+      const pendingRestart = activeMode !== loadedPipelineMode;
+      const tag = $("modeRestartTag");
+      if (tag) {
+        tag.textContent = pendingRestart ? `待重启 (当前生效: ${activeMode})` : "⚠ 修改需重启生效";
+      }
+      const btnRestart = $("btnRestartAgent");
+      if (btnRestart) {
+        btnRestart.classList.toggle("hidden", !pendingRestart);
+      }
+
+      if (!wwChanged && settingsChanged.length === 0) {
+        showToast("未检测到修改，配置保持不变", "info");
+        return;
+      }
+
+      // 2x2 persistence matrix reporting with explicit persist_error support
+      let msg, kind;
+      if (wwChanged && settingsChanged.length === 0) {
+        if (kwsPersisted) {
+          msg = "唤醒词已更新并保存"; kind = "success";
+        } else {
+          msg = "唤醒词已热更新（无配置文件，重启恢复原值）" + (kwsPersistError ? ": " + kwsPersistError : "");
+          kind = "warn";
+        }
+      } else if (wwChanged && settingsChanged.length > 0) {
+        if (settingsPersisted && kwsPersisted) {
+          msg = "设置与唤醒词已成功保存并持久化"; kind = "success";
+        } else if (settingsPersisted && !kwsPersisted) {
+          msg = "全局设置已持久化；唤醒词写入失败: " + (kwsPersistError || "无配置文件，重启恢复原值");
+          kind = "warn";
+        } else if (!settingsPersisted && kwsPersisted) {
+          msg = "唤醒词已持久化；全局设置写入失败: " + (data.persist_error || "无配置文件，重启恢复原值");
+          kind = "warn";
+        } else {
+          msg = "运行时已热生效（无配置文件，重启恢复原值）";
+          if (data.persist_error || kwsPersistError) {
+            msg += " (" + [data.persist_error, kwsPersistError].filter(Boolean).join("; ") + ")";
+          }
+          kind = "warn";
+        }
+      } else {
+        if (settingsPersisted) {
+          msg = "已保存并写入配置文件"; kind = "success";
+        } else if (data.persist_error) {
+          msg = "运行时已生效，写入配置文件失败: " + data.persist_error; kind = "warn";
+        } else {
+          msg = "运行时已生效（无配置文件，重启后恢复原值）"; kind = "warn";
+        }
+      }
+
+      if (modeChanged) {
+        msg += "；pipeline_mode 已改为 " + pipeline_mode + "，重启 agent 后生效";
+        kind = "warn";
+      }
+      showToast(msg, kind, modeChanged || kind !== "success" ? 6000 : 2500);
+    } catch (e) {
+      showToast("保存失败: " + e.message, "error");
+    } finally {
+      isVoiceSettingsSaving = false;
+      btn.disabled = false;
+      if (btnWw) btnWw.disabled = !kwsAvailable;
+    }
+  });
+
+  // Runtime wake-word (runtime_kws plugin). Without the plugin every control
+  // in this group is disabled and the hint explains why.
+  const wwBadge = $("wwBadge");
+  const wwHint = $("wwHint");
+  const wwControls = [wwPhrases, $("btnWwValidate"), $("btnWwSave"), $("btnWwTone")];
+
+  function setWakewordState(available, enabled, running) {
+    wwControls.forEach((el) => { el.disabled = !available; });
+    let badgeClass = "vw-badge-disabled";
+    let badgeText = "未挂载";
+    if (available && running) {
+      badgeClass = "vw-badge-normal";
+      badgeText = "运行中";
+    } else if (available && !running) {
+      badgeClass = "vw-badge-warning";
+      badgeText = "未就绪";
+    } else if (enabled) {
+      badgeClass = "vw-badge-danger";
+      badgeText = "加载失败";
+    }
+    wwBadge.className = "vw-badge " + badgeClass;
+    wwBadge.textContent = badgeText;
+    wwHint.classList.toggle("hidden", available && running);
+    wwHint.textContent = enabled
+      ? "runtime_kws 插件已挂载但未就绪（模型未启动或加载失败），请查看 agent 日志。"
+      : "未挂载 runtime_kws 插件，唤醒词不可在线修改。";
+  }
+
+  async function loadWakewordRuntime() {
+    try {
+      const d = await readJson(await fetch("/api/wakeword/runtime"));
+      kwsAvailable = !!d.available;
+      isPartiallyApplied = false;
+      setWakewordState(!!d.available, !!d.enabled, !!d.running);
+      if (d.available) {
+        loadedWakewordPhrases = (d.phrases || []).join(", ");
+        wwPhrases.value = loadedWakewordPhrases;
+      } else {
+        loadedWakewordPhrases = "";
+      }
+      return { ok: true, phrases: d.phrases || [] };
+    } catch (e) {
+      kwsAvailable = false;
+      loadedWakewordPhrases = "";
+      setWakewordState(false, false, false);
+      wwHint.textContent = "读取唤醒词状态失败: " + e.message;
+      return { ok: false, error: e.message };
+    }
+  }
+
+  function wakewordBody() {
+    const phrases = splitPhrases(wwPhrases.value);
+    if (!phrases.length) { showToast("请输入至少一个唤醒短语", "error"); wwPhrases.focus(); return null; }
+    for (const p of phrases) {
+      if (p.length > 30) {
+        showToast("单个唤醒短语不能超过 30 字符: " + p.slice(0, 10) + "…", "error");
+        wwPhrases.focus();
+        return null;
+      }
+    }
+    return JSON.stringify({ phrases });
+  }
+
+  $("btnWwValidate").addEventListener("click", async () => {
+    const body = wakewordBody(); if (!body) return;
+    const btn = $("btnWwValidate");
+    btn.disabled = true;
+    try {
+      const d = await readJson(await fetch("/api/wakeword/validate", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body,
+      }));
+      showToast("验证通过: " + (d.phrases || []).join(", "), "success");
+    } catch (e) { showToast("验证失败: " + e.message, "error", 5000); }
+    finally { btn.disabled = false; }
+  });
+
+  $("btnWwSave").addEventListener("click", async () => {
+    if (isVoiceSettingsSaving) return;
+    const body = wakewordBody(); if (!body) return;
+    const btn = $("btnWwSave");
+    const btnSave = $("btnAgentSettingsSave");
+    isVoiceSettingsSaving = true;
+    btn.disabled = true;
+    if (btnSave) btnSave.disabled = true;
+    try {
+      const d = await readJson(await fetch("/api/wakeword/runtime", {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body,
+      }));
+      isPartiallyApplied = false;
+      wwPhrases.value = (d.phrases || []).join(", ");
+      loadedWakewordPhrases = wwPhrases.value.trim();
+      if (d.persisted) showToast("唤醒词已更新并保存", "success");
+      else showToast("唤醒词已热更新，持久化失败（重启后恢复）: " + (d.persist_error || "未知原因"), "warn", 6000);
+    } catch (e) { showToast("应用唤醒词失败: " + e.message, "error", 5000); }
+    finally {
+      isVoiceSettingsSaving = false;
+      btn.disabled = false;
+      if (btnSave) btnSave.disabled = false;
+    }
+  });
+
+  $("btnWwTone").addEventListener("click", async () => {
+    const btn = $("btnWwTone");
+    btn.disabled = true;
+    try {
+      await readJson(await fetch("/api/wakeword/test-tone", { method: "POST" }));
+      showToast("已播放提示音", "success");
+    } catch (e) { showToast("试听失败: " + e.message, "error"); }
+    finally { btn.disabled = false; }
   });
 
   // ── translator card (NLLB Phase 2b) ──────────────────────────────
@@ -434,6 +996,8 @@
       if (wanted) setTranslatorTgtLang.value = wanted;
     }
     const noop = backend === "noop";
+    translatorLoaded = true;
+    setTranslatorProbe(noop ? "noop" : "available");
     if (setTranslatorTgtLang) setTranslatorTgtLang.disabled = noop;
     if (btnTranslatorSave) {
       btnTranslatorSave.disabled = noop;
@@ -441,15 +1005,23 @@
     }
   }
 
-  async function loadTranslatorRuntime() {
+  // Only the newest request may apply its result, so a slow stale response
+  // cannot override a later one.
+  let translatorProbeSeq = 0;
+  async function loadTranslatorRuntime(opts) {
+    const silent = !!(opts && opts.silent);
+    const seq = ++translatorProbeSeq;
+    translatorProbe = "loading";
     try {
       const r = await fetch("/api/translator/runtime");
       if (!r.ok) throw new Error("HTTP " + r.status);
       const d = await r.json();
+      if (seq !== translatorProbeSeq) return;
       applyTranslatorRuntime(d);
-      translatorLoaded = true;
     } catch (e) {
-      showToast("加载翻译设置失败: " + e.message, "error");
+      if (seq !== translatorProbeSeq) return;
+      setTranslatorProbe("failed");
+      if (!silent) showToast("加载翻译设置失败: " + e.message, "error");
     }
   }
 
@@ -494,8 +1066,9 @@
       });
     }
   }
-  if (btnTranslatorReload) btnTranslatorReload.addEventListener("click", loadTranslatorRuntime);
+  if (btnTranslatorReload) btnTranslatorReload.addEventListener("click", () => loadTranslatorRuntime());
   if (btnTranslatorSave) btnTranslatorSave.addEventListener("click", saveTranslatorRuntime);
+  loadTranslatorRuntime({ silent: true });
 
   // ── subtitle bubble (NLLB Phase 2b) ──────────────────────────────
   function addSubtitleBubble(payload) {
@@ -613,6 +1186,87 @@
     $("btnPause").textContent = paused ? "Resume" : "Pause";
     $("menu").classList.add("hidden");
   });
+
+  let restartingAgent = false;
+  async function triggerRestartAgent() {
+    if (restartingAgent) return;
+    if (!window.confirm("确认重启 Agent 进程？\n（若配置了 systemd/Docker 守护将自动拉起；若在终端手动运行请手动重启）")) return;
+    restartingAgent = true;
+    showToast("正在请求重启 Agent...", "info", 5000);
+    try {
+      let initialInstanceId = null;
+      try {
+        const initRes = await fetch("/api/agent/settings", { signal: AbortSignal.timeout(2000) });
+        if (initRes.ok) {
+          const initData = await initRes.json();
+          initialInstanceId = initData.instance_id || null;
+        }
+      } catch (_) {}
+
+      // restart_agent sits behind the same admin-token boundary as /api/mcp/*,
+      // so it shares the coded error parsing (Chinese text + request_id).
+      await mcpRequest("POST", "/api/control/restart_agent", undefined, { timeoutMs: 10000 });
+      showToast("Agent 正在重启，等待服务恢复...", "warn", 10000);
+
+      // Wait 1.5s for process termination before starting recovery probes
+      await new Promise((r) => setTimeout(r, 1500));
+
+      let attempts = 0;
+      const maxAttempts = 25;
+      let stopped = false;
+
+      const pollStep = async () => {
+        if (stopped) return;
+        attempts++;
+        if (attempts > maxAttempts) {
+          stopped = true;
+          restartingAgent = false;
+          showToast("等待 Agent 重启超时，请检查终端日志或手动刷新", "error", 10000);
+          return;
+        }
+
+        try {
+          const res = await fetch("/api/agent/settings", { signal: AbortSignal.timeout(2000) });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.restart_failed) {
+              stopped = true;
+              restartingAgent = false;
+              showToast("Agent 重启失败：" + (data.restart_error || "进程终止异常"), "error", 10000);
+              return;
+            }
+            if (!initialInstanceId || (data.instance_id && data.instance_id !== initialInstanceId)) {
+              stopped = true;
+              showToast("Agent 重启成功，正在刷新页面...", "success", 2000);
+              setTimeout(() => { location.reload(); }, 600);
+              return;
+            }
+          }
+        } catch (_) {}
+
+        if (!stopped) {
+          setTimeout(pollStep, 1000);
+        }
+      };
+
+      setTimeout(pollStep, 1000);
+    } catch (e) {
+      restartingAgent = false;
+      showToast("触发重启失败：" + mcpErrorText(e), "error", 8000);
+    }
+  }
+
+  const btnRestartAgent = $("btnRestartAgent");
+  if (btnRestartAgent) {
+    btnRestartAgent.addEventListener("click", triggerRestartAgent);
+  }
+  const btnRestartAgentMenu = $("btnRestartAgentMenu");
+  if (btnRestartAgentMenu) {
+    btnRestartAgentMenu.addEventListener("click", () => {
+      $("menu")?.classList.add("hidden");
+      triggerRestartAgent();
+    });
+  }
   $("btnRefreshHist").addEventListener("click", refreshHistory);
   $("btnClearHist").addEventListener("click", async () => {
     try { await clearSessionContext(); } catch (e) { showToast("清空上下文失败: " + e.message, "error"); }
@@ -735,13 +1389,15 @@
     const thr = parseFloat(rmsThr.textContent) || 0.012;
     for (let i = 0; i < rmsSamples.length; i++) {
       const h = Math.min(1, rmsSamples[i] / 0.2) * H;
-      ctx.fillStyle = rmsSamples[i] >= thr ? "#82c91e" : "#7a8597";
+      ctx.fillStyle = rmsSamples[i] >= thr ? "#357f11" : "#64748b";
       ctx.fillRect(i * bw, H - h, Math.max(1, bw - 1), h);
     }
     // threshold line
     const ty = H - Math.min(1, thr / 0.2) * H;
-    ctx.strokeStyle = "rgba(92,219,211,0.5)"; ctx.lineWidth = 1;
+    ctx.strokeStyle = "#475569"; ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
     ctx.beginPath(); ctx.moveTo(0, ty); ctx.lineTo(W, ty); ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   // ── latency ──────────────────────────────────────────────────────
@@ -782,12 +1438,12 @@
     // The canvas is authored at 2x its CSS box (128x40 -> 64x20), so strokes
     // are doubled here to land on 1px / 1.5px once scaled down.
     if (!buf || buf.length === 0) {
-      ctx.strokeStyle = "#3a4258"; ctx.lineWidth = 2;
+      ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
       return;
     }
     const maxV = Math.max(1, ...buf);
-    ctx.strokeStyle = "#5cdbd3"; ctx.lineWidth = 3;
+    ctx.strokeStyle = "#357f11"; ctx.lineWidth = 3;
     ctx.lineJoin = "round"; ctx.lineCap = "round";
     ctx.beginPath();
     const step = buf.length > 1 ? W / (buf.length - 1) : W;
@@ -992,15 +1648,16 @@
     }
 
     if (ev === "on_agent_settings_change") {
-      // Refresh agent-settings card if open and we didn't initiate this.
-      if (!$("agentSettingsBody").classList.contains("hidden")) {
+      // Refresh the voice & wake card only while the settings panel is open.
+      if (!msPanel.classList.contains("hidden")) {
         loadAgentSettings();
       }
       return;
     }
 
     if (ev === "on_translator_runtime_change") {
-      try { applyTranslatorRuntime(data); translatorLoaded = true; } catch (_) {}
+      translatorProbeSeq++;
+      try { applyTranslatorRuntime(data); } catch (_) {}
       return;
     }
 
@@ -1163,7 +1820,7 @@
 
     function setHint(msg, kind) {
       hintEl.textContent = msg || "";
-      hintEl.style.color = kind === "error" ? "var(--err, #ef4444)" : "";
+      hintEl.style.color = kind === "error" ? "var(--error)" : "";
     }
 
     function applyCloneCapability() {
@@ -1334,7 +1991,7 @@
           audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false },
         });
       } catch (e) {
-        vcStatus.style.color = "var(--err, #ef4444)";
+        vcStatus.style.color = "var(--error)";
         vcStatus.textContent = "麦克风权限被拒: " + e.message;
         return;
       }
@@ -1371,7 +2028,7 @@
       vcRecBtn.textContent = "● 重新录音";
       vcRecState.textContent = `已录 ${dur.toFixed(1)}s`;
       if (!recBuffers.length) {
-        vcStatus.style.color = "var(--err, #ef4444)";
+        vcStatus.style.color = "var(--error)";
         vcStatus.textContent = "没有捕获到音频";
         return;
       }
@@ -1427,7 +2084,7 @@
         showToast(`已注册 speaker ${reg.speaker_id}`, "success");
         closeClone();
       } catch (e) {
-        vcStatus.style.color = "var(--err, #ef4444)";
+        vcStatus.style.color = "var(--error)";
         vcStatus.textContent = "失败: " + e.message;
       } finally {
         vcUpload.disabled = false;
@@ -1439,6 +2096,573 @@
     cloneBtn.classList.remove("hidden");
     loadSpeakers().then(loadRuntime);
   })();
+
+  // ── MCP server management (spec v7.3 §5) ─────────────────────────
+  // Backend routes (debug_dashboard.py): GET/POST /api/mcp/servers,
+  // PATCH/DELETE /api/mcp/servers/{name}, POST /api/mcp/test. Create uses
+  // POST; edit uses PATCH, which merges into the stored entry so fields the
+  // form does not show (e.g. timeout_s) are kept.
+  const MCP_API = {
+    list: "/api/mcp/servers",
+    create: "/api/mcp/servers",
+    item: (name) => "/api/mcp/servers/" + encodeURIComponent(name),
+    test: "/api/mcp/test",
+  };
+  const MCP_MASK = "******";
+  const MCP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+  // stdio whitelist hints (backend validate_stdio_args is authoritative).
+  const MCP_PY_CMD_RE = /^(?:.*\/)?python(?:3(?:\.\d+)?)?$/;
+  // Client copy per DashboardApiError code. Unknown codes fall back to the
+  // server's SAFE_CLIENT_MESSAGES text, which is already sanitised.
+  const MCP_ERROR_TEXT = {
+    UNAUTHORIZED: "管理令牌无效或已失效，请刷新页面后重试",
+    FORBIDDEN: "请求来源校验未通过，请在本页面内操作",
+    ETAG_MISMATCH: "配置已被其他会话修改，列表已重新加载，请确认后重试",
+    CONCURRENT_MODIFICATION: "操作冲突，请稍后重试",
+    TOO_MANY_REQUESTS: "同时进行的测试已达上限（2 个），请稍后重试",
+    SERVICE_UNAVAILABLE: "Agent 正在停机或暂不可用",
+    CONNECTION_FAILED: "无法连接 MCP 服务，或工具发现失败",
+    TEST_TIMEOUT: "测试连接超时（10 秒）",
+    INVALID_PARAM: "参数无效，请检查表单内容",
+    SECURITY_VIOLATION: "安全校验未通过：命令、参数或目标地址不在允许范围内",
+    FILE_TOO_LARGE: "配置超过 2MB 上限",
+    CONFIG_PARSE_ERROR: "配置文件语法错误",
+    CONFIG_RECOVERY_REQUIRED: "配置处于只读锁定状态，需要人工恢复后重启 Agent",
+    DISK_FULL: "设备存储空间已满，配置未写入",
+    TMP_CREATE_FAILED: "无法创建临时配置文件，配置未写入，请检查配置目录权限",
+    TMP_CLEANUP_FAILED: "临时配置文件清理失败，请检查配置目录",
+    FD_CLOSE_FAILED: "配置文件句柄关闭失败，请查看 Agent 日志",
+    FCHMOD_FAILED: "无法设置配置文件权限（0600），配置未写入",
+    FSYNC_FAILED: "配置文件同步到存储失败，配置可能未保存",
+    DIR_FSYNC_FAILED: "配置目录同步到存储失败，配置可能未保存",
+    WRITE_FAILED: "写入配置文件失败，配置未保存",
+    SHORT_WRITE: "配置文件写入不完整，配置未保存",
+    REPLACE_FAILED: "替换配置文件失败，原配置保持不变",
+    READ_FAILED: "读取配置文件失败，请检查文件是否存在及权限",
+    BAD_REQUEST: "请求格式错误，请刷新页面后重试",
+    INTERNAL_ERROR: "服务端内部错误，请查看 Agent 日志",
+    MISSING_ARGUMENT: "参数缺失，stdio 模式需要提供非空 args 列表",
+    INVALID_MODULE_NAME: "Python 模块名格式不正确，必须为合法的模块标识符",
+    INVALID_SCRIPT_PATH: "Python 脚本路径不合法，必须以 .py 结尾且不能以选项参数开头",
+    SCRIPT_NOT_FOUND: "指定的 Python 脚本文件不存在，请检查路径是否正确",
+    SCRIPT_NOT_READABLE: "Python 脚本文件无读取权限，请检查文件权限",
+    ILLEGAL_ARGUMENT: "包含不支持的参数格式，严禁使用 -c 参数",
+    FORBIDDEN_ENV: "禁止设置动态链接器相关环境变量",
+  };
+
+  function adminToken() {
+    const m = document.querySelector('meta[name="ovs-admin-token"]');
+    return m ? (m.getAttribute("content") || "").trim() : "";
+  }
+
+  class McpApiError extends Error {
+    constructor(code, message, requestId, status) {
+      super(message);
+      this.code = code; this.requestId = requestId || ""; this.status = status || 0;
+    }
+  }
+  function mcpErrorText(e) {
+    if (!(e instanceof McpApiError)) return "操作失败：" + (e && e.message ? e.message : "未知错误");
+    return e.message + (e.requestId ? "（request_id: " + e.requestId + "）" : "");
+  }
+
+  async function mcpRequest(method, path, body, opts) {
+    opts = opts || {};
+    const headers = { Accept: "application/json" };
+    const token = adminToken();
+    if (token) headers["X-Admin-Token"] = token;
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    if (opts.ifMatch) headers["If-Match"] = opts.ifMatch;
+    let r;
+    try {
+      r = await fetch(path, {
+        method, headers, cache: "no-store", credentials: "same-origin",
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
+      });
+    } catch (e) {
+      const timeout = e && (e.name === "TimeoutError" || e.name === "AbortError");
+      throw new McpApiError("NETWORK", timeout ? "请求超时，Agent 未响应" : "网络错误，无法连接 Agent", "", 0);
+    }
+    let data = null;
+    try { data = await r.json(); } catch (_) {}
+    if (r.ok && data && data.ok !== false) return { data, headers: r.headers };
+    // Error envelope: {ok:false, code, error, request_id}; also accept
+    // {error:{code, message, request_id}}.
+    const errObj = data && data.error && typeof data.error === "object" ? data.error : null;
+    const code = (data && data.code) || (errObj && errObj.code) || "";
+    const rid = (data && data.request_id) || (errObj && errObj.request_id) || r.headers.get("X-Request-Id") || "";
+    // Only trust server text that came through the coded error boundary.
+    const serverMsg = code ? (errObj ? errObj.message : data.error) : "";
+    let msg = MCP_ERROR_TEXT[code] || (typeof serverMsg === "string" ? serverMsg : "");
+    if (!msg) msg = r.status === 404 ? "当前 Agent 未提供该 MCP 接口 (HTTP 404)" : "请求失败 (HTTP " + r.status + ")";
+    throw new McpApiError(code || "HTTP_" + r.status, msg, rid, r.status);
+  }
+
+  function mkEl(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = String(text);
+    return n;
+  }
+  function mkBtn(text, cls, act) {
+    const b = mkEl("button", "ctl-btn" + (cls ? " " + cls : ""), text);
+    b.type = "button";
+    if (act) b.dataset.act = act;
+    return b;
+  }
+
+  const mcpListEl = $("mcpList");
+  const mcpNotice = $("mcpNotice");
+  const mcpPendingBar = $("mcpPendingBar");
+  const mcpCount = $("mcpCount");
+  const btnMcpAdd = $("btnMcpAdd");
+  const btnMcpRefresh = $("btnMcpRefresh");
+  const mcpState = {
+    etag: "", servers: [], active: [], pending: false,
+    expanded: new Set(), testResults: {},
+  };
+
+  function mcpTransport(s) {
+    const t = String((s && (s.transport || s.type)) || (s && s.url ? "sse" : "stdio")).toLowerCase();
+    return t === "sse" ? "sse" : "stdio";
+  }
+  function mcpStatus(persisted, active) {
+    if (!persisted) return { cls: "vw-badge-warning", text: "待移除 · 重启后生效" };
+    if (!active) return { cls: "vw-badge-warning", text: "待重启生效" };
+    const raw = active.status != null ? active.status : active.state;
+    const st = raw == null ? (active.connected === false ? "failed" : "connected") : String(raw).toLowerCase();
+    if (["connected", "running", "ok", "ready", "active"].includes(st)) return { cls: "vw-badge-normal", text: "运行中" };
+    if (["failed", "error", "disconnected", "crashed"].includes(st)) return { cls: "vw-badge-danger", text: "连接失败" };
+    return { cls: "vw-badge-disabled", text: String(raw) };
+  }
+  function mcpToolSchema(t) {
+    return t.inputSchema || t.input_schema || t.parameters || t.schema || null;
+  }
+  function mcpTargetText(s) {
+    if (mcpTransport(s) === "sse") return s.url || "(未设置 url)";
+    const args = Array.isArray(s.args) ? s.args : [];
+    return [s.command || "python（默认运行时）"].concat(args).join(" ");
+  }
+  function mcpServerPayload(s) {
+    const p = { name: s.name, transport: mcpTransport(s) };
+    if (p.transport === "sse") { p.url = s.url || ""; }
+    else { if (s.command) p.command = s.command; p.args = Array.isArray(s.args) ? s.args.slice() : []; p.env = Object.assign({}, s.env || {}); }
+    return p; // headers omitted: absent keys keep the persisted credential
+  }
+
+  function renderMcpTools(box, tools, fromTest) {
+    box.textContent = "";
+    if (!tools || !tools.length) {
+      box.appendChild(mkEl("div", "muted small", fromTest ? "测试成功，但服务未声明任何工具" : "服务未运行，暂无工具信息；可点击「测试」查看工具清单"));
+      return;
+    }
+    if (fromTest) box.appendChild(mkEl("div", "muted small", "以下为最近一次连通性测试返回的工具"));
+    tools.forEach((t) => {
+      const row = mkEl("div", "mcp-tool");
+      row.appendChild(mkEl("div", "mcp-tool-name", t.name || "(unnamed)"));
+      if (t.description) row.appendChild(mkEl("div", "mcp-tool-desc", t.description));
+      const schema = mcpToolSchema(t);
+      if (schema) {
+        const det = document.createElement("details");
+        det.appendChild(mkEl("summary", "muted small", "参数 Schema"));
+        let txt;
+        try { txt = JSON.stringify(schema, null, 2); } catch (_) { txt = String(schema); }
+        det.appendChild(mkEl("pre", "mcp-schema", txt));
+        row.appendChild(det);
+      }
+      box.appendChild(row);
+    });
+  }
+
+  function renderMcpPending() {
+    mcpPendingBar.classList.toggle("hidden", !mcpState.pending);
+    $("msTabPendingBadge-mcp").classList.toggle("hidden", !mcpState.pending);
+  }
+
+  function renderMcp() {
+    renderMcpPending();
+    const activeBy = new Map();
+    mcpState.active.forEach((a) => { if (a && a.name) activeBy.set(a.name, a); });
+    const rows = mcpState.servers.filter((s) => s && s.name).map((s) => ({ s, a: activeBy.get(s.name) || null, persisted: true }));
+    const names = new Set(rows.map((r) => r.s.name));
+    mcpState.active.forEach((a) => { if (a && a.name && !names.has(a.name)) rows.push({ s: a, a, persisted: false }); });
+
+    const running = rows.filter((r) => {
+      if (!r.persisted || !r.a) return false;
+      const st = mcpStatus(r.persisted, r.a);
+      return st.cls === "vw-badge-normal";
+    }).length;
+    mcpCount.textContent = rows.length ? running + "/" + rows.length + " 运行" : "0";
+    mcpCount.className = "vw-badge " + (rows.length ? "vw-badge-normal" : "vw-badge-disabled");
+
+    mcpListEl.textContent = "";
+    // The empty-state text (CSS :empty) only applies after a successful load.
+    mcpListEl.dataset.loaded = "1";
+    rows.forEach(({ s, a, persisted }) => {
+      const transport = mcpTransport(s);
+      const st = mcpStatus(persisted, a);
+      const item = mkEl("div", "mcp-item" + (persisted ? "" : " mcp-removing"));
+      item.dataset.name = s.name;
+
+      const head = mkEl("div", "mcp-item-head");
+      head.appendChild(mkEl("span", "mcp-name", s.name));
+      head.appendChild(mkEl("span", "mcp-proto mcp-proto-" + transport, transport));
+      head.appendChild(mkEl("span", "vw-badge " + st.cls, st.text));
+      item.appendChild(head);
+      item.appendChild(mkEl("div", "mcp-target", mcpTargetText(s)));
+      if (transport === "sse" && s.has_headers) {
+        const keys = Array.isArray(s.configured_header_keys) ? s.configured_header_keys : [];
+        item.appendChild(mkEl("div", "mcp-target", "headers: " + (keys.length ? keys.join(", ") : "已配置")));
+      }
+
+      const tested = mcpState.testResults[s.name];
+      const tools = tested ? tested.tools : (a && Array.isArray(a.tools) ? a.tools : []);
+      const expanded = mcpState.expanded.has(s.name);
+      const btns = mkEl("div", "mcp-btn-row");
+      const bTools = mkBtn((expanded ? "▾" : "▸") + " 工具 (" + tools.length + ")", "", "tools");
+      bTools.setAttribute("aria-expanded", String(expanded));
+      btns.appendChild(bTools);
+      btns.appendChild(mkBtn("测试", "", "test"));
+      const bEdit = mkBtn("编辑", "", "edit");
+      const bDel = mkBtn("删除", "danger", "delete");
+      if (!persisted) { bEdit.disabled = true; bDel.disabled = true; }
+      btns.appendChild(bEdit);
+      btns.appendChild(bDel);
+      item.appendChild(btns);
+
+      const toolsBox = mkEl("div", "mcp-tools" + (expanded ? "" : " hidden"));
+      renderMcpTools(toolsBox, tools, !!tested);
+      item.appendChild(toolsBox);
+      const result = mkEl("div", "mcp-item-result hidden");
+      item.appendChild(result);
+
+      btns.addEventListener("click", (ev) => {
+        const b = ev.target.closest("button[data-act]");
+        if (!b || b.disabled) return;
+        const act = b.dataset.act;
+        if (act === "tools") {
+          if (mcpState.expanded.has(s.name)) mcpState.expanded.delete(s.name); else mcpState.expanded.add(s.name);
+          renderMcp();
+        } else if (act === "test") {
+          testMcpExisting(s, b, result);
+        } else if (act === "edit") {
+          openMcpModal(s, b);
+        } else if (act === "delete") {
+          deleteMcp(s, b);
+        }
+      });
+      mcpListEl.appendChild(item);
+    });
+  }
+
+  function setMcpNotice(text) {
+    mcpNotice.textContent = text || "";
+    mcpNotice.classList.toggle("hidden", !text);
+  }
+
+  async function loadMcpServers(opts) {
+    opts = opts || {};
+    if (!adminToken()) {
+      setMcpNotice("页面未注入管理令牌（ovs-admin-token），当前 Agent 版本不支持在线管理 MCP 服务。");
+      btnMcpAdd.disabled = true;
+      return false;
+    }
+    btnMcpRefresh.disabled = true;
+    try {
+      const { data, headers } = await mcpRequest("GET", MCP_API.list, undefined, { timeoutMs: 8000 });
+      mcpState.etag = data.etag || headers.get("ETag") || "";
+      mcpState.servers = Array.isArray(data.servers) ? data.servers : [];
+      mcpState.active = Array.isArray(data.active_servers) ? data.active_servers : [];
+      mcpState.pending = data.pending_restart === true;
+      btnMcpAdd.disabled = false;
+      setMcpNotice("");
+      renderMcp();
+      if (opts.toast) showToast("MCP 列表已刷新", "success");
+      return true;
+    } catch (e) {
+      setMcpNotice("加载 MCP 服务失败：" + mcpErrorText(e));
+      if (!opts.silent) showToast("加载 MCP 服务失败：" + mcpErrorText(e), "error", 6000);
+      return false;
+    } finally {
+      btnMcpRefresh.disabled = false;
+    }
+  }
+
+  function mcpTestSummary(data) {
+    const tools = Array.isArray(data.tools) ? data.tools : [];
+    const n = data.tools_count != null ? data.tools_count : tools.length;
+    return { tools, text: "连接成功，发现 " + n + " 个工具" };
+  }
+
+  async function testMcpExisting(s, btn, resultEl) {
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = "测试中…";
+    resultEl.className = "mcp-item-result muted"; resultEl.textContent = "正在连接（最长 10 秒）…";
+    try {
+      const { data } = await mcpRequest("POST", MCP_API.test, mcpServerPayload(s), { timeoutMs: 15000 });
+      const sum = mcpTestSummary(data);
+      mcpState.testResults[s.name] = { tools: sum.tools };
+      mcpState.expanded.add(s.name);
+      renderMcp();
+      const fresh = mcpListEl.querySelector('.mcp-item[data-name="' + CSS.escape(s.name) + '"] .mcp-item-result');
+      if (fresh) { fresh.className = "mcp-item-result ok"; fresh.textContent = "✓ " + sum.text; }
+    } catch (e) {
+      resultEl.className = "mcp-item-result err";
+      resultEl.textContent = "✗ " + mcpErrorText(e);
+      btn.disabled = false; btn.textContent = label;
+    }
+  }
+
+  async function deleteMcp(s, btn) {
+    if (!window.confirm("删除 MCP 服务「" + s.name + "」？\n删除写入配置后需重启 Agent 才会断开该服务。")) return;
+    btn.disabled = true;
+    try {
+      const { data } = await mcpRequest("DELETE", MCP_API.item(s.name), undefined, { ifMatch: mcpState.etag, timeoutMs: 10000 });
+      if (data.etag) mcpState.etag = data.etag;
+      delete mcpState.testResults[s.name];
+      mcpState.expanded.delete(s.name);
+      showToast("已删除「" + s.name + "」，重启后生效", "success", 3000);
+      mcpState.pending = data.pending_restart !== false;
+      renderMcpPending();
+      await loadMcpServers({ silent: true });
+    } catch (e) {
+      btn.disabled = false;
+      showToast("删除失败：" + mcpErrorText(e), "error", 8000);
+      if (e.code === "ETAG_MISMATCH") await loadMcpServers({ silent: true });
+    }
+  }
+
+  // ── MCP add / edit modal ─────────────────────────────────────────
+  const mcpModal = $("mcpModal");
+  const mcpForm = $("mcpForm");
+  const mcpName = $("mcpName");
+  const mcpCommand = $("mcpCommand");
+  const mcpArgs = $("mcpArgs");
+  const mcpEnv = $("mcpEnv");
+  const mcpUrl = $("mcpUrl");
+  const mcpHeaders = $("mcpHeaders");
+  const mcpTestResult = $("mcpTestResult");
+  const mcpFormError = $("mcpFormError");
+  const btnMcpTest = $("btnMcpTest");
+  const btnMcpSave = $("btnMcpSave");
+  let mcpEditing = null;
+  let mcpReturnFocus = null;
+
+  function mcpFormTransport() {
+    const r = mcpForm.querySelector('input[name="mcpTransport"]:checked');
+    return r && r.value === "sse" ? "sse" : "stdio";
+  }
+  function setMcpFormTransport(t) {
+    mcpForm.querySelectorAll('input[name="mcpTransport"]').forEach((r) => { r.checked = r.value === t; });
+    $("mcpStdioFields").classList.toggle("hidden", t !== "stdio");
+    $("mcpSseFields").classList.toggle("hidden", t !== "sse");
+  }
+  mcpForm.querySelectorAll('input[name="mcpTransport"]').forEach((r) => {
+    r.addEventListener("change", () => setMcpFormTransport(mcpFormTransport()));
+  });
+
+  function kvToText(obj, sep) {
+    return Object.keys(obj || {}).map((k) => k + sep + (obj[k] == null ? "" : String(obj[k]))).join("\n");
+  }
+  function parseKvText(text, sep, label) {
+    const out = {};
+    const lines = String(text || "").split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      // Only the key is trimmed; the value (often a credential) is kept as
+      // typed. A trailing "\r" from pasted CRLF text is not part of the value.
+      const line = lines[i].replace(/\r$/, "");
+      if (!line.trim()) continue;
+      const idx = line.indexOf(sep);
+      const key = idx > 0 ? line.slice(0, idx).trim() : "";
+      if (!key) return { error: label + " 第 " + (i + 1) + " 行格式应为 KEY" + sep + "VALUE" };
+      if (Object.prototype.hasOwnProperty.call(out, key)) return { error: label + " 中 " + key + " 重复" };
+      let value = line.slice(idx + sep.length);
+      // "Key: Value" header lines: the whitespace after ":" is HTTP optional
+      // whitespace, not part of the value (and the server strips it anyway).
+      if (sep === ":") value = value.replace(/^[ \t]+/, "");
+      out[key] = value;
+    }
+    return { obj: out };
+  }
+
+  function clearMcpFieldErrors() {
+    mcpForm.querySelectorAll('[aria-invalid="true"]').forEach((n) => n.removeAttribute("aria-invalid"));
+    mcpFormError.classList.add("hidden");
+    mcpFormError.textContent = "";
+  }
+  function showMcpFormError(text, field) {
+    mcpFormError.textContent = text;
+    mcpFormError.classList.remove("hidden");
+    if (field) { field.setAttribute("aria-invalid", "true"); field.focus(); }
+  }
+
+  // Secret retention (spec §2.4): untouched "******" keeps the stored value,
+  // "" deletes the key. A key removed from the textarea while editing is sent
+  // as "" so that deleting the line deletes the entry.
+  function withDeletions(next, originalKeys) {
+    if (!mcpEditing) {
+      Object.keys(next).forEach((k) => { if (next[k] === "") delete next[k]; });
+      return next;
+    }
+    (originalKeys || []).forEach((k) => { if (!Object.prototype.hasOwnProperty.call(next, k)) next[k] = ""; });
+    return next;
+  }
+
+  function buildMcpPayload(forTest) {
+    clearMcpFieldErrors();
+    const name = mcpEditing ? mcpEditing.name : mcpName.value.trim();
+    if (!MCP_NAME_RE.test(name) && !(forTest && !name)) {
+      return { error: "名称需以字母或数字开头，仅含字母、数字、- 或 _，最长 64 位", field: mcpName };
+    }
+    if (!mcpEditing && !forTest && mcpState.servers.some((s) => s && s.name === name)) {
+      return { error: "已存在同名服务「" + name + "」", field: mcpName };
+    }
+    const transport = mcpFormTransport();
+    const p = { transport };
+    if (name) p.name = name;
+    if (transport === "stdio") {
+      // The backend only launches its own Python runtime; command may be left
+      // empty (default runtime) or name a python interpreter.
+      const command = mcpCommand.value.trim();
+      if (command && !MCP_PY_CMD_RE.test(command) && !/\$\{[A-Za-z_][A-Za-z0-9_]*(?::-.*)?\}/.test(command)) {
+        return { error: "command 只能留空（使用默认 Python 运行时）或填写 python / python3 或环境变量模板", field: mcpCommand };
+      }
+      p.command = command; // Empty string explicitly requests default Python runtime
+      p.args = mcpArgs.value.split("\n").map((x) => x.trim()).filter(Boolean);
+      const a0 = p.args[0] || "";
+      const a1 = p.args[1] || "";
+      const argsOk = a0 === "-m"
+        ? (p.args.length >= 2 && /^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$/.test(a1))
+        : ((/\.py$/i.test(a0) || /\$\{[^}]+\}/.test(a0)) && !a0.startsWith("-"));
+      if (!argsOk) {
+        return { error: "args 第一行需为 -m（第二行写合法的模块名），或以 .py 结尾的 Python 脚本路径", field: mcpArgs };
+      }
+      const env = parseKvText(mcpEnv.value, "=", "env");
+      if (env.error) return { error: env.error, field: mcpEnv };
+      const origEnv = mcpEditing && mcpTransport(mcpEditing) === "stdio" ? Object.keys(mcpEditing.env || {}) : [];
+      p.env = withDeletions(env.obj, origEnv);
+    } else {
+      const url = mcpUrl.value.trim();
+      let u = null;
+      try { u = new URL(url); } catch (_) {}
+      if (!u || (u.protocol !== "http:" && u.protocol !== "https:")) {
+        return { error: "url 需为 http:// 或 https:// 开头的完整地址", field: mcpUrl };
+      }
+      p.url = url;
+      const hdr = parseKvText(mcpHeaders.value, ":", "headers");
+      if (hdr.error) return { error: hdr.error, field: mcpHeaders };
+      const origHdr = mcpEditing && mcpTransport(mcpEditing) === "sse" && Array.isArray(mcpEditing.configured_header_keys)
+        ? mcpEditing.configured_header_keys : [];
+      p.headers = withDeletions(hdr.obj, origHdr);
+    }
+    return { payload: p };
+  }
+
+  function openMcpModal(server, returnFocus) {
+    mcpEditing = server || null;
+    mcpReturnFocus = returnFocus || document.activeElement;
+    clearMcpFieldErrors();
+    mcpTestResult.classList.add("hidden");
+    mcpTestResult.textContent = "";
+    $("mcpModalTitle").textContent = server ? "编辑 MCP 服务 · " + server.name : "添加 MCP 服务";
+    mcpName.value = server ? server.name : "";
+    mcpName.disabled = !!server;
+    mcpName.title = server ? "名称是服务标识，编辑时不可修改；如需改名请删除后重新添加" : "";
+    const t = server ? mcpTransport(server) : "stdio";
+    mcpCommand.value = server && t === "stdio" ? (server.command || "") : "";
+    mcpArgs.value = server && t === "stdio" && Array.isArray(server.args) ? server.args.join("\n") : "";
+    mcpEnv.value = server && t === "stdio" ? kvToText(server.env, "=") : "";
+    mcpUrl.value = server && t === "sse" ? (server.url || "") : "";
+    const hdrKeys = server && t === "sse" && Array.isArray(server.configured_header_keys) ? server.configured_header_keys : [];
+    mcpHeaders.value = hdrKeys.map((k) => k + ": " + MCP_MASK).join("\n");
+    setMcpFormTransport(t);
+    btnMcpSave.disabled = false; btnMcpTest.disabled = false;
+    mcpModal.classList.remove("hidden");
+    (server ? (t === "stdio" ? mcpCommand : mcpUrl) : mcpName).focus();
+  }
+  function closeMcpModal() {
+    mcpModal.classList.add("hidden");
+    mcpEditing = null;
+    if (mcpReturnFocus && document.contains(mcpReturnFocus)) mcpReturnFocus.focus();
+    mcpReturnFocus = null;
+  }
+
+  btnMcpTest.addEventListener("click", async () => {
+    const b = buildMcpPayload(true);
+    if (b.error) { showMcpFormError(b.error, b.field); return; }
+    btnMcpTest.disabled = true; btnMcpTest.textContent = "测试中…";
+    mcpTestResult.className = "mcp-test-result muted";
+    mcpTestResult.textContent = "正在连接（最长 10 秒）…";
+    try {
+      const { data } = await mcpRequest("POST", MCP_API.test, b.payload, { timeoutMs: 15000 });
+      const sum = mcpTestSummary(data);
+      mcpTestResult.className = "mcp-test-result";
+      mcpTestResult.textContent = "";
+      mcpTestResult.appendChild(mkEl("div", "", "✓ " + sum.text));
+      if (sum.tools.length) {
+        const ul = document.createElement("ul");
+        sum.tools.forEach((t) => {
+          const li = mkEl("li", "");
+          li.appendChild(mkEl("span", "mcp-tool-name", t.name || "(unnamed)"));
+          if (t.description) li.appendChild(mkEl("span", "mcp-tool-desc", " — " + t.description));
+          ul.appendChild(li);
+        });
+        mcpTestResult.appendChild(ul);
+      }
+    } catch (e) {
+      mcpTestResult.className = "mcp-test-result err";
+      mcpTestResult.textContent = "✗ " + mcpErrorText(e);
+    } finally {
+      btnMcpTest.disabled = false; btnMcpTest.textContent = "测试连接";
+    }
+  });
+
+  mcpForm.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const b = buildMcpPayload(false);
+    if (b.error) { showMcpFormError(b.error, b.field); return; }
+    if (!mcpState.etag) await loadMcpServers({ silent: true });
+    const editing = mcpEditing;
+    btnMcpSave.disabled = true; btnMcpSave.textContent = "保存中…";
+    // PATCH keeps omitted keys, so a cleared command must be sent as "" for
+    // the backend to fall back to the default Python runtime.
+    if (editing && b.payload.transport === "stdio" && !("command" in b.payload)) b.payload.command = "";
+    try {
+      const { data } = await mcpRequest(
+        editing ? "PATCH" : "POST",
+        editing ? MCP_API.item(editing.name) : MCP_API.create,
+        b.payload,
+        { ifMatch: mcpState.etag, timeoutMs: 10000 },
+      );
+      if (data.etag) mcpState.etag = data.etag;
+      delete mcpState.testResults[b.payload.name];
+      closeMcpModal();
+      showToast("MCP 配置已保存", "success", 3000);
+      mcpState.pending = data.pending_restart !== false;
+      renderMcpPending();
+      await loadMcpServers({ silent: true });
+    } catch (e) {
+      showMcpFormError((editing ? "保存失败：" : "添加失败：") + mcpErrorText(e));
+      if (e.code === "ETAG_MISMATCH") await loadMcpServers({ silent: true });
+    } finally {
+      btnMcpSave.disabled = false; btnMcpSave.textContent = "保存";
+    }
+  });
+
+  $("mcpModalClose").addEventListener("click", closeMcpModal);
+  $("btnMcpCancel").addEventListener("click", closeMcpModal);
+  mcpModal.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { ev.stopPropagation(); closeMcpModal(); }
+  });
+  btnMcpAdd.addEventListener("click", () => openMcpModal(null, btnMcpAdd));
+  btnMcpRefresh.addEventListener("click", () => loadMcpServers({ toast: true }));
+  $("btnMcpRestartNow").addEventListener("click", triggerRestartAgent);
+  // The card lives in the settings panel; refresh whenever the panel opens.
+  msBtn.addEventListener("click", () => {
+    if (!msPanel.classList.contains("hidden")) loadMcpServers({ silent: true });
+  });
+  loadMcpServers({ silent: true });
 
   // ── WS connection ────────────────────────────────────────────────
   let ws = null;
