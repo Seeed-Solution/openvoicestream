@@ -2945,6 +2945,23 @@ async def test_active_servers_sanitizes_runtime_error_credentials(dashboard_env)
             assert "******" in err_msg
 
 
+@pytest.mark.asyncio
+async def test_mcp_test_timeout_validation_and_bounds(tmp_path):
+    """Codex Review Finding P2: Validate and bound MCP test timeouts before slot acquisition."""
+    cfg_file = tmp_path / "agent-config.yaml"
+    cfg_file.write_text("mcp_servers: []\n", encoding="utf-8")
+    manager = McpServerManager(config_path=str(cfg_file), active_servers=[])
+
+    invalid_timeouts = [0, -5, "Infinity", "-Infinity", "nan", 100, "abc"]
+    for t in invalid_timeouts:
+        with pytest.raises(DashboardApiError) as exc_info:
+            await manager.test_server({"name": "t", "transport": "stdio", "timeout_s": t, "args": ["tool.py"]})
+        assert exc_info.value.code == "INVALID_PARAM"
+        assert "timeout_s" in str(exc_info.value)
+        # Verify semaphore was not leaked or decremented
+        assert manager._test_semaphore._value == 2
+
+
 
 
 

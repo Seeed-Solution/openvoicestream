@@ -2512,8 +2512,8 @@
       // The backend only launches its own Python runtime; command may be left
       // empty (default runtime) or name a python interpreter.
       const command = mcpCommand.value.trim();
-      if (command && !MCP_PY_CMD_RE.test(command)) {
-        return { error: "command 只能留空（使用默认 Python 运行时）或填写 python / python3", field: mcpCommand };
+      if (command && !MCP_PY_CMD_RE.test(command) && !/\$\{[A-Za-z_][A-Za-z0-9_]*(?::-.*)?\}/.test(command)) {
+        return { error: "command 只能留空（使用默认 Python 运行时）或填写 python / python3 或环境变量模板", field: mcpCommand };
       }
       if (command) p.command = command;
       p.args = mcpArgs.value.split("\n").map((x) => x.trim()).filter(Boolean);
@@ -2521,7 +2521,7 @@
       const a1 = p.args[1] || "";
       const argsOk = a0 === "-m"
         ? (p.args.length >= 2 && /^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$/.test(a1))
-        : (/\.py$/i.test(a0) && !a0.startsWith("-"));
+        : ((/\.py$/i.test(a0) || /\$\{[^}]+\}/.test(a0)) && !a0.startsWith("-"));
       if (!argsOk) {
         return { error: "args 第一行需为 -m（第二行写合法的模块名），或以 .py 结尾的 Python 脚本路径", field: mcpArgs };
       }

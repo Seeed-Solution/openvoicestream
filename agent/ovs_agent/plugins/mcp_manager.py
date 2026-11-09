@@ -2202,6 +2202,15 @@ class McpServerManager:
             raise DashboardApiError("INVALID_PARAM", "server_cfg must be a dictionary")
         validate_mcp_env(server_cfg.get("env"))
 
+        # Validate and bound timeout_s before semaphore acquisition
+        raw_timeout = server_cfg.get("timeout_s", 10.0)
+        try:
+            timeout = float(raw_timeout)
+        except (ValueError, TypeError):
+            raise DashboardApiError("INVALID_PARAM", "timeout_s must be a valid number")
+        if not math.isfinite(timeout) or timeout < 0.1 or timeout > 60.0:
+            raise DashboardApiError("INVALID_PARAM", "timeout_s must be a finite number between 0.1 and 60.0 seconds")
+
         if self._test_semaphore._value <= 0:
             raise DashboardApiError("TOO_MANY_REQUESTS", "Concurrent MCP test limit reached")
         await self._test_semaphore.acquire()
