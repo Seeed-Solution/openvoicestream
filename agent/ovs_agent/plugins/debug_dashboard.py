@@ -16,6 +16,7 @@ import errno
 import json
 import logging
 import os
+import secrets
 import stat
 import time
 import uuid
@@ -132,6 +133,8 @@ class DebugDashboardPlugin(Plugin):
         self._llm_config_pending_restart: bool = False
         self._instance_id: str = uuid.uuid4().hex
         self._unsaved_agent_settings_fields: set[str] = set()
+        # ── control API auth keys ──
+        self._control_api_keys: list[str] = []
         # ── startup pipeline mode (retained until process restart) ──
         self._startup_pipeline_mode: str | None = None
         cfg = getattr(app, "config", None)
@@ -167,6 +170,11 @@ class DebugDashboardPlugin(Plugin):
             self._mcp_admin_token = None
             self._restart_watchdog = None
 
+        try:
+            self._control_api_keys = self._load_control_api_keys()
+        except Exception:
+            self._control_api_keys = []
+
         return True
 
     async def start(self) -> None:
@@ -190,7 +198,22 @@ class DebugDashboardPlugin(Plugin):
                 logger.critical("Startup MCP check encountered recovery marker: %s", e)
                 fatal_config_recovery_exit(f"Startup check failed: {e}", exit_code=78)
 
-        web_app = web.Application()
+        if not self._control_api_keys:
+            self._control_api_keys = self._load_control_api_keys()
+
+        @web.middleware
+        async def control_auth_middleware(request, handler):
+            if request.path.startswith("/api/control/"):
+                keys = self._get_control_api_keys()
+                if keys:
+                    if not self._check_control_auth(request, keys):
+                        return web.json_response(
+                            {"ok": False, "error": "unauthorized"},
+                            status=401,
+                        )
+            return await handler(request)
+
+        web_app = web.Application(middlewares=[control_auth_middleware])
         web_app.router.add_get("/", self._handle_index)
         web_app.router.add_get("/ws", self._handle_ws)
 
@@ -373,11 +396,15 @@ class DebugDashboardPlugin(Plugin):
         except FileNotFoundError:
             return web.Response(status=500, text="dashboard.html not found")
         token = self._mcp_admin_token or ""
-        meta_tag = f'<meta name="ovs-admin-token" content="{token}">'
+        meta_tags = [f'<meta name="ovs-admin-token" content="{token}">']
+        control_keys = self._get_control_api_keys()
+        if control_keys:
+            meta_tags.append(f'<meta name="ovs-control-token" content="{control_keys[0]}">')
+        meta_block = "\n    ".join(meta_tags)
         if "<head>" in text:
-            text = text.replace("<head>", f"<head>\n    {meta_tag}", 1)
+            text = text.replace("<head>", f"<head>\n    {meta_block}", 1)
         elif "</head>" in text:
-            text = text.replace("</head>", f"    {meta_tag}\n</head>", 1)
+            text = text.replace("</head>", f"    {meta_block}\n</head>", 1)
         return web.Response(
             text=text,
             content_type="text/html",
@@ -444,6 +471,69 @@ class DebugDashboardPlugin(Plugin):
         finally:
             self._browser_clients.discard(ws)
         return ws
+
+    # ── control auth ──────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_keys(raw: Any) -> list[str]:
+        if not raw:
+            return []
+        if isinstance(raw, (list, tuple)):
+            return [str(k).strip() for k in raw if str(k).strip()]
+        return [part.strip() for part in str(raw).split(",") if part.strip()]
+
+    def _load_control_api_keys(self) -> list[str]:
+        raw_env = os.environ.get("OVS_CONTROL_API_KEY")
+        if raw_env is not None and raw_env.strip():
+            return self._parse_keys(raw_env)
+        meta = getattr(getattr(self.app, "config", None), "metadata", {}) or {}
+        raw_meta = meta.get("control_api_key")
+        if raw_meta:
+            return self._parse_keys(raw_meta)
+        return []
+
+    def _get_control_api_keys(self) -> list[str]:
+        raw_env = os.environ.get("OVS_CONTROL_API_KEY")
+        if raw_env is not None:
+            return self._parse_keys(raw_env)
+        if self._control_api_keys:
+            return self._control_api_keys
+        meta = getattr(getattr(self.app, "config", None), "metadata", {}) or {}
+        raw_meta = meta.get("control_api_key")
+        if raw_meta:
+            return self._parse_keys(raw_meta)
+        return []
+
+    @staticmethod
+    def _extract_bearer_token(header: str | None) -> str | None:
+        if not header:
+            return None
+        parts = header.split(None, 1)
+        if len(parts) != 2:
+            return None
+        if parts[0].lower() != "bearer":
+            return None
+        return parts[1].strip()
+
+    def _check_control_auth(self, request: Any, keys: list[str]) -> bool:
+        candidates: list[str] = []
+        auth_header = request.headers.get("Authorization")
+        if auth_header:
+            token = self._extract_bearer_token(auth_header)
+            if token:
+                candidates.append(token)
+        alt_header = request.headers.get("X-OVS-Control-Token")
+        if alt_header and alt_header.strip():
+            candidates.append(alt_header.strip())
+        if not candidates:
+            return False
+
+        matched = False
+        for candidate in candidates:
+            for key in keys:
+                if secrets.compare_digest(candidate, key):
+                    matched = True
+        return matched
 
     # ── /api/control/* ──────────────────────────────────────────
 
