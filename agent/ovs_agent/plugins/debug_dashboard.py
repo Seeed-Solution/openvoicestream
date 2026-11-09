@@ -1576,9 +1576,16 @@ class DebugDashboardPlugin(Plugin):
                         import yaml
                         with open(src, "r", encoding="utf-8") as f:
                             disk_raw = yaml.safe_load(f) or {}
-                        if isinstance(disk_raw, dict) and disk_raw.get(k) != normalized[k]:
-                            changed.append(k)
-                            self._unsaved_agent_settings_fields.add(k)
+                        if isinstance(disk_raw, dict) and k in disk_raw:
+                            disk_val = disk_raw.get(k)
+                            if k in ("wake_reply_text", "exit_reply_text"):
+                                disk_str = self._reply_text_str(disk_val)
+                                if disk_str != normalized[k]:
+                                    changed.append(k)
+                                    self._unsaved_agent_settings_fields.add(k)
+                            elif disk_val != normalized[k]:
+                                changed.append(k)
+                                self._unsaved_agent_settings_fields.add(k)
                     except Exception:
                         pass
 
@@ -1591,7 +1598,12 @@ class DebugDashboardPlugin(Plugin):
 
         # Apply updates to cfg
         for k in changed:
-            setattr(cfg, k, normalized[k])
+            val = normalized[k]
+            if k in ("wake_reply_text", "exit_reply_text") and isinstance(val, str) and "," in val:
+                items = [x.strip() for x in val.split(",") if x.strip()]
+                if len(items) > 1:
+                    val = items
+            setattr(cfg, k, val)
 
         # If spoken reply texts are explicitly disabled (cleared to empty),
         # clear any fallback in metadata so it cannot resurrect the reply.
@@ -1660,6 +1672,10 @@ class DebugDashboardPlugin(Plugin):
         if not isinstance(raw, dict):
             raise ValueError(f"config root not a mapping: {type(raw).__name__}")
         for k, v in updated.items():
+            if k in ("wake_reply_text", "exit_reply_text") and isinstance(v, str) and "," in v:
+                items = [x.strip() for x in v.split(",") if x.strip()]
+                if len(items) > 1:
+                    v = items
             raw[k] = v
             # If reply text is cleared, also remove fallback keys from metadata in YAML
             if k == "wake_reply_text" and not v and isinstance(raw.get("metadata"), dict):

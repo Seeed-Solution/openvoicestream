@@ -3046,6 +3046,55 @@ async def test_agent_settings_retries_persistence_after_earlier_failure(dashboar
             assert "retried_wake" in cfg_file.read_text(encoding="utf-8")
 
 
+@pytest.mark.asyncio
+async def test_reply_alternatives_list_preserved_when_saving_unrelated_settings(dashboard_env, tmp_path):
+    """Codex Review Finding P2: Preserve reply alternatives when saving unrelated settings."""
+    import yaml
+    plugin = dashboard_env["plugin"]
+    base_url = dashboard_env["base_url"]
+
+    # Source YAML has wake_reply_text as a list of alternatives
+    cfg_file = tmp_path / "agent-config.yaml"
+    initial_yaml = {
+        "wake_reply_text": ["你好", "我在"],
+        "sleep_timeout_s": 30.0,
+    }
+    cfg_file.write_text(yaml.safe_dump(initial_yaml, allow_unicode=True), encoding="utf-8")
+    plugin.app.config._source_path = str(cfg_file)
+    plugin.app.config.wake_reply_text = ["你好", "我在"]
+    plugin.app.config.sleep_timeout_s = 30.0
+
+    async with aiohttp.ClientSession() as session:
+        # GET returns comma-joined string for the input box
+        async with session.get(f"{base_url}/api/agent/settings") as get_resp:
+            assert get_resp.status == 200
+            data = await get_resp.json()
+            assert data["wake_reply_text"] == "你好, 我在"
+
+        # POST submits the comma-joined string alongside an unrelated edit (sleep_timeout_s)
+        payload = {
+            "wake_reply_text": "你好, 我在",
+            "sleep_timeout_s": 45.0,
+        }
+        async with session.post(f"{base_url}/api/agent/settings", json=payload) as post_resp:
+            assert post_resp.status == 200
+            res = await post_resp.json()
+            assert res["ok"] is True
+            assert res["persisted"] is True
+            # wake_reply_text was not actually edited; must NOT be in changed list
+            assert "wake_reply_text" not in res["changed"]
+            assert "sleep_timeout_s" in res["changed"]
+
+            # Runtime config must preserve original list
+            assert plugin.app.config.wake_reply_text == ["你好", "我在"]
+            assert plugin.app.config.sleep_timeout_s == 45.0
+
+            # YAML file must preserve original list
+            disk_data = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+            assert disk_data["wake_reply_text"] == ["你好", "我在"]
+            assert disk_data["sleep_timeout_s"] == 45.0
+
+
 
 
 
