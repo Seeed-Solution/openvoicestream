@@ -2528,7 +2528,7 @@
       if (command && !MCP_PY_CMD_RE.test(command) && !/\$\{[A-Za-z_][A-Za-z0-9_]*(?::-.*)?\}/.test(command)) {
         return { error: "command 只能留空（使用默认 Python 运行时）或填写 python / python3 或环境变量模板", field: mcpCommand };
       }
-      if (command) p.command = command;
+      p.command = command; // Empty string explicitly requests default Python runtime
       p.args = mcpArgs.value.split("\n").map((x) => x.trim()).filter(Boolean);
       const a0 = p.args[0] || "";
       const a1 = p.args[1] || "";

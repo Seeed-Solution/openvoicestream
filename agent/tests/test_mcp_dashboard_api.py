@@ -3129,6 +3129,54 @@ async def test_llm_config_locked_when_server_loop_enabled(dashboard_env):
             assert "server_loop" in err_data["error"]
 
 
+@pytest.mark.asyncio
+async def test_mcp_test_cleared_command_tests_default_interpreter(tmp_path):
+    """Codex Review Finding P2: Test the default interpreter when the command field is cleared."""
+    cfg_file = tmp_path / "agent-config.yaml"
+    script = tmp_path / "tool.py"
+    script.write_text("print('test')\n", encoding="utf-8")
+
+    initial_server = {
+        "name": "srv_with_custom_py",
+        "transport": "stdio",
+        "command": "/usr/bin/python3",
+        "args": [str(script)],
+    }
+    manager = McpServerManager(config_path=str(cfg_file), active_servers=[initial_server])
+
+    tested_command = None
+
+    async def mock_test_stdio(args, env, timeout, command=None, project_root=None):
+        nonlocal tested_command
+        tested_command = command
+        return [{"name": "mock_tool", "description": "Mock"}]
+
+    with patch("ovs_agent.plugins.mcp_manager.test_stdio_mcp_server", side_effect=mock_test_stdio):
+        with patch("ovs_agent.plugins.mcp_manager.validate_stdio_args"):
+            # When command is explicitly cleared to ""
+            test_req = {
+                "name": "srv_with_custom_py",
+                "transport": "stdio",
+                "command": "",
+                "args": [str(script)],
+            }
+            res = await manager.test_server(test_req)
+            assert res["ok"] is True
+            # Must test with None (default Python interpreter sys.executable), NOT "/usr/bin/python3"!
+            assert tested_command is None
+
+            # When command is omitted entirely, existing command is preserved
+            test_req_omitted = {
+                "name": "srv_with_custom_py",
+                "transport": "stdio",
+                "args": [str(script)],
+            }
+            res2 = await manager.test_server(test_req_omitted)
+            assert res2["ok"] is True
+            # Preserves /usr/bin/python3 when omitted
+            assert tested_command == "/usr/bin/python3"
+
+
 
 
 

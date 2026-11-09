@@ -2234,8 +2234,10 @@ class McpServerManager:
                     target_matched = is_mcp_target_matched(server_cfg, existing, config_dir=self.config_dir)
                     if target_matched:
                         effective_cfg = merge_server_secrets(effective_cfg, existing, config_dir=self.config_dir)
-                        if not effective_cfg.get("command") and existing.get("command"):
+                        if "command" not in server_cfg and existing.get("command"):
                             effective_cfg["command"] = existing["command"]
+                        elif effective_cfg.get("command") == "":
+                            effective_cfg["command"] = None
                         if not effective_cfg.get("transport") and existing.get("transport"):
                             effective_cfg["transport"] = existing["transport"]
                         if not effective_cfg.get("args") and existing.get("args"):
