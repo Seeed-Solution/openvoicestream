@@ -2495,6 +2495,180 @@ while True:
     assert tools[0]["description"] == "Successfully parsed tool"
 
 
+@pytest.mark.asyncio
+async def test_env_var_substitution_in_pending_restart_and_test(tmp_path, monkeypatch):
+    """Codex Review Finding P2: Persisted ${VAR} settings must be expanded for active comparison and testing."""
+    monkeypatch.setenv("TEST_MCP_SECRET", "super_secret_123")
+    monkeypatch.setenv("TEST_MCP_HOST", "127.0.0.1")
+
+    cfg_file = tmp_path / "agent-config.yaml"
+    cfg_file.write_text(
+        """
+mcp_servers:
+  - name: test_sub
+    transport: stdio
+    command: python3
+    args:
+      - /opt/voice/test.py
+    env:
+      TOKEN: ${TEST_MCP_SECRET}
+      HOST: ${TEST_MCP_HOST:-localhost}
+""",
+        encoding="utf-8",
+    )
+
+    # Active servers as loaded by load_config() (already expanded)
+    active_servers = [
+        {
+            "name": "test_sub",
+            "transport": "stdio",
+            "command": "python3",
+            "args": ["/opt/voice/test.py"],
+            "env": {
+                "TOKEN": "super_secret_123",
+                "HOST": "127.0.0.1",
+            },
+        }
+    ]
+
+    manager = McpServerManager(config_path=str(cfg_file), active_servers=active_servers)
+    # 1. pending_restart must be False because expanded values match active_servers
+    assert manager.pending_restart is False
+
+    # 2. Persisted servers retain raw template syntax
+    assert manager.persisted_servers[0]["env"]["TOKEN"] == "${TEST_MCP_SECRET}"
+
+    # 3. In test_server, effective_cfg expands ${VAR}
+    mock_script = tmp_path / "mock_echo_env.py"
+    mock_script.write_text(
+        """import os, sys, json
+msg = json.loads(sys.stdin.readline())
+token = os.environ.get("TOKEN", "")
+sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"protocolVersion": "2024-11-05", "capabilities": {}, "serverInfo": {"name": "mock", "version": "1.0"}}}) + "\\n")
+sys.stdout.flush()
+sys.stdin.readline() # initialized
+msg2 = json.loads(sys.stdin.readline())
+sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg2["id"], "result": {"tools": [{"name": f"token_{token}", "description": "tool"}]}}) + "\\n")
+sys.stdout.flush()
+""",
+        encoding="utf-8",
+    )
+
+    test_payload = {
+        "name": "test_sub",
+        "transport": "stdio",
+        "command": sys.executable,
+        "args": [str(mock_script)],
+        "env": {"TOKEN": "${TEST_MCP_SECRET}"},
+    }
+    res = await manager.test_server(test_payload)
+    assert len(res["tools"]) == 1
+    assert res["tools"][0]["name"] == "token_super_secret_123"
+
+
+@pytest.mark.asyncio
+async def test_disabling_spoken_replies_clears_metadata_fallbacks(dashboard_env):
+    """Codex Review Finding P2: Saving empty reply text must clear metadata fallback fields."""
+    plugin = dashboard_env["plugin"]
+    cfg = plugin.app.config
+    # Seed metadata fallbacks
+    cfg.metadata = {
+        "wake_reply_text": "在呢",
+        "wakeword": {"reply_text": "在呢"},
+        "exit_reply_text": "再见",
+    }
+    cfg.wake_reply_text = "在呢"
+    cfg.exit_reply_text = "再见"
+
+    base_url = dashboard_env["base_url"]
+
+    # Clear both replies via settings API
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{base_url}/api/agent/settings",
+            json={"wake_reply_text": "", "exit_reply_text": ""},
+        ) as resp:
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["ok"] is True
+            assert data["wake_reply_text"] == ""
+            assert data["exit_reply_text"] == ""
+
+    # Verify cfg and metadata fallbacks were cleared
+    assert cfg.wake_reply_text == ""
+    assert cfg.exit_reply_text == ""
+    assert "wake_reply_text" not in cfg.metadata
+    assert "reply_text" not in cfg.metadata.get("wakeword", {})
+    assert "exit_reply_text" not in cfg.metadata
+
+    # Verify app_base resolver returns empty string (disabled)
+    from ovs_agent.app_base import BaseApp
+    assert BaseApp._get_wake_reply_text(plugin.app) == ""
+    assert BaseApp._get_exit_reply_text(plugin.app) == ""
+
+
+@pytest.mark.asyncio
+async def test_active_servers_populates_runtime_status_from_bridge(dashboard_env):
+    """Codex Review Finding P2: active_servers must reflect actual bridge connection and tool status."""
+    plugin = dashboard_env["plugin"]
+    base_url = dashboard_env["base_url"]
+    token = dashboard_env["token"]
+
+    # Inject mock bridge plugin into app.plugins
+    class MockConnection:
+        def __init__(self, name, is_conn, tools, err=None):
+            self.name = name
+            self.is_connected = is_conn
+            self._tools = tools
+            self._error = err
+
+    class MockBridgePlugin:
+        name = "mcp_bridge"
+        def __init__(self):
+            self._connections = [
+                MockConnection("live_server", True, [{"name": "weather", "description": "Weather tool"}]),
+                MockConnection("dead_server", False, [], err="Process exited with code 1"),
+            ]
+        def get_server_runtime_status(self, name):
+            conn = next((c for c in self._connections if c.name == name), None)
+            if conn and conn.is_connected:
+                return {"status": "connected", "connected": True, "tools": conn._tools, "error": None}
+            return {"status": "failed", "connected": False, "tools": [], "error": getattr(conn, "_error", "Stopped")}
+
+    plugin.app.plugins.append(MockBridgePlugin())
+    plugin._mcp_manager._active_mcp_servers = [
+        {"name": "live_server", "transport": "stdio", "command": "python3"},
+        {"name": "dead_server", "transport": "stdio", "command": "python3"},
+    ]
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{base_url}/api/mcp/servers", headers={"X-Admin-Token": token}) as resp:
+            assert resp.status == 200
+            data = await resp.json()
+            active = {s["name"]: s for s in data["active_servers"]}
+
+            assert active["live_server"]["status"] == "connected"
+            assert active["live_server"]["connected"] is True
+            assert len(active["live_server"]["tools"]) == 1
+            assert active["live_server"]["tools"][0]["name"] == "weather"
+
+            assert active["dead_server"]["status"] == "failed"
+            assert active["dead_server"]["connected"] is False
+            assert active["dead_server"]["tools"] == []
+            assert "Process exited" in active["dead_server"]["error"]
+        active = {s["name"]: s for s in data["active_servers"]}
+
+        assert active["live_server"]["status"] == "connected"
+        assert active["live_server"]["connected"] is True
+        assert len(active["live_server"]["tools"]) == 1
+        assert active["live_server"]["tools"][0]["name"] == "weather"
+
+        assert active["dead_server"]["status"] == "failed"
+        assert active["dead_server"]["connected"] is False
+        assert active["dead_server"]["tools"] == []
+        assert "Process exited" in active["dead_server"]["error"]
+
+
 
 
 

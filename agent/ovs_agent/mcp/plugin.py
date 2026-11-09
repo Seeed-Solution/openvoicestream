@@ -106,6 +106,8 @@ class McpBridgePlugin(Plugin):
             try:
                 await conn.connect()
                 tools = await conn.list_tools()
+                conn._tools = list(tools)
+                conn._error = None
                 for tool_meta in tools:
                     tname = tool_meta["name"]
                     if not tname:
@@ -141,10 +143,36 @@ class McpBridgePlugin(Plugin):
                     self.registry._tools[tname] = tool_obj
                     self._registered_tools.add(tname)
                     logger.info("Registered MCP tool: %s (from %s)", tname, conn.name)
-            except Exception:
+            except Exception as exc:
+                conn._tools = []
+                conn._error = str(exc)
                 logger.exception("Failed to connect or discover tools from MCP server '%s'", conn.name)
 
         logger.info("McpBridgePlugin started; registered %d tool(s)", len(self._registered_tools))
+
+    def get_server_runtime_status(self, server_name: str) -> dict[str, Any]:
+        """Return runtime connection status, error, and discovered tools for server_name."""
+        conn = next((c for c in self._connections if c.name == server_name), None)
+        if conn is None:
+            return {"status": "stopped", "connected": False, "tools": [], "error": "Not configured in active bridge"}
+        if conn.is_connected:
+            return {
+                "status": "connected",
+                "connected": True,
+                "tools": [
+                    {"name": t.get("name", ""), "description": t.get("description", "")}
+                    for t in getattr(conn, "_tools", [])
+                    if isinstance(t, dict)
+                ],
+                "error": None,
+            }
+        error = getattr(conn, "_error", None) or "Connection closed"
+        return {
+            "status": "failed",
+            "connected": False,
+            "tools": [],
+            "error": error,
+        }
 
     async def stop(self) -> None:
         """Unregister MCP tools and cleanly shut down all connections."""

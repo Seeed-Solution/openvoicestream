@@ -1735,7 +1735,9 @@ class McpServerManager:
 
     @property
     def pending_restart(self) -> bool:
-        return self._active_mcp_servers != self._persisted_mcp_servers
+        from ovs_agent.config import _expand_env
+        expanded_persisted = [_expand_env(copy.deepcopy(s)) for s in self._persisted_mcp_servers]
+        return self._active_mcp_servers != expanded_persisted
 
     @property
     def active_servers_sanitized(self) -> list[dict[str, Any]]:
@@ -2090,6 +2092,11 @@ class McpServerManager:
                             "persisted credentials will NOT be restored.",
                             name,
                         )
+
+            # Resolve environment variable substitutions (${VAR} / ${VAR:-default})
+            # for connection testing while leaving persisted configuration in raw template form
+            from ovs_agent.config import _expand_env
+            effective_cfg = _expand_env(effective_cfg)
 
             validate_mcp_env(effective_cfg.get("env"))
             transport = effective_cfg.get("transport", "stdio").strip().lower()

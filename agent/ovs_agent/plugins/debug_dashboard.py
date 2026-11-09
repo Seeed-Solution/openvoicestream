@@ -541,10 +541,32 @@ class DebugDashboardPlugin(Plugin):
             raise DashboardApiError("SERVICE_UNAVAILABLE", "MCP manager not initialized")
         self._mcp_manager.verify_admin_token(request)
         self._mcp_manager.verify_csrf(request)
+
+        bridge = next(
+            (p for p in getattr(getattr(self, "app", None), "plugins", []) if getattr(p, "name", None) == "mcp_bridge"),
+            None,
+        )
+        active_list = []
+        for s in self._mcp_manager.active_servers_sanitized:
+            entry = dict(s)
+            if bridge is not None and hasattr(bridge, "get_server_runtime_status"):
+                st = bridge.get_server_runtime_status(entry.get("name", ""))
+                entry["status"] = st.get("status", "unknown")
+                entry["connected"] = st.get("connected", False)
+                entry["tools"] = st.get("tools", [])
+                if st.get("error"):
+                    entry["error"] = st["error"]
+            else:
+                entry["status"] = "failed"
+                entry["connected"] = False
+                entry["tools"] = []
+                entry["error"] = "McpBridgePlugin not active (missing 'mcp' dependency or disabled)"
+            active_list.append(entry)
+
         return web.json_response({
             "ok": True,
             "pending_restart": self._mcp_manager.pending_restart,
-            "active_servers": self._mcp_manager.active_servers_sanitized,
+            "active_servers": active_list,
             "servers": self._mcp_manager.persisted_servers_sanitized,
             "etag": self._mcp_manager.persisted_config_etag,
         })
@@ -1541,6 +1563,17 @@ class DebugDashboardPlugin(Plugin):
         for k in changed:
             setattr(cfg, k, normalized[k])
 
+        # If spoken reply texts are explicitly disabled (cleared to empty),
+        # clear any fallback in metadata so it cannot resurrect the reply.
+        meta = getattr(cfg, "metadata", None)
+        if isinstance(meta, dict):
+            if "wake_reply_text" in changed and not normalized.get("wake_reply_text"):
+                meta.pop("wake_reply_text", None)
+                if isinstance(meta.get("wakeword"), dict):
+                    meta["wakeword"].pop("reply_text", None)
+            if "exit_reply_text" in changed and not normalized.get("exit_reply_text"):
+                meta.pop("exit_reply_text", None)
+
         # Invalidate stop words matcher cache only if word lists changed
         if "stop_words" in changed or "exit_words" in changed:
             try:
@@ -1596,6 +1629,13 @@ class DebugDashboardPlugin(Plugin):
             raise ValueError(f"config root not a mapping: {type(raw).__name__}")
         for k, v in updated.items():
             raw[k] = v
+            # If reply text is cleared, also remove fallback keys from metadata in YAML
+            if k == "wake_reply_text" and not v and isinstance(raw.get("metadata"), dict):
+                raw["metadata"].pop("wake_reply_text", None)
+                if isinstance(raw["metadata"].get("wakeword"), dict):
+                    raw["metadata"]["wakeword"].pop("reply_text", None)
+            elif k == "exit_reply_text" and not v and isinstance(raw.get("metadata"), dict):
+                raw["metadata"].pop("exit_reply_text", None)
 
         serialized = yaml.safe_dump(
             raw,
