@@ -128,6 +128,7 @@ class DebugDashboardPlugin(Plugin):
         # ── LLM endpoint configuration lock and restart status ──
         self._llm_config_lock: asyncio.Lock = asyncio.Lock()
         self._llm_config_pending_restart: bool = False
+        self._instance_id: str = uuid.uuid4().hex
 
     # ── lifecycle ─────────────────────────────────────────────────
 
@@ -1321,7 +1322,18 @@ class DebugDashboardPlugin(Plugin):
         else:
             if not pipeline_mode_active:
                 pipeline_mode_active = pipeline_mode
+
+        restart_failed = False
+        restart_error = ""
+        if self._restart_watchdog is not None:
+            if getattr(self._restart_watchdog, "is_restarting", "") == "restart_failed":
+                restart_failed = True
+                restart_error = "Watchdog detected restart termination failure"
+
         return {
+            "instance_id": self._instance_id,
+            "restart_failed": restart_failed,
+            "restart_error": restart_error,
             "pipeline_mode": pipeline_mode,
             "pipeline_mode_active": pipeline_mode_active,
             "sleep_timeout_s": sleep_timeout_s,

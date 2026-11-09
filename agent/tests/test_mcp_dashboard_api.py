@@ -2787,6 +2787,88 @@ def test_bridge_status_surfaces_tool_discovery_failure():
     assert "protocol error" in status["error"]
 
 
+@pytest.mark.asyncio
+async def test_stdio_env_var_template_args_preserved_without_metachar_rejection(tmp_path):
+    """Codex Review Finding P2: Validate expanded MCP settings while preserving stored templates."""
+    cfg_file = tmp_path / "agent-config.yaml"
+    script = tmp_path / "server.py"
+    script.write_text("print('mock server')\n", encoding="utf-8")
+
+    cfg_file.write_text(
+        """
+mcp_servers: []
+""",
+        encoding="utf-8",
+    )
+
+    manager = McpServerManager(config_path=str(cfg_file), active_servers=[])
+    server_data = {
+        "name": "templated_server",
+        "transport": "stdio",
+        "command": sys.executable,
+        "args": [str(script), "--service-url", "${SERVICE_URL:-http://127.0.0.1:8080}"],
+    }
+
+    # Should succeed without SECURITY_VIOLATION on '$'
+    updated = await manager.add_or_update_server(server_data)
+    srv = next(s for s in updated if s["name"] == "templated_server")
+    # Must preserve the exact template string in persisted configuration
+    assert srv["args"][1] == "--service-url"
+    assert srv["args"][2] == "${SERVICE_URL:-http://127.0.0.1:8080}"
+
+
+def test_sanitize_mcp_url_and_secret_retention(tmp_path):
+    """Codex Review Finding P2: Redact credentials embedded in MCP URLs and retain on match."""
+    from ovs_agent.plugins.mcp_manager import (
+        sanitize_mcp_url,
+        sanitize_server_config,
+        merge_server_secrets,
+        is_mcp_target_matched,
+        DashboardApiError,
+    )
+
+    raw_url = "https://admin:my_secret_pass@api.example.com/sse?api_key=token-xyz-123&format=json"
+    masked = sanitize_mcp_url(raw_url)
+    assert "my_secret_pass" not in masked
+    assert "token-xyz-123" not in masked
+    assert masked == "https://admin:******@api.example.com/sse?api_key=******&format=json"
+
+    # Sanitize config dictionary
+    server = {"name": "sse_srv", "transport": "sse", "url": raw_url}
+    sanitized = sanitize_server_config(server)
+    assert sanitized["url"] == masked
+
+    # Target matching: masked URL matching sanitized existing URL should match
+    assert is_mcp_target_matched({"transport": "sse", "url": masked}, server) is True
+    # Tampered URL should not match
+    assert is_mcp_target_matched({"transport": "sse", "url": "https://other.com/sse"}, server) is False
+
+    # Secret retention on matching target
+    merged = merge_server_secrets({"name": "sse_srv", "transport": "sse", "url": masked}, server)
+    assert merged["url"] == raw_url
+
+    # Masked URL on changed target must be rejected
+    with pytest.raises(DashboardApiError) as exc_info:
+        merge_server_secrets({"name": "sse_srv", "transport": "sse", "url": masked}, None)
+    assert exc_info.value.code == "INVALID_PARAM"
+
+
+@pytest.mark.asyncio
+async def test_agent_settings_includes_instance_id_and_restart_state(dashboard_env):
+    """Codex Review Finding P2: Verify process replacement before reporting restart success."""
+    base_url = dashboard_env["base_url"]
+    plugin = dashboard_env["plugin"]
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{base_url}/api/agent/settings") as resp:
+            assert resp.status == 200
+            data = await resp.json()
+            assert "instance_id" in data
+            assert isinstance(data["instance_id"], str)
+            assert len(data["instance_id"]) > 0
+            assert data["restart_failed"] is False
+
+
 
 
 

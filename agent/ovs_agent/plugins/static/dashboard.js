@@ -1185,6 +1185,15 @@
     restartingAgent = true;
     showToast("正在请求重启 Agent...", "info", 5000);
     try {
+      let initialInstanceId = null;
+      try {
+        const initRes = await fetch("/api/agent/settings", { signal: AbortSignal.timeout(2000) });
+        if (initRes.ok) {
+          const initData = await initRes.json();
+          initialInstanceId = initData.instance_id || null;
+        }
+      } catch (_) {}
+
       // restart_agent sits behind the same admin-token boundary as /api/mcp/*,
       // so it shares the coded error parsing (Chinese text + request_id).
       await mcpRequest("POST", "/api/control/restart_agent", undefined, { timeoutMs: 10000 });
@@ -1210,10 +1219,19 @@
         try {
           const res = await fetch("/api/agent/settings", { signal: AbortSignal.timeout(2000) });
           if (res.ok) {
-            stopped = true;
-            showToast("Agent 重启成功，正在刷新页面...", "success", 2000);
-            setTimeout(() => { location.reload(); }, 600);
-            return;
+            const data = await res.json();
+            if (data.restart_failed) {
+              stopped = true;
+              restartingAgent = false;
+              showToast("Agent 重启失败：" + (data.restart_error || "进程终止异常"), "error", 10000);
+              return;
+            }
+            if (!initialInstanceId || (data.instance_id && data.instance_id !== initialInstanceId)) {
+              stopped = true;
+              showToast("Agent 重启成功，正在刷新页面...", "success", 2000);
+              setTimeout(() => { location.reload(); }, 600);
+              return;
+            }
           }
         } catch (_) {}
 

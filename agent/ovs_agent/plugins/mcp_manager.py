@@ -35,7 +35,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Sequence
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import aiohttp
 from aiohttp import web
@@ -982,11 +982,66 @@ def _mask_sensitive_dict(data: Any) -> Any:
     return data
 
 
+def sanitize_mcp_url(url: str) -> str:
+    """Mask credentials in URL userinfo and query parameters."""
+    if not isinstance(url, str) or not url:
+        return url
+    try:
+        parsed = urlsplit(url)
+    except Exception:
+        return url
+
+    netloc = parsed.netloc
+    if "@" in netloc:
+        userinfo, host_port = netloc.rsplit("@", 1)
+        if ":" in userinfo:
+            user, _ = userinfo.split(":", 1)
+            userinfo = f"{user}:******"
+        else:
+            userinfo = "******"
+        netloc = f"{userinfo}@{host_port}"
+
+    new_query = parsed.query
+    if parsed.query:
+        pairs = parse_qsl(parsed.query, keep_blank_values=True)
+        masked_pairs = []
+        for k, v in pairs:
+            if is_secret_key(k) and v:
+                masked_pairs.append((k, "******"))
+            else:
+                masked_pairs.append((k, v))
+        new_query = urlencode(masked_pairs, safe="*")
+
+    return urlunsplit((parsed.scheme, netloc, parsed.path, new_query, parsed.fragment))
+
+
+def _expand_for_validation(val: Any) -> Any:
+    """Expand ${VAR} / ${VAR:-default} for validation, replacing unset vars with safe placeholder."""
+    from ovs_agent.config import _ENV_RE
+    if isinstance(val, str):
+        def repl(m: re.Match[str]) -> str:
+            var, default = m.group(1), m.group(2)
+            env_val = os.environ.get(var)
+            if env_val is not None:
+                return env_val
+            if default is not None:
+                return default
+            return f"__ENV_{var}__"
+        return _ENV_RE.sub(repl, val)
+    if isinstance(val, dict):
+        return {k: _expand_for_validation(v) for k, v in val.items()}
+    if isinstance(val, (list, tuple)):
+        return [_expand_for_validation(v) for v in val]
+    return val
+
+
 def sanitize_server_config(server: dict[str, Any]) -> dict[str, Any]:
     """Sanitize server configuration for client-facing GET responses."""
     if not isinstance(server, dict):
         return {"name": str(server)}
     s = copy.deepcopy(server)
+    if "url" in s and isinstance(s["url"], str):
+        s["url"] = sanitize_mcp_url(s["url"])
     if "env" in s and isinstance(s["env"], dict):
         s["env"] = _mask_sensitive_dict(s["env"])
     if "headers" in s and isinstance(s["headers"], dict):
@@ -994,7 +1049,7 @@ def sanitize_server_config(server: dict[str, Any]) -> dict[str, Any]:
         s["configured_header_keys"] = list(s["headers"].keys())
         del s["headers"]
     for k, v in list(s.items()):
-        if k not in ("env", "has_headers", "configured_header_keys"):
+        if k not in ("url", "env", "has_headers", "configured_header_keys"):
             s[k] = _mask_sensitive_dict(v)
     return s
 
@@ -1042,8 +1097,9 @@ def is_mcp_target_matched(
     if req_transport == "sse":
         req_url = new_cfg.get("url")
         existing_url = existing_cfg.get("url")
-        if req_url is not None and existing_url is not None and req_url != existing_url:
-            return False
+        if req_url is not None and existing_url is not None:
+            if req_url != existing_url and req_url != sanitize_mcp_url(existing_url):
+                return False
         return True
     if req_transport == "stdio":
         req_cmd = new_cfg.get("command")
@@ -1068,6 +1124,12 @@ def is_mcp_target_matched(
 
 def _check_no_masked_credentials(server_cfg: dict[str, Any]) -> None:
     """Raise DashboardApiError if any masked credential is present."""
+    url = server_cfg.get("url")
+    if isinstance(url, str) and "******" in url:
+        raise DashboardApiError(
+            "INVALID_PARAM",
+            "Cannot retain masked credential '******' in URL when server target changes; please provide new URL with credentials",
+        )
     env = server_cfg.get("env")
     if isinstance(env, dict):
         for k, v in env.items():
@@ -1099,6 +1161,19 @@ def merge_server_secrets(
     if not existing_server or not is_mcp_target_matched(s, existing_server, config_dir=config_dir):
         _check_no_masked_credentials(s)
         return s
+
+    # URL secret preservation
+    new_url = s.get("url")
+    if isinstance(new_url, str) and "******" in new_url and existing_server:
+        exist_url = existing_server.get("url")
+        if isinstance(exist_url, str):
+            if new_url == sanitize_mcp_url(exist_url):
+                s["url"] = exist_url
+            else:
+                raise DashboardApiError(
+                    "INVALID_PARAM",
+                    "URL contains masked credentials that do not match existing server URL",
+                )
 
     # Merge env
     if "env" in s:
@@ -2142,6 +2217,12 @@ class McpServerManager:
                 url = effective_cfg.get("url")
                 if not url:
                     raise DashboardApiError("INVALID_PARAM", "sse transport requires url")
+                if "******" in url and existing and existing.get("url"):
+                    if url == sanitize_mcp_url(existing["url"]):
+                        url = existing["url"]
+                        effective_cfg["url"] = url
+                    else:
+                        raise DashboardApiError("INVALID_PARAM", "URL contains masked credentials that do not match existing server URL")
                 headers = effective_cfg.get("headers")
                 tools = await test_sse_mcp_server(url=url, headers=headers, timeout=timeout)
             else:
@@ -2177,19 +2258,36 @@ class McpServerManager:
             command = validated_server.get("command")
             args = validated_server.get("args")
             env = validated_server.get("env")
+            expanded_cmd = _expand_for_validation(command)
+            expanded_args = _expand_for_validation(args)
+            expanded_env = _expand_for_validation(env)
             norm_cmd, norm_args, _, _ = normalize_stdio_mcp_config(
-                command=command,
-                args=args,
-                env=env,
+                command=expanded_cmd,
+                args=expanded_args,
+                env=expanded_env,
                 config_dir=self.config_dir,
             )
-            validated_server["command"] = norm_cmd
-            validated_server["args"] = norm_args
+            if command and "${" in command:
+                validated_server["command"] = command
+            else:
+                validated_server["command"] = norm_cmd
+
+            args_to_store = list(args) if isinstance(args, (list, tuple)) else []
+            if args_to_store and norm_args and "${" not in str(args_to_store[0]):
+                args_to_store[0] = norm_args[0]
+            validated_server["args"] = args_to_store
         elif transport == "sse":
             validate_mcp_env(validated_server.get("env"))
             url = validated_server.get("url")
             if not url or not isinstance(url, str):
                 raise DashboardApiError("INVALID_PARAM", "sse transport requires url string")
+            existing = next((s for s in self._persisted_mcp_servers if s.get("name") == name), None)
+            if existing and "******" in url and existing.get("url"):
+                if url == sanitize_mcp_url(existing["url"]):
+                    url = existing["url"]
+                    validated_server["url"] = url
+                else:
+                    raise DashboardApiError("INVALID_PARAM", "URL contains masked credentials that do not match existing server URL")
             await validate_and_pin_sse_url(url)
 
         async with self._mcp_config_lock:
@@ -2250,19 +2348,35 @@ class McpServerManager:
                 command = merged_data.get("command")
                 args = merged_data.get("args")
                 env = merged_data.get("env")
+                expanded_cmd = _expand_for_validation(command)
+                expanded_args = _expand_for_validation(args)
+                expanded_env = _expand_for_validation(env)
                 norm_cmd, norm_args, _, _ = normalize_stdio_mcp_config(
-                    command=command,
-                    args=args,
-                    env=env,
+                    command=expanded_cmd,
+                    args=expanded_args,
+                    env=expanded_env,
                     config_dir=self.config_dir,
                 )
-                merged_data["command"] = norm_cmd
-                merged_data["args"] = norm_args
+                if command and "${" in command:
+                    merged_data["command"] = command
+                else:
+                    merged_data["command"] = norm_cmd
+
+                args_to_store = list(args) if isinstance(args, (list, tuple)) else []
+                if args_to_store and norm_args and "${" not in str(args_to_store[0]):
+                    args_to_store[0] = norm_args[0]
+                merged_data["args"] = args_to_store
             elif transport == "sse":
                 validate_mcp_env(merged_data.get("env"))
                 url = merged_data.get("url")
                 if not url or not isinstance(url, str):
                     raise DashboardApiError("INVALID_PARAM", "sse transport requires url string")
+                if "******" in url and existing and existing.get("url"):
+                    if url == sanitize_mcp_url(existing["url"]):
+                        url = existing["url"]
+                        merged_data["url"] = url
+                    else:
+                        raise DashboardApiError("INVALID_PARAM", "URL contains masked credentials that do not match existing server URL")
                 await validate_and_pin_sse_url(url)
 
             if not is_mcp_target_matched(merged_data, existing, config_dir=self.config_dir):
