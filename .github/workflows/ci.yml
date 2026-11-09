@@ -111,6 +111,11 @@ jobs:
       - name: Checkout voxedge (sibling for editable uv source)
         run: git clone --depth 1 https://github.com/suharvest/voxedge.git ../voxedge
 
+      - name: Secure runner Python permissions
+        run: |
+          chmod -R go-w "$pythonLocation" 2>/dev/null || true
+          chmod go-w /opt/hostedtoolcache /opt/hostedtoolcache/Python 2>/dev/null || true
+
       # The grasp / vision test modules import cv2, scipy, onnxruntime and pin,
       # which live in the agent's `rebot` optional extra (see pyproject.toml).
       # A plain `uv run pytest` only syncs base + dev deps, so those 12 modules

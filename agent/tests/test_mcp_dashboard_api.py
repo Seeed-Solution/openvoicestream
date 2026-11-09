@@ -3282,6 +3282,26 @@ async def test_mcp_save_and_patch_validates_timeout_s(tmp_path):
     assert "timeout_s" in str(exc.value)
 
 
+def test_persist_agent_settings_rejects_when_recovery_marker_present(tmp_path):
+    """Codex Review Finding P2: Enforce the recovery lock for Agent and LLM configuration writes."""
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("pipeline_mode: always_on\nsleep_timeout_s: 30.0\n", encoding="utf-8")
+    os.chmod(cfg_file, 0o600)
+
+    # Place recovery marker in config directory
+    write_persistent_recovery_marker(str(tmp_path), "simulated_lock")
+    assert check_persistent_recovery_marker(str(tmp_path)) is True
+
+    # _persist_agent_settings_to_yaml must reject write with CONFIG_RECOVERY_REQUIRED
+    with pytest.raises(ConfigPersistenceError) as exc_info:
+        DebugDashboardPlugin._persist_agent_settings_to_yaml(
+            cfg_file, {"sleep_timeout_s": 99.0}
+        )
+    assert exc_info.value.code == "CONFIG_RECOVERY_REQUIRED"
+    assert "locked into read-only" in str(exc_info.value)
+
+
+
 
 
 

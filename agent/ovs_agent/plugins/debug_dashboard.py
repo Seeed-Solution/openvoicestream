@@ -42,6 +42,7 @@ from .mcp_manager import (
     _safe_open_readonly,
     _safe_replace,
     _write_all,
+    check_persistent_recovery_marker,
     fatal_config_recovery_exit,
     mcp_api_boundary,
     sanitize_error_text,
@@ -1673,6 +1674,10 @@ class DebugDashboardPlugin(Plugin):
         import yaml
 
         path = Path(path)
+        dirpath = str(path.parent)
+        if check_persistent_recovery_marker(dirpath):
+            raise ConfigPersistenceError("CONFIG_RECOVERY_REQUIRED", "System locked into read-only due to recovery marker")
+
         read_fd = _safe_open_readonly(str(path))
         try:
             prior_bytes = _read_all_bounded(read_fd)
