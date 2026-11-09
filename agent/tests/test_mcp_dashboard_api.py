@@ -2254,6 +2254,164 @@ async def test_sse_test_rejects_html_and_verifies_handshake():
         await runner.cleanup()
 
 
+@pytest.mark.asyncio
+async def test_sse_rejects_cross_origin_endpoint():
+    """Codex Review Finding P1: Reject cross-origin SSE message endpoints."""
+    app = web.Application()
+    stop_event = asyncio.Event()
+
+    async def sse_handler(request):
+        resp = web.StreamResponse(status=200, headers={"Content-Type": "text/event-stream"})
+        await resp.prepare(request)
+        await resp.write(b"event: endpoint\ndata: https://evil.attacker.com/messages\n\n")
+        try:
+            await stop_event.wait()
+        except asyncio.CancelledError:
+            pass
+        return resp
+
+    app.router.add_get("/sse", sse_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+
+    try:
+        with patch("ovs_agent.plugins.mcp_manager.validate_and_pin_sse_url", return_value=("127.0.0.1", "127.0.0.1", port)):
+            with pytest.raises(DashboardApiError) as exc_info:
+                await run_sse_test(f"http://127.0.0.1:{port}/sse")
+            assert exc_info.value.code == "CONNECTION_FAILED"
+            assert "cross-origin targets are prohibited" in str(exc_info.value)
+    finally:
+        stop_event.set()
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_sse_full_handshake_lifecycle_and_tool_discovery():
+    """Codex Review Finding P2: Verify full MCP initialization lifecycle handshake over SSE."""
+    app = web.Application()
+    app["initialized_received"] = False
+    stop_event = asyncio.Event()
+
+    async def sse_handler(request):
+        resp = web.StreamResponse(status=200, headers={"Content-Type": "text/event-stream"})
+        await resp.prepare(request)
+        await resp.write(b"event: endpoint\ndata: /messages\n\n")
+        request.app["sse_resp"] = resp
+        try:
+            await stop_event.wait()
+        except asyncio.CancelledError:
+            pass
+        return resp
+
+    async def msg_handler(request):
+        body = await request.json()
+        sse = request.app.get("sse_resp")
+        method = body.get("method")
+        msg_id = body.get("id")
+
+        if method == "initialize":
+            res = json.dumps({
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "serverInfo": {"name": "test-mock", "version": "1.0"},
+                }
+            })
+            await sse.write(f"data: {res}\n\n".encode("utf-8"))
+            return web.Response(status=200, text="ok")
+        elif method == "notifications/initialized":
+            request.app["initialized_received"] = True
+            return web.Response(status=200, text="ok")
+        elif method == "tools/list":
+            assert request.app["initialized_received"] is True
+            res = json.dumps({
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {
+                    "tools": [
+                        {"name": "fetch_weather", "description": "Fetches current weather"},
+                        {"name": "calculate", "description": "Calculates math expression"}
+                    ]
+                }
+            })
+            await sse.write(f"data: {res}\n\n".encode("utf-8"))
+            return web.Response(status=200, text="ok")
+        return web.Response(status=400, text="unknown method")
+
+    app.router.add_get("/sse", sse_handler)
+    app.router.add_post("/messages", msg_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+
+    try:
+        with patch("ovs_agent.plugins.mcp_manager.validate_and_pin_sse_url", return_value=("127.0.0.1", "127.0.0.1", port)):
+            tools = await run_sse_test(f"http://127.0.0.1:{port}/sse")
+            assert len(tools) == 2
+            assert tools[0]["name"] == "fetch_weather"
+            assert tools[1]["name"] == "calculate"
+    finally:
+        stop_event.set()
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_sse_handshake_initialize_error_rejected():
+    """Verify that initialize rejection in SSE response raises CONNECTION_FAILED."""
+    app = web.Application()
+    stop_event = asyncio.Event()
+
+    async def sse_handler(request):
+        resp = web.StreamResponse(status=200, headers={"Content-Type": "text/event-stream"})
+        await resp.prepare(request)
+        await resp.write(b"event: endpoint\ndata: /messages\n\n")
+        request.app["sse_resp"] = resp
+        try:
+            await stop_event.wait()
+        except asyncio.CancelledError:
+            pass
+        return resp
+
+    async def msg_handler(request):
+        body = await request.json()
+        sse = request.app.get("sse_resp")
+        msg_id = body.get("id")
+        res = json.dumps({
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "error": {"code": -32600, "message": "Unsupported protocol version"}
+        })
+        await sse.write(f"data: {res}\n\n".encode("utf-8"))
+        return web.Response(status=200, text="ok")
+
+    app.router.add_get("/sse", sse_handler)
+    app.router.add_post("/messages", msg_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+
+    try:
+        with patch("ovs_agent.plugins.mcp_manager.validate_and_pin_sse_url", return_value=("127.0.0.1", "127.0.0.1", port)):
+            with pytest.raises(DashboardApiError) as exc_info:
+                await run_sse_test(f"http://127.0.0.1:{port}/sse")
+            assert exc_info.value.code == "CONNECTION_FAILED"
+            assert "MCP initialize rejected" in str(exc_info.value)
+    finally:
+        stop_event.set()
+        await runner.cleanup()
+
+
 
 
 

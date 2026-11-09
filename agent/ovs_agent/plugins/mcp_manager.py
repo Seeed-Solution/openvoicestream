@@ -1463,9 +1463,10 @@ async def test_sse_mcp_server(
                     endpoint_path = None
                     current_event = None
                     line_count = 0
-                    async for raw_line in resp.content:
+                    while line_count < 100:
                         line_count += 1
-                        if line_count > 100:
+                        raw_line = await resp.content.readline()
+                        if not raw_line:
                             break
                         line = raw_line.decode("utf-8", errors="replace").strip()
                         if line.startswith("event:"):
@@ -1480,9 +1481,53 @@ async def test_sse_mcp_server(
                         # Connected to SSE, but no endpoint event found
                         return []
 
-                    # Validate post target
+                    # Validate post target and enforce same-origin to prevent credential exfiltration
                     post_url = urljoin(url, endpoint_path)
+                    orig_parts = urlsplit(url)
+                    post_parts = urlsplit(post_url)
+                    orig_port = orig_parts.port or (443 if orig_parts.scheme == "https" else 80)
+                    post_port = post_parts.port or (443 if post_parts.scheme == "https" else 80)
+                    if (
+                        orig_parts.scheme != post_parts.scheme
+                        or (orig_parts.hostname or "").lower() != (post_parts.hostname or "").lower()
+                        or orig_port != post_port
+                    ):
+                        raise DashboardApiError(
+                            "CONNECTION_FAILED",
+                            f"SSE message endpoint '{post_url}' is cross-origin; cross-origin targets are prohibited",
+                        )
                     await validate_and_pin_sse_url(post_url)
+
+                    async def _read_sse_rpc_response(expected_id: int) -> dict[str, Any]:
+                        line_count = 0
+                        data_lines: list[str] = []
+                        while line_count < 200:
+                            line_count += 1
+                            raw_line = await resp.content.readline()
+                            if not raw_line:
+                                break
+                            line = raw_line.decode("utf-8", errors="replace").strip()
+                            if line.startswith("data:"):
+                                data_lines.append(line.split(":", 1)[1].strip())
+                                combined = "\n".join(data_lines)
+                                try:
+                                    msg = json.loads(combined)
+                                    if isinstance(msg, dict) and msg.get("id") == expected_id:
+                                        return msg
+                                except Exception:
+                                    pass
+                            elif not line and data_lines:
+                                try:
+                                    msg = json.loads("\n".join(data_lines))
+                                    if isinstance(msg, dict) and msg.get("id") == expected_id:
+                                        return msg
+                                except Exception:
+                                    pass
+                                data_lines = []
+                        raise DashboardApiError(
+                            "CONNECTION_FAILED",
+                            f"MCP SSE server did not return response for request id {expected_id}",
+                        )
 
                     # Initialize POST
                     init_payload = {
@@ -1514,6 +1559,37 @@ async def test_sse_mcp_server(
                                 "CONNECTION_FAILED", f"MCP initialize POST failed with HTTP {p_resp.status}"
                             )
 
+                    # Await initialize response on SSE stream
+                    init_resp = await _read_sse_rpc_response(1)
+                    if "error" in init_resp:
+                        raise DashboardApiError(
+                            "CONNECTION_FAILED", f"MCP initialize rejected: {init_resp['error']}"
+                        )
+
+                    # Send notifications/initialized
+                    notify_payload = {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/initialized",
+                        "params": {},
+                    }
+                    async with session.post(
+                        post_url,
+                        json=notify_payload,
+                        headers=post_headers,
+                        allow_redirects=False,
+                        timeout=aiohttp.ClientTimeout(total=timeout),
+                    ) as p_resp:
+                        if p_resp.status in (301, 302, 303, 307, 308):
+                            raise DashboardApiError(
+                                "CONNECTION_FAILED",
+                                f"Redirect not allowed on MCP notifications endpoint (status {p_resp.status})",
+                            )
+                        if p_resp.status >= 400:
+                            raise DashboardApiError(
+                                "CONNECTION_FAILED",
+                                f"MCP notifications/initialized POST failed with HTTP {p_resp.status}",
+                            )
+
                     # Request tools/list
                     tools_payload = {
                         "jsonrpc": "2.0",
@@ -1539,33 +1615,17 @@ async def test_sse_mcp_server(
                             )
 
                     # Read tools response from SSE stream
-                    tools: list[dict[str, Any]] = []
-                    current_event = None
-                    msg_count = 0
-                    async for raw_line in resp.content:
-                        msg_count += 1
-                        if msg_count > 200:
-                            break
-                        line = raw_line.decode("utf-8", errors="replace").strip()
-                        if line.startswith("event:"):
-                            current_event = line.split(":", 1)[1].strip()
-                        elif line.startswith("data:"):
-                            data_str = line.split(":", 1)[1].strip()
-                            try:
-                                msg = json.loads(data_str)
-                                if msg.get("id") == 2 and "result" in msg:
-                                    raw_tools = msg["result"].get("tools", [])
-                                    tools = [
-                                        {"name": t.get("name", ""), "description": t.get("description", "")}
-                                        for t in raw_tools
-                                        if isinstance(t, dict)
-                                    ]
-                                    break
-                            except Exception:
-                                pass
-                        elif not line:
-                            current_event = None
-
+                    tools_resp = await _read_sse_rpc_response(2)
+                    if "error" in tools_resp:
+                        raise DashboardApiError(
+                            "CONNECTION_FAILED", f"MCP tools/list rejected: {tools_resp['error']}"
+                        )
+                    raw_tools = tools_resp.get("result", {}).get("tools", [])
+                    tools = [
+                        {"name": t.get("name", ""), "description": t.get("description", "")}
+                        for t in raw_tools
+                        if isinstance(t, dict)
+                    ]
                     return tools
             except asyncio.TimeoutError:
                 raise DashboardApiError("TEST_TIMEOUT", "MCP server test connection timed out")
