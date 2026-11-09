@@ -3177,6 +3177,31 @@ async def test_mcp_test_cleared_command_tests_default_interpreter(tmp_path):
             assert tested_command == "/usr/bin/python3"
 
 
+@pytest.mark.asyncio
+async def test_pipeline_mode_active_preserves_startup_mode_after_save(dashboard_env):
+    """Codex Review Finding P2: pipeline_mode_active preserves running mode until restart."""
+    async with aiohttp.ClientSession() as s:
+        # Initial settings: both pipeline_mode and pipeline_mode_active are always_on
+        r = await s.get(f"{dashboard_env['base_url']}/api/agent/settings")
+        assert r.status == 200
+        data = await r.json()
+        assert data["pipeline_mode"] == "always_on"
+        assert data["pipeline_mode_active"] == "always_on"
+
+        # Update pipeline_mode to push_to_talk via settings POST
+        r2 = await s.post(
+            f"{dashboard_env['base_url']}/api/agent/settings",
+            json={"pipeline_mode": "push_to_talk"},
+        )
+        assert r2.status == 200
+        data2 = await r2.json()
+        # Saved/loaded pipeline mode is push_to_talk
+        assert data2["pipeline_mode"] == "push_to_talk"
+        # Running active mode is preserved as always_on (requires restart to change)
+        assert data2["pipeline_mode_active"] == "always_on"
+
+
+
 
 
 

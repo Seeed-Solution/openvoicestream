@@ -131,6 +131,13 @@ class DebugDashboardPlugin(Plugin):
         self._llm_config_pending_restart: bool = False
         self._instance_id: str = uuid.uuid4().hex
         self._unsaved_agent_settings_fields: set[str] = set()
+        # ── startup pipeline mode (retained until process restart) ──
+        self._startup_pipeline_mode: str | None = None
+        cfg = getattr(app, "config", None)
+        if cfg is not None:
+            raw_mode = getattr(cfg, "pipeline_mode", None)
+            if isinstance(raw_mode, str) and raw_mode:
+                self._startup_pipeline_mode = raw_mode
 
     # ── lifecycle ─────────────────────────────────────────────────
 
@@ -1286,6 +1293,8 @@ class DebugDashboardPlugin(Plugin):
         active = getattr(self.app, "_active_pipeline_mode", None)
         if not isinstance(active, str):
             active = getattr(self.app, "pipeline_mode", None)
+        if not isinstance(active, str):
+            active = self._startup_pipeline_mode
         pipeline_mode_active = active if isinstance(active, str) else None
         sleep_timeout_s = 30.0
         stop_words: list[str] = []
@@ -1294,8 +1303,10 @@ class DebugDashboardPlugin(Plugin):
         exit_reply_text = ""
         if cfg is not None:
             pipeline_mode = getattr(cfg, "pipeline_mode", "always_on")
+            if not self._startup_pipeline_mode and isinstance(pipeline_mode, str):
+                self._startup_pipeline_mode = pipeline_mode
             if not pipeline_mode_active:
-                pipeline_mode_active = pipeline_mode
+                pipeline_mode_active = self._startup_pipeline_mode or pipeline_mode
             try:
                 sleep_timeout_s = float(getattr(cfg, "sleep_timeout_s", 30.0))
             except Exception:
