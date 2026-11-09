@@ -130,6 +130,7 @@ class DebugDashboardPlugin(Plugin):
         self._llm_config_lock: asyncio.Lock = asyncio.Lock()
         self._llm_config_pending_restart: bool = False
         self._instance_id: str = uuid.uuid4().hex
+        self._unsaved_agent_settings_fields: set[str] = set()
 
     # ── lifecycle ─────────────────────────────────────────────────
 
@@ -1559,12 +1560,27 @@ class DebugDashboardPlugin(Plugin):
                     )
                 normalized[list_field] = cleaned
 
-        # Compute changed: normalized values that differ from current cfg
+        # Compute changed: normalized values that differ from current cfg,
+        # were left unsaved by an earlier failure, or differ from on-disk configuration.
+        src = getattr(cfg, "_source_path", None)
         current = self._build_agent_settings_payload()
-        changed = [
-            k for k in _AGENT_SETTINGS_KEYS
-            if k in normalized and normalized[k] != current.get(k)
-        ]
+        changed: list[str] = []
+        for k in _AGENT_SETTINGS_KEYS:
+            if k in normalized:
+                differs_runtime = (normalized[k] != current.get(k))
+                is_unsaved = (k in self._unsaved_agent_settings_fields)
+                if differs_runtime or is_unsaved:
+                    changed.append(k)
+                elif src is not None and os.path.exists(src):
+                    try:
+                        import yaml
+                        with open(src, "r", encoding="utf-8") as f:
+                            disk_raw = yaml.safe_load(f) or {}
+                        if isinstance(disk_raw, dict) and disk_raw.get(k) != normalized[k]:
+                            changed.append(k)
+                            self._unsaved_agent_settings_fields.add(k)
+                    except Exception:
+                        pass
 
         if not changed:
             payload = self._build_agent_settings_payload()
@@ -1604,9 +1620,11 @@ class DebugDashboardPlugin(Plugin):
                     Path(src), {k: normalized[k] for k in changed}
                 )
                 persisted = True
+                self._unsaved_agent_settings_fields.difference_update(changed)
             except Exception as e:
                 persist_error = str(e)
                 persisted = False
+                self._unsaved_agent_settings_fields.update(changed)
                 logger.warning("persist agent_settings failed: %s", e)
 
         payload = self._build_agent_settings_payload()

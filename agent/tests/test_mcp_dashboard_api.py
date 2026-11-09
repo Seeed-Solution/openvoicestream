@@ -3000,6 +3000,52 @@ def test_bridge_and_test_runners_preserve_tool_schemas():
     assert tool["inputSchema"]["required"] == ["user_id"]
 
 
+@pytest.mark.asyncio
+async def test_agent_settings_retries_persistence_after_earlier_failure(dashboard_env, tmp_path):
+    """Codex Review Finding P2: Retry persistence for settings left unsaved by an earlier failure."""
+    plugin = dashboard_env["plugin"]
+    base_url = dashboard_env["base_url"]
+
+    # Setup source YAML config file
+    cfg_file = tmp_path / "agent-config.yaml"
+    cfg_file.write_text("wake_reply_text: 'old_wake'\n", encoding="utf-8")
+    plugin.app.config._source_path = str(cfg_file)
+    plugin.app.config.wake_reply_text = "old_wake"
+
+    async with aiohttp.ClientSession() as session:
+        # First attempt: persistence raises an OSError (e.g. disk error)
+        with patch.object(
+            plugin,
+            "_persist_agent_settings_to_yaml",
+            side_effect=OSError("Disk full or I/O error"),
+        ):
+            async with session.post(
+                f"{base_url}/api/agent/settings",
+                json={"wake_reply_text": "retried_wake"},
+            ) as resp:
+                assert resp.status == 200
+                data = await resp.json()
+                assert data["persisted"] is False
+                assert "Disk full" in data.get("persist_error", "")
+                # Runtime updated
+                assert plugin.app.config.wake_reply_text == "retried_wake"
+                assert "wake_reply_text" in plugin._unsaved_agent_settings_fields
+
+        # Second attempt: sending the same payload after resolving the disk issue
+        async with session.post(
+            f"{base_url}/api/agent/settings",
+            json={"wake_reply_text": "retried_wake"},
+        ) as resp2:
+            assert resp2.status == 200
+            data2 = await resp2.json()
+            # Persistence must be retried and succeed!
+            assert data2["persisted"] is True
+            assert "wake_reply_text" in data2["changed"]
+            assert "wake_reply_text" not in plugin._unsaved_agent_settings_fields
+            # Verify on-disk file was actually updated
+            assert "retried_wake" in cfg_file.read_text(encoding="utf-8")
+
+
 
 
 
