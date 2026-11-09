@@ -1312,11 +1312,12 @@ async def test_control_auth_env_var_enforces_auth(unused_tcp_port, monkeypatch):
             assert r.status == 200
             assert await r.json() == {"ok": True}
 
-            # 7. Index page injects ovs-control-token
+            # 7. Index page does NOT leak ovs-control-token
             r = await s.get(f"{base}/")
             assert r.status == 200
             html = await r.text()
-            assert f'<meta name="ovs-control-token" content="{test_key}">' in html
+            assert 'meta name="ovs-control-token"' not in html
+            assert 'meta name="ovs-admin-token"' in html
     finally:
         await plugin.stop()
 
@@ -1367,8 +1368,11 @@ async def test_control_auth_multi_keys_support(unused_tcp_port, monkeypatch):
             # HTML head injects the primary key (first key)
             r = await s.get(f"{base}/")
             assert r.status == 200
+            # HTML does NOT leak control tokens
+            r = await s.get(f"{base}/")
+            assert r.status == 200
             html = await r.text()
-            assert '<meta name="ovs-control-token" content="key-alpha">' in html
+            assert 'meta name="ovs-control-token"' not in html
     finally:
         await plugin.stop()
 
@@ -1406,11 +1410,24 @@ async def test_control_auth_metadata_configuration(unused_tcp_port, monkeypatch)
             assert r.status == 200
             assert await r.json() == {"ok": True}
 
-            # HTML head injects meta-key
+            # HTML head does not leak control token
             r = await s.get(f"{base}/")
             assert r.status == 200
             html = await r.text()
-            assert f'<meta name="ovs-control-token" content="{meta_key}">' in html
+            assert 'meta name="ovs-control-token"' not in html
+
+            # Empty environment value does NOT disable metadata auth
+            monkeypatch.setenv("OVS_CONTROL_API_KEY", "   ")
+            r = await s.post(f"{base}/api/control/wake")
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": f"Bearer {meta_key}"},
+            )
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
     finally:
         await plugin.stop()
 
@@ -1455,6 +1472,22 @@ async def test_control_auth_malformed_headers(unused_tcp_port, monkeypatch):
             r = await s.post(
                 f"{base}/api/control/wake",
                 headers={"X-OVS-Control-Token": "   "},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # Non-ASCII Bearer token -> 401 (does NOT raise 500)
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": "Bearer café-au-lait"},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # Non-ASCII X-OVS-Control-Token -> 401 (does NOT raise 500)
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"X-OVS-Control-Token": "钥匙-test"},
             )
             assert r.status == 401
             assert await r.json() == {"ok": False, "error": "unauthorized"}

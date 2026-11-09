@@ -1127,8 +1127,17 @@
 
   // ── controls ─────────────────────────────────────────────────────
   function controlToken() {
-    const m = document.querySelector('meta[name="ovs-control-token"]');
-    return m ? (m.getAttribute("content") || "").trim() : "";
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlToken = urlParams.get("control_token") || urlParams.get("token");
+      if (urlToken) {
+        localStorage.setItem("ovs_control_token", urlToken.trim());
+        return urlToken.trim();
+      }
+      return (localStorage.getItem("ovs_control_token") || "").trim();
+    } catch (_) {
+      return "";
+    }
   }
 
   async function post(path, body) {

@@ -396,15 +396,11 @@ class DebugDashboardPlugin(Plugin):
         except FileNotFoundError:
             return web.Response(status=500, text="dashboard.html not found")
         token = self._mcp_admin_token or ""
-        meta_tags = [f'<meta name="ovs-admin-token" content="{token}">']
-        control_keys = self._get_control_api_keys()
-        if control_keys:
-            meta_tags.append(f'<meta name="ovs-control-token" content="{control_keys[0]}">')
-        meta_block = "\n    ".join(meta_tags)
+        meta_tag = f'<meta name="ovs-admin-token" content="{token}">'
         if "<head>" in text:
-            text = text.replace("<head>", f"<head>\n    {meta_block}", 1)
+            text = text.replace("<head>", f"<head>\n    {meta_tag}", 1)
         elif "</head>" in text:
-            text = text.replace("</head>", f"    {meta_block}\n</head>", 1)
+            text = text.replace("</head>", f"    {meta_tag}\n</head>", 1)
         return web.Response(
             text=text,
             content_type="text/html",
@@ -494,7 +490,7 @@ class DebugDashboardPlugin(Plugin):
 
     def _get_control_api_keys(self) -> list[str]:
         raw_env = os.environ.get("OVS_CONTROL_API_KEY")
-        if raw_env is not None:
+        if raw_env is not None and raw_env.strip():
             return self._parse_keys(raw_env)
         if self._control_api_keys:
             return self._control_api_keys
@@ -530,8 +526,10 @@ class DebugDashboardPlugin(Plugin):
 
         matched = False
         for candidate in candidates:
+            cand_b = candidate.encode("utf-8", errors="replace")
             for key in keys:
-                if secrets.compare_digest(candidate, key):
+                key_b = key.encode("utf-8", errors="replace")
+                if secrets.compare_digest(cand_b, key_b):
                     matched = True
         return matched
 
