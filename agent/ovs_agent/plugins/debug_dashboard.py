@@ -481,23 +481,31 @@ class DebugDashboardPlugin(Plugin):
     def _load_control_api_keys(self) -> list[str]:
         raw_env = os.environ.get("OVS_CONTROL_API_KEY")
         if raw_env is not None and raw_env.strip():
-            return self._parse_keys(raw_env)
+            keys = self._parse_keys(raw_env)
+            if keys:
+                return keys
         meta = getattr(getattr(self.app, "config", None), "metadata", {}) or {}
         raw_meta = meta.get("control_api_key")
         if raw_meta:
-            return self._parse_keys(raw_meta)
+            keys = self._parse_keys(raw_meta)
+            if keys:
+                return keys
         return []
 
     def _get_control_api_keys(self) -> list[str]:
         raw_env = os.environ.get("OVS_CONTROL_API_KEY")
         if raw_env is not None and raw_env.strip():
-            return self._parse_keys(raw_env)
+            keys = self._parse_keys(raw_env)
+            if keys:
+                return keys
         if self._control_api_keys:
             return self._control_api_keys
         meta = getattr(getattr(self.app, "config", None), "metadata", {}) or {}
         raw_meta = meta.get("control_api_key")
         if raw_meta:
-            return self._parse_keys(raw_meta)
+            keys = self._parse_keys(raw_meta)
+            if keys:
+                return keys
         return []
 
     @staticmethod

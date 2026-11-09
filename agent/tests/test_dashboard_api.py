@@ -1416,18 +1416,19 @@ async def test_control_auth_metadata_configuration(unused_tcp_port, monkeypatch)
             html = await r.text()
             assert 'meta name="ovs-control-token"' not in html
 
-            # Empty environment value does NOT disable metadata auth
-            monkeypatch.setenv("OVS_CONTROL_API_KEY", "   ")
-            r = await s.post(f"{base}/api/control/wake")
-            assert r.status == 401
-            assert await r.json() == {"ok": False, "error": "unauthorized"}
+            # Empty or separator-only environment value does NOT disable metadata auth
+            for bad_env in ("   ", " , ,  , "):
+                monkeypatch.setenv("OVS_CONTROL_API_KEY", bad_env)
+                r = await s.post(f"{base}/api/control/wake")
+                assert r.status == 401
+                assert await r.json() == {"ok": False, "error": "unauthorized"}
 
-            r = await s.post(
-                f"{base}/api/control/wake",
-                headers={"Authorization": f"Bearer {meta_key}"},
-            )
-            assert r.status == 200
-            assert await r.json() == {"ok": True}
+                r = await s.post(
+                    f"{base}/api/control/wake",
+                    headers={"Authorization": f"Bearer {meta_key}"},
+                )
+                assert r.status == 200
+                assert await r.json() == {"ok": True}
     finally:
         await plugin.stop()
 
