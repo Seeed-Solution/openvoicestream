@@ -3234,6 +3234,55 @@ async def test_unnamed_sse_test_with_masked_credentials_rejected(tmp_path):
     assert "masked credentials" in str(exc_info.value)
 
 
+@pytest.mark.asyncio
+async def test_mcp_save_and_patch_validates_timeout_s(tmp_path):
+    """Codex Review Finding P2: Validate timeout_s in add_or_update_server and patch_server before persistence."""
+    cfg_file = tmp_path / "agent-config.yaml"
+    script = tmp_path / "tool.py"
+    script.write_text("print('test')\n", encoding="utf-8")
+
+    manager = McpServerManager(config_path=str(cfg_file), active_servers=[])
+
+    # 1. Invalid string timeout in add_or_update_server
+    with pytest.raises(DashboardApiError) as exc:
+        await manager.add_or_update_server({
+            "name": "srv_invalid_timeout",
+            "transport": "stdio",
+            "args": [str(script)],
+            "timeout_s": "not-a-number",
+        })
+    assert exc.value.code == "INVALID_PARAM"
+    assert "timeout_s" in str(exc.value)
+
+    # 2. Negative or out of bounds timeout in add_or_update_server
+    with pytest.raises(DashboardApiError) as exc:
+        await manager.add_or_update_server({
+            "name": "srv_negative_timeout",
+            "transport": "stdio",
+            "args": [str(script)],
+            "timeout_s": -5.0,
+        })
+    assert exc.value.code == "INVALID_PARAM"
+    assert "timeout_s" in str(exc.value)
+
+    # 3. Valid timeout succeeds
+    await manager.add_or_update_server({
+        "name": "srv_valid",
+        "transport": "stdio",
+        "args": [str(script)],
+        "timeout_s": 15.0,
+    })
+    saved = next(s for s in manager.persisted_servers if s["name"] == "srv_valid")
+    assert saved["timeout_s"] == 15.0
+
+    # 4. Patch with invalid timeout fails
+    with pytest.raises(DashboardApiError) as exc:
+        await manager.patch_server("srv_valid", {"timeout_s": 0})
+    assert exc.value.code == "INVALID_PARAM"
+    assert "timeout_s" in str(exc.value)
+
+
+
 
 
 

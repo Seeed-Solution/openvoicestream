@@ -652,6 +652,19 @@ def validate_mcp_env(env: Any) -> None:
             )
 
 
+def validate_mcp_timeout(raw_timeout: Any) -> float:
+    """Validate and convert timeout_s to a finite float between 0.1 and 60.0 seconds."""
+    if raw_timeout is None:
+        return 10.0
+    try:
+        timeout = float(raw_timeout)
+    except (ValueError, TypeError):
+        raise DashboardApiError("INVALID_PARAM", "timeout_s must be a valid number")
+    if not math.isfinite(timeout) or timeout < 0.1 or timeout > 60.0:
+        raise DashboardApiError("INVALID_PARAM", "timeout_s must be a finite number between 0.1 and 60.0 seconds")
+    return timeout
+
+
 def normalize_stdio_mcp_config(
     command: str | None,
     args: Sequence[str],
@@ -2217,13 +2230,7 @@ class McpServerManager:
         validate_mcp_env(server_cfg.get("env"))
 
         # Validate and bound timeout_s before semaphore acquisition
-        raw_timeout = server_cfg.get("timeout_s", 10.0)
-        try:
-            timeout = float(raw_timeout)
-        except (ValueError, TypeError):
-            raise DashboardApiError("INVALID_PARAM", "timeout_s must be a valid number")
-        if not math.isfinite(timeout) or timeout < 0.1 or timeout > 60.0:
-            raise DashboardApiError("INVALID_PARAM", "timeout_s must be a finite number between 0.1 and 60.0 seconds")
+        timeout = validate_mcp_timeout(server_cfg.get("timeout_s", 10.0))
 
         if self._test_semaphore._value <= 0:
             raise DashboardApiError("TOO_MANY_REQUESTS", "Concurrent MCP test limit reached")
@@ -2331,6 +2338,8 @@ class McpServerManager:
 
         validated_server = copy.deepcopy(server_data)
         validated_server["transport"] = transport
+        if "timeout_s" in server_data:
+            validated_server["timeout_s"] = validate_mcp_timeout(server_data.get("timeout_s"))
 
         if transport == "stdio":
             command = validated_server.get("command")
@@ -2422,6 +2431,8 @@ class McpServerManager:
             merged_data.update(patch_data)
             merged_data["name"] = target_name
             merged_data["transport"] = transport
+            if "timeout_s" in merged_data:
+                merged_data["timeout_s"] = validate_mcp_timeout(merged_data.get("timeout_s"))
 
             if transport == "stdio":
                 command = merged_data.get("command")
