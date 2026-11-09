@@ -44,6 +44,7 @@ from .mcp_manager import (
     _write_all,
     fatal_config_recovery_exit,
     mcp_api_boundary,
+    sanitize_error_text,
     write_persistent_recovery_marker,
 )
 
@@ -556,7 +557,8 @@ class DebugDashboardPlugin(Plugin):
                 entry["connected"] = st.get("connected", False)
                 entry["tools"] = st.get("tools", [])
                 if st.get("error"):
-                    entry["error"] = st["error"]
+                    raw_cfg = next((raw for raw in self._mcp_manager.active_servers if raw.get("name") == entry.get("name")), None)
+                    entry["error"] = sanitize_error_text(str(st["error"]), server_cfg=raw_cfg)
             else:
                 entry["status"] = "failed"
                 entry["connected"] = False

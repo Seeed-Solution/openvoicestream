@@ -1035,6 +1035,58 @@ def _expand_for_validation(val: Any) -> Any:
     return val
 
 
+def _expand_url_for_validation(url: str) -> str:
+    """Expand ${VAR} / ${VAR:-default} for SSE URL validation, using safe fallback if unset."""
+    from ovs_agent.config import _ENV_RE
+    if not isinstance(url, str):
+        return url
+
+    def repl(m: re.Match[str]) -> str:
+        var, default = m.group(1), m.group(2)
+        env_val = os.environ.get(var)
+        if env_val is not None:
+            return env_val
+        if default is not None:
+            return default
+        return "127.0.0.1:8000"
+
+    expanded = _ENV_RE.sub(repl, url)
+    if not (expanded.startswith("http://") or expanded.startswith("https://")):
+        expanded = f"http://{expanded}"
+    return expanded
+
+
+def sanitize_error_text(err: str, server_cfg: dict[str, Any] | None = None) -> str:
+    """Redact sensitive URLs, credentials, and token strings from error text."""
+    if not isinstance(err, str) or not err:
+        return err
+
+    # 1. Mask known secrets from server_cfg if provided
+    if server_cfg and isinstance(server_cfg, dict):
+        env = server_cfg.get("env")
+        if isinstance(env, dict):
+            for k, v in env.items():
+                if isinstance(v, str) and len(v) > 3 and v != "******" and is_secret_key(k):
+                    err = err.replace(v, "******")
+        headers = server_cfg.get("headers")
+        if isinstance(headers, dict):
+            for k, v in headers.items():
+                if isinstance(v, str) and len(v) > 3 and v != "******":
+                    err = err.replace(v, "******")
+
+    # 2. Redact URLs in error text
+    def url_repl(m: re.Match[str]) -> str:
+        raw_url = m.group(0)
+        return sanitize_mcp_url(raw_url)
+
+    err = re.sub(r"https?://[^\s\"'<>]+", url_repl, err)
+
+    # 3. Redact common header/query credential patterns
+    err = re.sub(r"(bearer\s+)[A-Za-z0-9_\-\.]{8,}", r"\1******", err, flags=re.IGNORECASE)
+    err = re.sub(r"((?:api[_-]?key|token|secret|password|passwd|auth)=)[^&\s\"'<>]+", r"\1******", err, flags=re.IGNORECASE)
+    return err
+
+
 def sanitize_server_config(server: dict[str, Any]) -> dict[str, Any]:
     """Sanitize server configuration for client-facing GET responses."""
     if not isinstance(server, dict):
@@ -2288,7 +2340,8 @@ class McpServerManager:
                     validated_server["url"] = url
                 else:
                     raise DashboardApiError("INVALID_PARAM", "URL contains masked credentials that do not match existing server URL")
-            await validate_and_pin_sse_url(url)
+            url_to_validate = _expand_url_for_validation(url)
+            await validate_and_pin_sse_url(url_to_validate)
 
         async with self._mcp_config_lock:
             if if_match is not None:
@@ -2377,7 +2430,8 @@ class McpServerManager:
                         merged_data["url"] = url
                     else:
                         raise DashboardApiError("INVALID_PARAM", "URL contains masked credentials that do not match existing server URL")
-                await validate_and_pin_sse_url(url)
+                url_to_validate = _expand_url_for_validation(url)
+                await validate_and_pin_sse_url(url_to_validate)
 
             if not is_mcp_target_matched(merged_data, existing, config_dir=self.config_dir):
                 logger.warning(

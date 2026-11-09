@@ -2869,6 +2869,82 @@ async def test_agent_settings_includes_instance_id_and_restart_state(dashboard_e
             assert data["restart_failed"] is False
 
 
+@pytest.mark.asyncio
+async def test_sse_env_var_template_url_preserved_in_add_and_patch(tmp_path):
+    """Codex Review Finding P2: Expand SSE URL templates before validating saved configurations."""
+    cfg_file = tmp_path / "agent-config.yaml"
+    cfg_file.write_text("mcp_servers: []\n", encoding="utf-8")
+
+    manager = McpServerManager(config_path=str(cfg_file), active_servers=[])
+    server_data = {
+        "name": "templated_sse",
+        "transport": "sse",
+        "url": "${SSE_ENDPOINT:-http://127.0.0.1:8000/sse}",
+    }
+
+    with patch("ovs_agent.plugins.mcp_manager.validate_and_pin_sse_url", return_value=("127.0.0.1", "127.0.0.1", 8000)):
+        updated = await manager.add_or_update_server(server_data)
+        srv = next(s for s in updated if s["name"] == "templated_sse")
+        assert srv["url"] == "${SSE_ENDPOINT:-http://127.0.0.1:8000/sse}"
+
+        # Test patching with unset template variable
+        patched = await manager.patch_server(
+            "templated_sse",
+            {"url": "${UNSET_SSE_URL}"},
+        )
+        srv2 = next(s for s in patched if s["name"] == "templated_sse")
+        assert srv2["url"] == "${UNSET_SSE_URL}"
+
+
+@pytest.mark.asyncio
+async def test_active_servers_sanitizes_runtime_error_credentials(dashboard_env):
+    """Codex Review Finding P2: Sanitize runtime connection errors before returning them."""
+    plugin = dashboard_env["plugin"]
+    base_url = dashboard_env["base_url"]
+    token = dashboard_env["token"]
+
+    class MockConn:
+        def __init__(self, name, err):
+            self.name = name
+            self.is_connected = False
+            self._tools = []
+            self._error = err
+
+    class MockBridge:
+        name = "mcp_bridge"
+        def __init__(self, conn):
+            self._conn = conn
+        def get_server_runtime_status(self, name):
+            if name == self._conn.name:
+                return {"status": "failed", "connected": False, "tools": [], "error": self._conn._error}
+            return {"status": "stopped", "connected": False, "tools": [], "error": None}
+
+    raw_err = (
+        "Failed to connect to https://admin:super_secret_pwd@127.0.0.1:8000/sse?api_key=token-secret-999: "
+        "Bearer sensitive_token_abc12345 unauthorized"
+    )
+    plugin.app.plugins.append(MockBridge(MockConn("sse_error_server", raw_err)))
+    plugin._mcp_manager._active_mcp_servers = [
+        {
+            "name": "sse_error_server",
+            "transport": "sse",
+            "url": "https://admin:super_secret_pwd@127.0.0.1:8000/sse?api_key=token-secret-999",
+            "env": {"API_KEY": "token-secret-999"},
+        }
+    ]
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{base_url}/api/mcp/servers", headers={"X-Admin-Token": token}) as resp:
+            assert resp.status == 200
+            data = await resp.json()
+            active = next(s for s in data["active_servers"] if s["name"] == "sse_error_server")
+            err_msg = active["error"]
+            assert "super_secret_pwd" not in err_msg
+            assert "token-secret-999" not in err_msg
+            assert "sensitive_token_abc12345" not in err_msg
+            assert "******" in err_msg
+
+
 
 
 
