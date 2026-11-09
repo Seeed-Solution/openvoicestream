@@ -2279,7 +2279,11 @@
     const names = new Set(rows.map((r) => r.s.name));
     mcpState.active.forEach((a) => { if (a && a.name && !names.has(a.name)) rows.push({ s: a, a, persisted: false }); });
 
-    const running = rows.filter((r) => r.persisted && r.a).length;
+    const running = rows.filter((r) => {
+      if (!r.persisted || !r.a) return false;
+      const st = mcpStatus(r.persisted, r.a);
+      return st.cls === "vw-badge-normal";
+    }).length;
     mcpCount.textContent = rows.length ? running + "/" + rows.length + " 运行" : "0";
     mcpCount.className = "vw-badge " + (rows.length ? "vw-badge-normal" : "vw-badge-disabled");
 

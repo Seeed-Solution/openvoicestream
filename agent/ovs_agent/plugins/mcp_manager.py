@@ -1470,12 +1470,15 @@ async def test_stdio_mcp_server(
             raw_tools = list_resp.get("result", {}).get("tools", [])
             tools = []
             for t in raw_tools:
-                tools.append(
-                    {
-                        "name": t.get("name", ""),
-                        "description": t.get("description", ""),
-                    }
-                )
+                if isinstance(t, dict):
+                    tools.append(
+                        {
+                            "name": t.get("name", ""),
+                            "description": t.get("description", ""),
+                            "parameters": t.get("parameters") or t.get("inputSchema") or {},
+                            "inputSchema": t.get("inputSchema") or t.get("parameters") or {},
+                        }
+                    )
             return tools
 
         query_task = asyncio.create_task(_query_tools())
@@ -1794,7 +1797,12 @@ async def test_sse_mcp_server(
                         )
                     raw_tools = tools_resp.get("result", {}).get("tools", [])
                     tools = [
-                        {"name": t.get("name", ""), "description": t.get("description", "")}
+                        {
+                            "name": t.get("name", ""),
+                            "description": t.get("description", ""),
+                            "parameters": t.get("parameters") or t.get("inputSchema") or {},
+                            "inputSchema": t.get("inputSchema") or t.get("parameters") or {},
+                        }
                         for t in raw_tools
                         if isinstance(t, dict)
                     ]

@@ -2962,6 +2962,44 @@ async def test_mcp_test_timeout_validation_and_bounds(tmp_path):
         assert manager._test_semaphore._value == 2
 
 
+def test_bridge_and_test_runners_preserve_tool_schemas():
+    """Codex Review Finding P2: Preserve tool schemas in dashboard API responses."""
+    from ovs_agent.mcp.plugin import McpBridgePlugin
+
+    class MockApp:
+        plugins = []
+        config = None
+
+    class MockConn:
+        def __init__(self):
+            self.name = "schema_server"
+            self.is_connected = True
+            self._tools = [
+                {
+                    "name": "lookup_user",
+                    "description": "Fetch user by ID",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"user_id": {"type": "string"}},
+                        "required": ["user_id"],
+                    },
+                }
+            ]
+            self._error = None
+
+    bridge = McpBridgePlugin(MockApp(), connections=[MockConn()])
+    status = bridge.get_server_runtime_status("schema_server")
+    assert status["status"] == "connected"
+    assert len(status["tools"]) == 1
+    tool = status["tools"][0]
+    assert tool["name"] == "lookup_user"
+    assert tool["description"] == "Fetch user by ID"
+    assert "parameters" in tool
+    assert tool["parameters"]["properties"]["user_id"]["type"] == "string"
+    assert "inputSchema" in tool
+    assert tool["inputSchema"]["required"] == ["user_id"]
+
+
 
 
 

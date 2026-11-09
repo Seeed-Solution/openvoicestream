@@ -168,7 +168,12 @@ class McpBridgePlugin(Plugin):
                 "status": "connected",
                 "connected": True,
                 "tools": [
-                    {"name": t.get("name", ""), "description": t.get("description", "")}
+                    {
+                        "name": t.get("name", ""),
+                        "description": t.get("description", ""),
+                        "parameters": t.get("parameters") or t.get("inputSchema") or {},
+                        "inputSchema": t.get("inputSchema") or t.get("parameters") or {},
+                    }
                     for t in getattr(conn, "_tools", [])
                     if isinstance(t, dict)
                 ],
