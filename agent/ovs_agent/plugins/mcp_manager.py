@@ -303,10 +303,42 @@ def _safe_fsync_file(fd: int) -> None:
 
 
 def _safe_replace(src: str, dst: str) -> None:
-    """Atomically replace src -> dst."""
+    """Atomically replace src -> dst, falling back to direct copy on bind mounts."""
     try:
         os.replace(src, dst)
     except OSError as e:
+        if e.errno == errno.EBUSY:
+            logger.warning(
+                "Target %s is a single-file bind mount point; replacing via direct copy (atomic rename degraded)",
+                dst,
+            )
+            # Docker single-file bind mount point: cannot rename over mount point.
+            # Fall back to copying content directly into the existing file inode.
+            try:
+                flags = os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+                dst_fd = os.open(dst, flags)
+                try:
+                    with open(src, "rb") as s_fp, open(dst_fd, "wb", closefd=False) as d_fp:
+                        shutil.copyfileobj(s_fp, d_fp)
+                        d_fp.flush()
+                        os.fsync(dst_fd)
+                finally:
+                    os.close(dst_fd)
+                try:
+                    shutil.copymode(src, dst)
+                except OSError:
+                    pass
+                try:
+                    os.unlink(src)
+                except OSError:
+                    pass
+                return
+            except OSError as write_err:
+                raise ConfigPersistenceError(
+                    "REPLACE_FAILED",
+                    f"Replace (bind-mount copy) {src} -> {dst} failed: {write_err}",
+                    write_err.errno,
+                ) from write_err
         raise ConfigPersistenceError("REPLACE_FAILED", f"Replace {src} -> {dst} failed: {e}", e.errno) from e
 
 
@@ -394,6 +426,8 @@ def write_persistent_recovery_marker(config_dir: str, reason: str) -> None:
 
 def check_persistent_recovery_marker(config_dir: str) -> bool:
     """Scan and verify .config_recovery_required or orphaned marker_tmp files."""
+    if not os.path.exists(config_dir):
+        return False
     marker_path = os.path.join(config_dir, ".config_recovery_required")
 
     # 1. Scan for orphaned marker_tmp files
@@ -465,6 +499,8 @@ ORPHANED_TMP_REGEX = re.compile(r"^.*\.(backup\.|restore\.)?tmp\.[0-9a-f]{32}$")
 
 def cleanup_orphaned_tmp_files(config_dir: str) -> None:
     """Startup scanning and cleanup of orphaned configuration tmp files."""
+    if not os.path.exists(config_dir):
+        return
     if check_persistent_recovery_marker(config_dir):
         raise ConfigPersistenceError(
             "CONFIG_RECOVERY_REQUIRED", "Persistent recovery marker detected; configuration locked"
