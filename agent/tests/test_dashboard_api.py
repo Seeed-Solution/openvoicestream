@@ -1187,8 +1187,13 @@ async def test_llm_test_probe_and_security_boundary(tmp_path, unused_tcp_port):
 
             # 8. 5.0s deadline timeout handling
             server_sleep_s = 0.5
-            real_timeout = asyncio.timeout
-            with patch("asyncio.timeout", side_effect=lambda s: real_timeout(0.1)):
+            real_timeout = getattr(asyncio, "timeout", None)
+            if real_timeout is not None:
+                patch_ctx = patch("asyncio.timeout", side_effect=lambda s: real_timeout(0.1))
+            else:
+                from ovs_agent.plugins.debug_dashboard import _async_timeout
+                patch_ctx = patch("ovs_agent.plugins.debug_dashboard._async_timeout", side_effect=lambda s: _async_timeout(0.1))
+            with patch_ctx:
                 r = await s.post(
                     f"{base}/api/llm/test",
                     headers=headers,

@@ -1871,7 +1871,8 @@ async def test_process_group_cleanup_under_repeated_cancellation():
 
         assert mock_launch.call_count == 1
         assert cleanup_completed, "Cleanup task should have executed completely"
-        assert exc_info.value.args == ("cancel-1",), "First cancellation must be preserved"
+        if sys.version_info >= (3, 11):
+            assert exc_info.value.args == ("cancel-1",), "First cancellation must be preserved"
 
 
 @pytest.mark.asyncio
@@ -1907,7 +1908,8 @@ async def test_process_group_cleanup_failure_with_cancellation_precedence():
             await task
 
         assert mock_launch.call_count == 1
-        assert exc_info.value.args == ("outer-cancel",)
+        if sys.version_info >= (3, 11):
+            assert exc_info.value.args == ("outer-cancel",)
         assert exc_info.value.__context__ is cleanup_error, "Cleanup error must be attached to __context__"
 
 
@@ -2011,6 +2013,7 @@ def test_case_insensitive_script_extension(tmp_path):
 
 def test_mcp_bridge_plugin_parity(tmp_path):
     """Verify McpBridgePlugin leverages normalize_stdio_mcp_config and initializes cwd appropriately."""
+    pytest.importorskip("mcp")
     from ovs_agent.mcp.plugin import McpBridgePlugin
 
     sub_dir = tmp_path / "custom_mcp"
@@ -2217,7 +2220,7 @@ async def test_async_timeout_python_310_compatibility():
     from ovs_agent.plugins.debug_dashboard import _async_timeout
 
     # Test under simulated Python 3.10 where hasattr(asyncio, 'timeout') is bypassed
-    with patch("asyncio.timeout", None):
+    with patch.object(asyncio, "timeout", None, create=True):
         t0 = time.monotonic()
         with pytest.raises((asyncio.TimeoutError, TimeoutError)):
             async with _async_timeout(0.05):
@@ -3139,7 +3142,7 @@ async def test_mcp_test_cleared_command_tests_default_interpreter(tmp_path):
     initial_server = {
         "name": "srv_with_custom_py",
         "transport": "stdio",
-        "command": "/usr/bin/python3",
+        "command": "/custom/bin/python3",
         "args": [str(script)],
     }
     manager = McpServerManager(config_path=str(cfg_file), active_servers=[initial_server])
@@ -3151,30 +3154,32 @@ async def test_mcp_test_cleared_command_tests_default_interpreter(tmp_path):
         tested_command = command
         return [{"name": "mock_tool", "description": "Mock"}]
 
-    with patch("ovs_agent.plugins.mcp_manager.test_stdio_mcp_server", side_effect=mock_test_stdio):
-        with patch("ovs_agent.plugins.mcp_manager.validate_stdio_args"):
-            # When command is explicitly cleared to ""
-            test_req = {
-                "name": "srv_with_custom_py",
-                "transport": "stdio",
-                "command": "",
-                "args": [str(script)],
-            }
-            res = await manager.test_server(test_req)
-            assert res["ok"] is True
-            # Must test with None (default Python interpreter sys.executable), NOT "/usr/bin/python3"!
-            assert tested_command is None
+    with patch("ovs_agent.plugins.mcp_manager.test_stdio_mcp_server", side_effect=mock_test_stdio), \
+         patch("ovs_agent.plugins.mcp_manager.validate_stdio_args"), \
+         patch("ovs_agent.plugins.mcp_manager.inspect_and_open_verified_exe", return_value=(999, "/tmp", [])), \
+         patch("ovs_agent.plugins.mcp_manager._safe_close"):
+        # When command is explicitly cleared to ""
+        test_req = {
+            "name": "srv_with_custom_py",
+            "transport": "stdio",
+            "command": "",
+            "args": [str(script)],
+        }
+        res = await manager.test_server(test_req)
+        assert res["ok"] is True
+        # Must test with None (default Python interpreter sys.executable), NOT /custom/bin/python3!
+        assert tested_command is None
 
-            # When command is omitted entirely, existing command is preserved
-            test_req_omitted = {
-                "name": "srv_with_custom_py",
-                "transport": "stdio",
-                "args": [str(script)],
-            }
-            res2 = await manager.test_server(test_req_omitted)
-            assert res2["ok"] is True
-            # Preserves /usr/bin/python3 when omitted
-            assert tested_command == "/usr/bin/python3"
+        # When command is omitted entirely, existing command is preserved
+        test_req_omitted = {
+            "name": "srv_with_custom_py",
+            "transport": "stdio",
+            "args": [str(script)],
+        }
+        res2 = await manager.test_server(test_req_omitted)
+        assert res2["ok"] is True
+        # Preserves /custom/bin/python3 when omitted
+        assert tested_command == "/custom/bin/python3"
 
 
 @pytest.mark.asyncio

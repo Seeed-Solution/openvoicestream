@@ -115,7 +115,7 @@ jobs:
       # which live in the agent's `rebot` optional extra (see pyproject.toml).
       # A plain `uv run pytest` only syncs base + dev deps, so those 12 modules
       # fail collection with `ModuleNotFoundError: No module named 'cv2'`.
-      # Install the rebot extra so the vision-grasp suite runs.
+      # Install the rebot and mcp extras so all agent suites run.
       - name: Agent unit tests
         working-directory: agent
-        run: uv run --extra rebot pytest tests --ignore=tests/e2e --ignore=tests/test_e2e_orin.py
+        run: uv run --extra rebot --extra mcp pytest tests --ignore=tests/e2e --ignore=tests/test_e2e_orin.py

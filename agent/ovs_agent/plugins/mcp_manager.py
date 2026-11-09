@@ -780,6 +780,10 @@ def inspect_and_open_verified_exe(exe_path: str | None = None) -> tuple[int, str
             raise SecurityError("Executable is group/world writable")
 
         expected_uids = {os.getuid(), 0}
+        try:
+            expected_gids = {0, os.getgid(), *os.getgroups()}
+        except Exception:
+            expected_gids = {0, os.getgid()}
         chain = [(real_exe, st.st_dev, st.st_ino)]
         curr = os.path.dirname(real_exe)
         while True:
@@ -789,7 +793,9 @@ def inspect_and_open_verified_exe(exe_path: str | None = None) -> tuple[int, str
                 raise SecurityError(f"stat failed on parent {curr}: {e}") from e
             if pst.st_uid not in expected_uids:
                 raise SecurityError(f"Untrusted owner on parent {curr}")
-            if (pst.st_mode & 0o022) != 0:
+            if (pst.st_mode & 0o002) != 0 and not (pst.st_mode & stat.S_ISVTX):
+                raise SecurityError(f"Parent directory {curr} is group/world writable")
+            if (pst.st_mode & 0o020) != 0 and pst.st_gid not in expected_gids:
                 raise SecurityError(f"Parent directory {curr} is group/world writable")
             chain.append((curr, pst.st_dev, pst.st_ino))
             parent = os.path.dirname(curr)
