@@ -2855,6 +2855,18 @@ def test_sanitize_mcp_url_and_secret_retention(tmp_path):
         merge_server_secrets({"name": "sse_srv", "transport": "sse", "url": masked}, None)
     assert exc_info.value.code == "INVALID_PARAM"
 
+    # Stdio target matching: cleared command vs omitted command
+    custom_srv = {"name": "c_srv", "transport": "stdio", "command": "/custom/bin/python3", "args": ["tool.py"]}
+    # Omitted command inherits existing -> matches
+    assert is_mcp_target_matched({"transport": "stdio", "args": ["tool.py"]}, custom_srv) is True
+    # Explicitly cleared command switches to default sys.executable -> does NOT match custom_srv
+    assert is_mcp_target_matched({"transport": "stdio", "command": "", "args": ["tool.py"]}, custom_srv) is False
+    # Explicit command matching custom_srv matches
+    assert is_mcp_target_matched({"transport": "stdio", "command": "/custom/bin/python3", "args": ["tool.py"]}, custom_srv) is True
+    # Explicitly cleared command matches server that already used default Python runtime
+    default_srv = {"name": "d_srv", "transport": "stdio", "command": "", "args": ["tool.py"]}
+    assert is_mcp_target_matched({"transport": "stdio", "command": "", "args": ["tool.py"]}, default_srv) is True
+
 
 @pytest.mark.asyncio
 async def test_agent_settings_includes_instance_id_and_restart_state(dashboard_env):

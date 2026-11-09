@@ -1160,13 +1160,19 @@ def is_mcp_target_matched(
                 return False
         return True
     if req_transport == "stdio":
+        req_has_cmd = "command" in new_cfg
         req_cmd = new_cfg.get("command")
         existing_cmd = existing_cfg.get("command")
         req_args = new_cfg.get("args")
         existing_args = existing_cfg.get("args")
 
-        norm_req_cmd = _normalize_cmd_str(req_cmd)
-        norm_exist_cmd = _normalize_cmd_str(existing_cmd)
+        # Distinguish omitted command (inherit existing) from explicitly empty command (resolve to sys.executable)
+        if req_has_cmd:
+            norm_req_cmd = _normalize_cmd_str(req_cmd or sys.executable)
+        else:
+            norm_req_cmd = None
+
+        norm_exist_cmd = _normalize_cmd_str(existing_cmd or sys.executable)
 
         if norm_req_cmd is not None and norm_exist_cmd is not None and norm_req_cmd != norm_exist_cmd:
             return False
