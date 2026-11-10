@@ -528,28 +528,54 @@
 
             <tr>
               <td>
-                <div class="lang-tag"><span class="lang-flag">🎙️</span> 中/英 声音克隆</div>
-                <div class="scenario-tag">高表现力 · W4A16 全面推荐</div>
+                <div class="lang-tag"><span class="lang-flag">🎙️</span> 中/英/52语 声音克隆</div>
+                <div class="scenario-tag">统一千问技术栈 · 自然语言驱动</div>
               </td>
-              <td>IP 形象定制 / 名人发音克隆</td>
+              <td>IP 形象定制 / 名人发音克隆 / 多语种</td>
               <td>
                 <div class="model-name">Qwen3-ASR 0.6B</div>
                 <div class="model-sub">TensorRT INT4-AWQ</div>
               </td>
               <td>
                 <div class="model-name">Qwen3.5-4B (本地) / 云端</div>
-                <div class="model-sub">端侧或云端决策</div>
+                <div class="model-sub">端侧大模型或云端决策</div>
               </td>
               <td>
-                <div class="model-name">SparkTTS-0.5B</div>
-                <div class="model-sub">TRT W4A16 引擎</div>
+                <div class="model-name">Qwen3-TTS CustomVoice / Base</div>
+                <div class="model-sub">TensorRT BF16 / INT4</div>
               </td>
               <td>
-                <div class="metric-highlight">TTFA: 0.41–0.46 s</div>
-                <div class="metric-sub">RTF: 0.50 · N=2 省 1284MB 显存</div>
-                <div class="metric-sub">50 次冲击测试 0 显存错误</div>
+                <div class="metric-highlight">TTS RTF: 0.33</div>
+                <div class="metric-sub">ASR RTF: 0.205 · V2V: ~1.0 s</div>
+                <div class="metric-sub">10 路并发 GPU 98% 满载稳定</div>
               </td>
-              <td><span class="profile-code">jetson-sparktts-0p5b-nx</span></td>
+              <td><span class="profile-code">jetson-multilang-highperf-nx</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇺🇸</span> 英语 (en) 优选</div>
+                <div class="scenario-tag">Kokoro 原生 53 款音色</div>
+              </td>
+              <td>出海商业语音交互</td>
+              <td>
+                <div class="model-name">Qwen3-ASR / Paraformer</div>
+                <div class="model-sub">TensorRT BF16</div>
+              </td>
+              <td>
+                <div class="model-name">Qwen3.5-4B (本地) / 云端</div>
+                <div class="model-sub">本地端侧思考</div>
+              </td>
+              <td>
+                <div class="model-name">Kokoro-TRT (53音色)</div>
+                <div class="model-sub">TensorRT FP16</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.18</div>
+                <div class="metric-sub">ASR TTFT: 18 ms · WER: 7.62%</div>
+              </td>
+              <td><span class="profile-code">jetson-paraformer-kokoro</span></td>
               <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
             </tr>
 
@@ -792,6 +818,32 @@
                 <div class="metric-sub">ASR RTF: 0.44 · V2V p50: ~1020 ms</div>
               </td>
               <td><span class="profile-code">rk3576-default</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇺🇸</span> 英文 (en) 优选</div>
+                <div class="scenario-tag">Kokoro 原生纯正发音</div>
+              </td>
+              <td>轻量化英语对话与提示</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">RKNN W8A8</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API / 1.5B (轻量)</div>
+                <div class="model-sub">低成本边缘网关</div>
+              </td>
+              <td>
+                <div class="model-name">Kokoro</div>
+                <div class="model-sub">RKNN / CPU 混合优化</div>
+              </td>
+              <td>
+                <div class="metric-highlight">ASR RTF: 0.44</div>
+                <div class="metric-sub">TTS RTF: ~0.65 · 音质自然</div>
+              </td>
+              <td><span class="profile-code">rk3576-kokoro-long32-canary</span></td>
               <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
             </tr>
 

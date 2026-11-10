@@ -28,8 +28,9 @@
 | 目标语言 | 场景定位 | ASR 语音识别 | 端侧思考 / LLM | TTS 语音合成 | 实测性能 (ASR / TTS / V2V) | 推荐 Profile 预设 | 验证状态 |
 |---|---|---|---|---|---|---|---|
 | **🇨🇳 中文全离线** | 军工 / 政务 / 医院 / 离网机器人 | Qwen3-ASR 0.6B (TRT int4) | **Qwen3.5-4B-Instruct**<br>(TRT W4A16, ~35 tok/s, 7.8GB) | Matcha-TTS (TRT bf16) | **V2V p50: 162 ms**<br>**ASR CER: 0 · 显存占用 10GB**<br>端侧大模型同卡并行 | `jetson-edgellm-v091-matcha` | 🟢 实测验证 |
-| **🎙️ 中/英 声音克隆** | IP 形象定制 / 名人发音克隆 | Qwen3-ASR 0.6B (TRT int4) | Qwen3.5-4B (本地) / 云端 | SparkTTS-0.5B (TRT W4A16) | **TTFA: 0.41–0.46 s**<br>**RTF: 0.50**<br>N=2 并发省 1284MB 显存 | `jetson-sparktts-0p5b-nx` | 🟢 实测验证 |
-| **🌐 多语种 (52语)** | 高并发多语种接待大厅 | Qwen3-ASR 0.6B (TRT 52语) | Qwen3.5-4B (本地) / 云端 | Qwen3-TTS CustomVoice (TRT bf16) | **ASR RTF: 0.205**<br>**TTS RTF: 0.33 · V2V: ~1.0 s**<br>10 路并发 GPU 98% 满载稳定 | `jetson-multilang-highperf-nx` | 🟢 实测验证 |
+| **🎙️ 声音克隆 (多语)** | IP 形象定制 / 声音克隆 | Qwen3-ASR 0.6B (TRT int4) | Qwen3.5-4B (本地) / 云端 | Qwen3-TTS CustomVoice / Base (TRT) | **TTS RTF: 0.33**<br>**ASR RTF: 0.205 · V2V: ~1.0 s**<br>10 路并发 GPU 98% 满载 | `jetson-multilang-highperf-nx` | 🟢 实测验证 |
+| **🇺🇸 英语 (en) 优选** | 出海商业语音交互 (53款音色) | Qwen3-ASR / Paraformer (TRT) | Qwen3.5-4B (本地) / 云端 | Kokoro-TRT (53 原生音色) | **TTS RTF: 0.18**<br>**ASR TTFT: 18 ms · WER: 7.62%** | `jetson-paraformer-kokoro` | 🟢 实测验证 |
+| **🌐 多语种 (52语)** | 高并发多语种接待大厅 | Qwen3-ASR 0.6B (TRT 52语) | Qwen3.5-4B (本地) / 云端 | Qwen3-TTS CustomVoice (TRT bf16) | **ASR RTF: 0.205**<br>**TTS RTF: 0.33 · 52语流式** | `jetson-multilang-highperf-nx` | 🟢 实测验证 |
 
 ---
 
@@ -55,6 +56,7 @@
 | 目标语言 | 场景定位 | ASR 语音识别 | 端侧思考 / LLM | TTS 语音合成 | 实测性能 (ASR / TTS / V2V) | 推荐 Profile 预设 | 验证状态 |
 |---|---|---|---|---|---|---|---|
 | **🇨🇳 中文 (zh)** | 智慧养老音箱 / 仓储捡货终端 | Qwen3-ASR 0.6B (RKNN W8A8) | 云端 API / 1.5B (轻量) | Matcha-TTS (RKNN) | **TTS RTF: 0.12**<br>**ASR RTF: 0.44 · V2V p50: 1020 ms** | `rk3576-default` | 🟢 实测验证 |
+| **🇺🇸 英语 (en) 优选** | 轻量化英语对话与提示 | Qwen3-ASR 0.6B (RKNN W8A8) | 云端 API / 1.5B (轻量) | Kokoro (RKNN/CPU 混合) | **ASR RTF: 0.44**<br>**TTS RTF: ~0.65 · 音质自然** | `rk3576-kokoro-long32-canary` | 🟢 实测验证 |
 | **📊 多路音频转写** | 工业多通道音频监控 | SenseVoice-Small (RKNN) | — | — | **16 路并发 0 错误**<br>极低成本多路转录首选 | `rk3576-sensevoice` | 🟢 实测验证 |
 | **🇪🇺 小语种覆盖** | 轻量化多语言提示 | Qwen3-ASR (RKNN) | 云端 API | Piper TTS (CPU) | **ASR RTF: ~0.44**<br>**TTS RTF: ~0.80** | `rk3576-piper` | 🔵 架构支持 |
 
