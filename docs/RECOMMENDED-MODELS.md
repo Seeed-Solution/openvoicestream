@@ -28,6 +28,12 @@ voice; English and other languages have their own best picks.
 | Jetson | `jetson-paraformer-kokoro` | Paraformer (bilingual) | Kokoro TRT — 53 English voices | historical ~130 ms TTFT |
 | RK3588 | `rk3588-kokoro-rknn` | Qwen3-ASR RKNN | Kokoro RKNN | NPU-accelerated, multilingual output |
 
+### Vietnamese dialogue
+
+| Board | Profile | ASR | TTS | Measured |
+|---|---|---|---|---|
+| Jetson Orin Nano 8GB | `jetson-qwen3asr-kokoro-vi` | Qwen3-ASR 0.6B (TRT int4) | Kokoro-VI (TRT hybrid: prefix TRT + suffix CPU) | ASR latency 366 ms, prefix TRT 17 ms, TTS RTF 0.703, first-word 100% intact |
+
 ### Multilingual / minor languages
 
 | Board | Profile | ASR | TTS | Notes |
