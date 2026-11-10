@@ -27,8 +27,8 @@
 
 **每块板卡能干什么 —— 对话（中/英/多语言）与转录，每个数字都是公开实测**，
 可溯源到 [`bench/asr_bench/results/`](bench/asr_bench/results/) 与
-[BENCHMARKS.md](BENCHMARKS.md)。按场景与语言选模型：
-[docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md)。
+[BENCHMARKS.md](BENCHMARKS.md)。按设备与语言查选型矩阵：
+[多语言设备推荐与性能基准矩阵](docs/DEVICE-LANGUAGE-MATRIX.md)（含 [交互式 Tab 页面](docs/device-language-matrix.html)）及 [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md)。
 
 ![每块板卡能干什么 —— 同一套栈，全部实测](docs/media/board-capability-map.svg)
 

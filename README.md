@@ -30,8 +30,8 @@ projected.
 **What each board can do — dialogue (zh / en / multilingual) and
 transcription, every number a published measurement** traceable to
 [`bench/asr_bench/results/`](bench/asr_bench/results/) and
-[BENCHMARKS.md](BENCHMARKS.md). Which models to pick per use case and
-language: [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md).
+[BENCHMARKS.md](BENCHMARKS.md). Which models to pick per board and
+language: [Device & Language Matrix](docs/DEVICE-LANGUAGE-MATRIX.md) (with [interactive tab matrix](docs/device-language-matrix.html)) and [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md).
 
 ![What each board can do — one stack, every board, all numbers measured](docs/media/board-capability-map.svg)
 
