@@ -776,6 +776,7 @@ def build_kokoro_trt_config(
         split_cpu_fallback=_bool("KOKORO_SPLIT_CPU_FALLBACK", True),
         max_seq_len_fallback=max_seq_len_fallback,
         hybrid_token_len=_int("KOKORO_HYBRID_TOKEN_LEN", 0),
+        language=env.get("KOKORO_LANGUAGE") or env.get("LANGUAGE_MODE") or (profile.get("language") if profile else None) or "en-us",
         model_id=env.get("OVS_TTS_MODEL_ID") or "kokoro_trt",
     )
 
