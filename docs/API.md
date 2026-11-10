@@ -118,20 +118,22 @@ import json
 async def stream_audio(audio_chunks):
     uri = "ws://device:8621/asr/stream?sample_rate=16000&language=auto"
     async with websockets.connect(uri) as ws:
-        for chunk in audio_chunks:
-            # chunk is int16 numpy array or bytes
-            await ws.send(chunk.tobytes() if hasattr(chunk, "tobytes") else chunk)
-            try:
-                res = await asyncio.wait_for(ws.recv(), timeout=0.05)
-                data = json.loads(res)
-                print(f"[Partial] {data.get('text')}")
-            except asyncio.TimeoutError:
-                pass
+        async def send_audio():
+            for chunk in audio_chunks:
+                # chunk is int16 numpy array or bytes
+                await ws.send(chunk.tobytes() if hasattr(chunk, "tobytes") else chunk)
+                await asyncio.sleep(0.02)
+            await ws.send(b"")  # Signal end-of-speech
 
-        # Send empty bytes to trigger final decoding
-        await ws.send(b"")
-        final_res = await ws.recv()
-        print(f"[Final] {json.loads(final_res).get('text')}")
+        async def receive_results():
+            async for message in ws:
+                data = json.loads(message)
+                if data.get("is_final"):
+                    print(f"[Final] {data.get('text')}")
+                    break
+                print(f"[Partial] {data.get('text')}")
+
+        await asyncio.gather(send_audio(), receive_results())
 ```
 
 ---

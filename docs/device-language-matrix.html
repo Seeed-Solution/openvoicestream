@@ -265,23 +265,23 @@
 
   <!-- Device Switch Tabs -->
   <div class="tabs-nav">
-    <button class="tab-btn active" onclick="switchTab('orin-nano')">
+    <button class="tab-btn active" data-tab="orin-nano" onclick="switchTab('orin-nano', this)">
       <span>Jetson Orin Nano (8GB)</span>
       <span class="tab-badge">推荐主流</span>
     </button>
-    <button class="tab-btn" onclick="switchTab('orin-nx')">
+    <button class="tab-btn" data-tab="orin-nx" onclick="switchTab('orin-nx', this)">
       <span>Jetson Orin NX (16GB)</span>
       <span class="tab-badge">端侧大模型</span>
     </button>
-    <button class="tab-btn" onclick="switchTab('rk3588')">
+    <button class="tab-btn" data-tab="rk3588" onclick="switchTab('rk3588', this)">
       <span>reComputer RK3588</span>
       <span class="tab-badge">高并发性价比</span>
     </button>
-    <button class="tab-btn" onclick="switchTab('rk3576')">
+    <button class="tab-btn" data-tab="rk3576" onclick="switchTab('rk3576', this)">
       <span>reComputer RK3576</span>
       <span class="tab-badge">入门边缘</span>
     </button>
-    <button class="tab-btn" onclick="switchTab('rpi5')">
+    <button class="tab-btn" data-tab="rpi5" onclick="switchTab('rpi5', this)">
       <span>Raspberry Pi 5</span>
       <span class="tab-badge">极低功耗</span>
     </button>
@@ -975,11 +975,16 @@
 </div>
 
 <script>
-function switchTab(tabId) {
+function switchTab(tabId, btn) {
   // Update Buttons
   const buttons = document.querySelectorAll('.tab-btn');
-  buttons.forEach(btn => btn.classList.remove('active'));
-  event.currentTarget.classList.add('active');
+  buttons.forEach(b => b.classList.remove('active'));
+  if (btn) {
+    btn.classList.add('active');
+  } else {
+    const matchedBtn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+    if (matchedBtn) matchedBtn.classList.add('active');
+  }
 
   // Update Panes
   const panes = document.querySelectorAll('.tab-pane');

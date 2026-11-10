@@ -743,7 +743,7 @@ def build_kokoro_trt_config(
         "KOKORO_SPLIT_MAX_SEQ_LEN", _int("KOKORO_HYBRID_MAX_SEQ_LEN", 128)
     )
 
-    return KokoroTRTConfig(
+    kokoro_kwargs = dict(
         model_base=env.get("KOKORO_MODEL_BASE", "/opt/models/kokoro-multi-lang-v1_0"),
         model_onnx=env.get("KOKORO_ONNX") or None,
         engine_path=env.get("KOKORO_TRT_ENGINE") or None,
@@ -776,9 +776,13 @@ def build_kokoro_trt_config(
         split_cpu_fallback=_bool("KOKORO_SPLIT_CPU_FALLBACK", True),
         max_seq_len_fallback=max_seq_len_fallback,
         hybrid_token_len=_int("KOKORO_HYBRID_TOKEN_LEN", 0),
-        language=env.get("KOKORO_LANGUAGE") or env.get("LANGUAGE_MODE") or (profile.get("language") if profile else None) or "en-us",
         model_id=env.get("OVS_TTS_MODEL_ID") or "kokoro_trt",
     )
+    kokoro_lang = env.get("KOKORO_LANGUAGE") or env.get("LANGUAGE_MODE") or (profile.get("language") if profile else None) or "en-us"
+    try:
+        return KokoroTRTConfig(**kokoro_kwargs, language=kokoro_lang)
+    except TypeError:
+        return KokoroTRTConfig(**kokoro_kwargs)
 
 
 def build_trt_edge_llm_tts_config(

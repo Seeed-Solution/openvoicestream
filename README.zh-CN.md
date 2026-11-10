@@ -259,18 +259,24 @@ docker compose -f demos/docker-compose.demos.yml --profile all up -d
 ```python
 import asyncio, websockets, json
 
-async def transcribe():
+async def transcribe(audio_chunks):
     uri = "ws://localhost:8621/asr/stream?sample_rate=16000&language=auto"
     async with websockets.connect(uri) as ws:
-        for chunk in audio_chunks:  # 传入 int16 格式 16kHz 音频分块
-            await ws.send(chunk.tobytes())
-            result = await ws.recv()
-            print("[Partial]", json.loads(result)["text"])
-        await ws.send(b"")  # 发送空字节触发最终收敛
-        final = await ws.recv()
-        print("[Final]", json.loads(final)["text"])
+        async def send_audio():
+            for chunk in audio_chunks:  # 传入 int16 格式 16kHz 音频分块
+                await ws.send(chunk.tobytes())
+                await asyncio.sleep(0.02)
+            await ws.send(b"")  # 发送空字节标记音频结束
 
-asyncio.run(transcribe())
+        async def receive_results():
+            async for message in ws:
+                data = json.loads(message)
+                if data.get("is_final"):
+                    print("[Final]", data.get("text"))
+                    break
+                print("[Partial]", data.get("text"))
+
+        await asyncio.gather(send_audio(), receive_results())
 ```
 
 完整接口参数、返回格式与说话人注册请参阅 [完整 API 手册 (docs/API.md)](docs/API.md)。
