@@ -379,6 +379,33 @@
 
             <tr>
               <td>
+                <div class="lang-tag"><span class="lang-flag">🇯🇵</span> 日语 (ja)</div>
+                <div class="scenario-tag">亚太重点 · 地道发音</div>
+              </td>
+              <td>消费电子 / 伴侣机器人</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">TensorRT 52语流式</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API / 本地 1.5B</div>
+                <div class="model-sub">流式低延迟响应</div>
+              </td>
+              <td>
+                <div class="model-name">Kokoro-TRT (Misaki)</div>
+                <div class="model-sub">原生 G2P 日语音色</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.28</div>
+                <div class="metric-sub">ASR RTF: 0.25 · V2V: ~600 ms</div>
+                <div class="metric-sub">发音地道自然</div>
+              </td>
+              <td><span class="profile-code">jetson-multilang-highperf</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
                 <div class="lang-tag"><span class="lang-flag">🌐</span> 多语种 (52语)</div>
                 <div class="scenario-tag">全能国际化 · 声音克隆</div>
               </td>
@@ -554,17 +581,44 @@
 
             <tr>
               <td>
-                <div class="lang-tag"><span class="lang-flag">🎙️</span> 中/英/52语 声音克隆</div>
-                <div class="scenario-tag">统一千问技术栈 · 自然语言驱动</div>
+                <div class="lang-tag"><span class="lang-flag">🇯🇵</span> 日语 (ja)</div>
+                <div class="scenario-tag">高品质商用交互 · 纯正发音</div>
               </td>
-              <td>IP 形象定制 / 名人发音克隆 / 多语种</td>
+              <td>消费电子 / 伴侣机器人 / 声音克隆</td>
               <td>
                 <div class="model-name">Qwen3-ASR 0.6B</div>
-                <div class="model-sub">TensorRT INT4-AWQ</div>
+                <div class="model-sub">TensorRT 52语流式</div>
               </td>
               <td>
                 <div class="model-name">Qwen3.5-4B (本地) / 云端</div>
-                <div class="model-sub">端侧大模型或云端决策</div>
+                <div class="model-sub">端侧大模型思考</div>
+              </td>
+              <td>
+                <div class="model-name">Kokoro-TRT (Misaki)</div>
+                <div class="model-sub">原生 G2P 日语音色</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.20</div>
+                <div class="metric-sub">ASR RTF: 0.15 · 纯正发音</div>
+                <div class="metric-sub">低延迟端侧闭环</div>
+              </td>
+              <td><span class="profile-code">jetson-multilang-highperf-nx</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🌐</span> 多语种 (52语)</div>
+                <div class="scenario-tag">高算力多路并发 · 声音克隆</div>
+              </td>
+              <td>多语种接待大厅 / 跨国电话客服</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">TensorRT 52 语流式</div>
+              </td>
+              <td>
+                <div class="model-name">Qwen3.5-4B (本地) / 云端</div>
+                <div class="model-sub">多语言推理决策</div>
               </td>
               <td>
                 <div class="model-name">Qwen3-TTS CustomVoice / Base</div>
@@ -581,28 +635,54 @@
 
             <tr>
               <td>
-                <div class="lang-tag"><span class="lang-flag">🌐</span> 多语种 (52语)</div>
-                <div class="scenario-tag">高算力多路并发</div>
+                <div class="lang-tag"><span class="lang-flag">🇻🇳</span> 越南语 (vi)</div>
+                <div class="scenario-tag">全新优化 · 全双工对话</div>
               </td>
-              <td>多语种接待大厅 / 电话客服</td>
+              <td>海外智能客服 / 陪伴音箱</td>
               <td>
                 <div class="model-name">Qwen3-ASR 0.6B</div>
-                <div class="model-sub">TensorRT 52 语流式</div>
+                <div class="model-sub">TensorRT INT4-AWQ</div>
               </td>
               <td>
                 <div class="model-name">Qwen3.5-4B (本地) / 云端</div>
-                <div class="model-sub">多语言推理</div>
+                <div class="model-sub">端侧大模型思考</div>
               </td>
               <td>
-                <div class="model-name">Qwen3-TTS CustomVoice</div>
+                <div class="model-name">Kokoro-VI (Hybrid)</div>
+                <div class="model-sub">TRT FP16 前缀 + CPU 后缀</div>
+              </td>
+              <td>
+                <div class="metric-highlight">ASR: 366.3 ms</div>
+                <div class="metric-sub">TRT前缀: 17.0 ms · RTF: 0.703</div>
+                <div class="metric-sub" style="color:#60a5fa;">首词 100% 完整保留</div>
+              </td>
+              <td><span class="profile-code">jetson-qwen3asr-kokoro-vi</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🎧</span> 录音转写 (跨语种)</div>
+                <div class="scenario-tag">高精度离线 / 会议转写</div>
+              </td>
+              <td>会议录音 / 访谈转文字</td>
+              <td>
+                <div class="model-name">Whisper-base</div>
                 <div class="model-sub">TensorRT BF16</div>
               </td>
               <td>
-                <div class="metric-highlight">TTS RTF: 0.33</div>
-                <div class="metric-sub">ASR RTF: 0.205 · V2V: ~1.0 s</div>
-                <div class="metric-sub">10 路并发 GPU 98% 满载稳定</div>
+                <div class="model-name">—</div>
+                <div class="model-sub">无须对话大模型</div>
               </td>
-              <td><span class="profile-code">jetson-multilang-highperf-nx</span></td>
+              <td>
+                <div class="model-name">—</div>
+                <div class="model-sub">纯转录场景</div>
+              </td>
+              <td>
+                <div class="metric-highlight">WER: 7.62%</div>
+                <div class="metric-sub">TTFT: 18 ms · RTF: 0.008</div>
+              </td>
+              <td><span class="profile-code">orin-whisper</span></td>
               <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
             </tr>
           </tbody>
@@ -650,8 +730,8 @@
           <tbody>
             <tr>
               <td>
-                <div class="lang-tag"><span class="lang-flag">🇺🇸</span> 英文 / 🇯🇵 日文</div>
-                <div class="scenario-tag">NPU 加速 Kokoro</div>
+                <div class="lang-tag"><span class="lang-flag">🇺🇸</span> 英语 (en) 优选</div>
+                <div class="scenario-tag">Kokoro NPU 卸载版</div>
               </td>
               <td>海外智能硬件导出</td>
               <td>
@@ -698,6 +778,32 @@
                 <div class="metric-sub">多 NPU 核心独立无冲突流水线</div>
               </td>
               <td><span class="profile-code">rk3588-default</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇯🇵</span> 日语 (ja)</div>
+                <div class="scenario-tag">日本市场硬件 · 地道发音</div>
+              </td>
+              <td>日本市场终端 / 交互看板</td>
+              <td>
+                <div class="model-name">Qwen3-ASR</div>
+                <div class="model-sub">RKNN W8A8</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API / 本地轻量</div>
+                <div class="model-sub">低延迟对话</div>
+              </td>
+              <td>
+                <div class="model-name">Kokoro-RKNN (Misaki)</div>
+                <div class="model-sub">RKNN 34% NPU 卸载版</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.34</div>
+                <div class="metric-sub">ASR RTF: 0.35 · 音质自然</div>
+              </td>
+              <td><span class="profile-code">rk3588-kokoro-rknn-34pct</span></td>
               <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
             </tr>
 

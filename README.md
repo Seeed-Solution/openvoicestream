@@ -52,7 +52,8 @@ The underlying streaming runtime is the standalone Python library [`voxedge`](ht
 > 💡 **Model Selection Principles**:
 > - **English (en - Primary)**: **Kokoro** across all devices (53 native voices, natural prosody; supported across Jetson, RK3588, RK3576)
 > - **Chinese (zh - Secondary)**: Qwen3-ASR + Matcha-TTS (Fast, low VRAM footprint, natural speech)
-> - **European / 52 Languages (Tertiary)**: **Qwen3-ASR + Qwen3-TTS** (Multilingual streaming & 3–10s clone) or **Piper TTS** (Lightweight offline)
+> - **Japanese (ja - APAC Focus)**: **Qwen3-ASR + Kokoro (Misaki G2P Japanese voices)**, authentic pronunciation
+> - **European / 52 Languages**: **Qwen3-ASR + Qwen3-TTS** (Multilingual streaming & 3–10s clone) or **Piper TTS** (Lightweight offline)
 > - **Vietnamese (vi - Global Expansion)**: Qwen3-ASR + **Kokoro-VI** (TRT prefix 17.0 ms, end-to-end 0.703 RTF, 100% word retention with 0 truncation)
 > - **On-Device LM Reasoning**: Orin NX 16GB supports local offline loop with **Qwen3.5-4B** (~35 tok/s, V2V p50 162 ms)
 
@@ -75,6 +76,7 @@ The underlying streaming runtime is the standalone Python library [`voxedge`](ht
 |---|---|---|---|---|---|---|:---:|
 | **🇺🇸 English (en)** | Commercial voice agent (53 voices) | Paraformer / Whisper (TRT) | Cloud API / Local model | **Kokoro-TRT (53 native voices)** | **ASR TTFT: ~50 ms**<br>**TTS TTFT: ~130 ms · RTF: 0.25** | `jetson-paraformer-kokoro` | 🟢 Verified |
 | **🇨🇳 Chinese (zh)** | Kiosk / Industrial HMI / Robotics | Qwen3-ASR 0.6B (TRT int4) | Cloud / Local 1.5B | Matcha-TTS (TRT fp16) | **ASR CER: 0**<br>**TTS RTF: 0.15 · V2V: ~500 ms**<br>VRAM footprint: ~1.8 GB | `jetson-qwen3asr-matcha` | 🟢 Verified |
+| **🇯🇵 Japanese (ja)** | Consumer electronics / Companion robotics | Qwen3-ASR 0.6B (TRT 52L) | Cloud API / Local 1.5B | **Kokoro-TRT (Misaki Japanese voices)** | **ASR RTF: 0.25**<br>**TTS RTF: 0.28 · V2V: ~600 ms** | `jetson-multilang-highperf` | 🟢 Verified |
 | **🌐 Multilingual (52L)** | Cross-border service / Voice cloning | Qwen3-ASR 0.6B (TRT 52L) | Cloud Multilingual LM | **Qwen3-TTS CustomVoice (int4)** | **ASR RTF: 0.30**<br>**TTS RTF: 0.50 · V2V: ~1.5 s**<br>Supports 3–10s voice cloning | `jetson-multilang-highperf` | 🟢 Verified |
 | **🇻🇳 Vietnamese (vi)** | Overseas AI Agent / Companion | Qwen3-ASR 0.6B (TRT int4) | Cloud API / 1.5B (Local) | Kokoro-VI (TRT Hybrid) | **ASR: 366.3 ms**<br>**TRT Prefix: 17.0 ms · RTF: 0.703**<br>**100% word retention (0 truncation)** | `jetson-qwen3asr-kokoro-vi` | 🟢 Verified |
 | **🎧 Offline Transcription** | Meeting minutes / Audio to text | Whisper-base (TRT bf16) | — (Transcription only) | — | **WER: 7.62%**<br>**TTFT: 18 ms · RTF: 0.008** | `orin-whisper` | 🟢 Verified |
@@ -87,6 +89,7 @@ The underlying streaming runtime is the standalone Python library [`voxedge`](ht
 |---|---|---|---|---|---|---|:---:|
 | **🇺🇸 English (en)** | High-throughput English agent | Qwen3-ASR / Paraformer (TRT) | Qwen3.5-4B (Local) / Cloud | **Kokoro-TRT (53 native voices)** | **TTS RTF: 0.18**<br>**ASR TTFT: 18 ms · WER: 7.62%** | `jetson-paraformer-kokoro` | 🟢 Verified |
 | **🇨🇳 Chinese Offline** | Air-gapped robotics / Healthcare / Defense | Qwen3-ASR 0.6B (TRT int4) | **Qwen3.5-4B-Instruct**<br>(TRT W4A16, ~35 tok/s, 7.8GB) | Matcha-TTS (TRT bf16) | **V2V p50: 162 ms**<br>**ASR CER: 0 · VRAM total: 10GB**<br>Full on-device concurrency on single GPU | `jetson-edgellm-v091-matcha` | 🟢 Verified |
+| **🇯🇵 Japanese (ja)** | High-quality commercial dialogue / Cloning | Qwen3-ASR 0.6B (TRT 52L) | Qwen3.5-4B (Local) / Cloud | **Kokoro-TRT (Misaki Japanese voices)** | **ASR RTF: 0.15**<br>**TTS RTF: 0.20 · Natural prosody** | `jetson-multilang-highperf-nx` | 🟢 Verified |
 | **🌐 Multilingual (52L)** | Multi-tenant reception kiosks / Voice clone | Qwen3-ASR 0.6B (TRT 52L) | Qwen3.5-4B (Local) / Cloud | **Qwen3-TTS CustomVoice (bf16)** | **ASR RTF: 0.205**<br>**TTS RTF: 0.33 · 52-lang streaming** | `jetson-multilang-highperf-nx` | 🟢 Verified |
 | **🇻🇳 Vietnamese (vi)** | Overseas AI Agent / Companion | Qwen3-ASR 0.6B (TRT int4) | Qwen3.5-4B (Local) / Cloud | Kokoro-VI (TRT Hybrid) | **ASR: 366.3 ms**<br>**TRT Prefix: 17.0 ms · RTF: 0.703**<br>**100% word retention (0 truncation)** | `jetson-qwen3asr-kokoro-vi` | 🟢 Verified |
 | **🎧 Offline Transcription** | Meeting minutes / Audio to text | Whisper-base (TRT bf16) | — (Transcription only) | — | **WER: 7.62%**<br>**TTFT: 18 ms · RTF: 0.008** | `orin-whisper` | 🟢 Verified |
@@ -99,6 +102,7 @@ The underlying streaming runtime is the standalone Python library [`voxedge`](ht
 |---|---|---|---|---|---|---|:---:|
 | **🇺🇸 English (en)** | Global IoT hardware deployment | Qwen3-ASR (RKNN W8A8) | Cloud API / Lightweight local | **Kokoro-RKNN (34% NPU offload)** | **TTS RTF: 0.34**<br>**ASR RTF: 0.35** | `rk3588-kokoro-rknn-34pct` | 🟢 Verified |
 | **🇨🇳 Chinese (zh)** | Building intercom / Industrial station / Inspection | Qwen3-ASR (RKNN W8A8) | RKLLM Qwen2.5-3B (~15 tok/s) / Cloud | Matcha-TTS (RKNN build) | **TTS RTF: 0.05 (Ultra-fast)**<br>**ASR RTF: 0.28 · V2V p50: 528 ms**<br>Triple-core NPU independent pipeline | `rk3588-default` | 🟢 Verified |
+| **🇯🇵 Japanese (ja)** | Japanese market hardware / HMI | Qwen3-ASR (RKNN W8A8) | Cloud API / Lightweight local | **Kokoro-RKNN (34% NPU offload)** | **TTS RTF: 0.34**<br>**ASR RTF: 0.35 · Natural tone** | `rk3588-kokoro-rknn-34pct` | 🟢 Verified |
 | **🇪🇺 European Languages** | German / French / Spanish terminals | Qwen3-ASR (52L RKNN) | Cloud Multilingual LM | Piper TTS (CPU) | **ASR RTF: ~0.35**<br>**TTS RTF: ~0.60** | `rk3588-piper` | 🔵 Supported |
 | **📊 Concurrent Transcription** | Call center QA / Meeting records | SenseVoice-Small (RKNN) | — (Transcription only) | — | **12 parallel channels 0 error**<br>**CER: 5.13% · Tri-NPU 100% saturated** | `rk3588-sensevoice` | 🟢 Verified |
 
@@ -187,12 +191,13 @@ Python client examples are available in [`examples/`](examples/).
 
 | Language & Scenario | Recommended ASR | Recommended TTS | Supported Hardware | Key Measured Metrics |
 |---|---|---|---|---|
-| **🇨🇳 Chinese Dialogue** | Qwen3-ASR (INT4/W8A8) | **Matcha-TTS** (FP16/RKNN) | All devices | **TTS RTF 0.018–0.075**, TTFT <10ms, minimal VRAM |
 | **🇺🇸 English Dialogue** | Paraformer / Qwen3-ASR | **Kokoro** (TRT / RKNN) | All devices | **53 native voices**, Orin RTF 0.18, RK3588 0.34 |
-| **🇻🇳 Vietnamese Dialogue** | Qwen3-ASR (TRT INT4) | **Kokoro-VI** (TRT Hybrid) | Jetson Orin | Prefix 17ms, end-to-end RTF 0.703, 100% word retention |
-| **🌐 Multilingual / Clone** | Qwen3-ASR (52L) | **Qwen3-TTS** (INT4/CustomVoice) | Jetson Orin | 52-language streaming, 3–10s zero-shot cloning |
-| **📊 Concurrent Transcription** | SenseVoice-Small / Whisper | — | RK3588 / RPi / Jetson | RK3588 12 channels 0 error; Whisper WER 7.62% |
+| **🇨🇳 Chinese Dialogue** | Qwen3-ASR (INT4/W8A8) | **Matcha-TTS** (FP16/RKNN) | All devices | **TTS RTF 0.018–0.075**, TTFT <10ms, minimal VRAM |
+| **🇯🇵 Japanese Dialogue** | Qwen3-ASR (52L) | **Kokoro** (Misaki Japanese voices) | Jetson / RK3588 | Native Japanese G2P, natural prosody, Orin RTF 0.20, RK3588 0.34 |
 | **🇪🇺 European Languages** | Qwen3-ASR (52L) | **Piper** (CPU) | All devices | Lightweight offline speech for German/French/Spanish |
+| **🌐 Multilingual / Clone** | Qwen3-ASR (52L) | **Qwen3-TTS** (INT4/CustomVoice) | Jetson Orin | 52-language streaming, 3–10s zero-shot cloning |
+| **🇻🇳 Vietnamese Dialogue** | Qwen3-ASR (TRT INT4) | **Kokoro-VI** (TRT Hybrid) | Jetson Orin | Prefix 17ms, end-to-end RTF 0.703, 100% word retention |
+| **📊 Concurrent Transcription** | SenseVoice-Small / Whisper | — | RK3588 / RPi / Jetson | RK3588 12 channels 0 error; Whisper WER 7.62% |
 
 Full model comparisons and configs are detailed in [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md).
 

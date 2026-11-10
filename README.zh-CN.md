@@ -52,7 +52,8 @@
 > 💡 **模型选型原则**：
 > - **英文对话（首要）**：所有设备统一主推 **Kokoro**（原生 53 款音色，音质纯正自然；RK3588/RK3576 全面支持）
 > - **中文对话（其次）**：Qwen3-ASR + Matcha-TTS（极快、超低显存、自然度高）
-> - **欧系语言 / 52 语多语言（第三）**：统一使用 **Qwen3-ASR + Qwen3-TTS**（多语种流式与声音克隆）或 **Piper TTS**（离线轻量）
+> - **日语对话（亚太重点）**：**Qwen3-ASR + Kokoro（Misaki G2P 日语音色）**，发音纯正地道
+> - **欧系语言 / 52 语多语言**：统一使用 **Qwen3-ASR + Qwen3-TTS**（多语种流式与声音克隆）或 **Piper TTS**（离线轻量）
 > - **越南语对话（出海拓展）**：Qwen3-ASR + **Kokoro-VI**（前缀 TRT 17ms，端到端 0.703 RTF，首词 100% 完整留存）
 > - **端侧大模型思考**：Orin NX 16GB 支持端侧 **Qwen3.5-4B** 离线闭环（~35 tok/s，V2V p50 162 ms）
 
@@ -75,6 +76,7 @@
 |---|---|---|---|---|---|---|:---:|
 | **🇺🇸 英语 (en)** | 出海商业语音交互 (53款音色) | Paraformer / Whisper (TRT) | 云端 API / 本地模型 | **Kokoro-TRT (53 原生音色)** | **ASR TTFT: ~50 ms**<br>**TTS TTFT: ~130 ms · RTF: 0.25** | `jetson-paraformer-kokoro` | 🟢 实测 |
 | **🇨🇳 中文 (zh)** | 智能终端 / 工业看板 / 机器人 | Qwen3-ASR 0.6B (TRT int4) | 云端百炼 / 本地 1.5B | Matcha-TTS (TRT fp16) | **ASR CER: 0**<br>**TTS RTF: 0.15 · V2V: ~500 ms**<br>显存占用仅 ~1.8 GB | `jetson-qwen3asr-matcha` | 🟢 实测 |
+| **🇯🇵 日语 (ja)** | 消费电子 / 伴侣机器人 | Qwen3-ASR 0.6B (TRT 52语) | 云端 API / 1.5B (本地) | **Kokoro-TRT (Misaki 日语音色)** | **ASR RTF: 0.25**<br>**TTS RTF: 0.28 · V2V: ~600 ms** | `jetson-multilang-highperf` | 🟢 实测 |
 | **🌐 多语种 (52语)** | 跨国语音服务 / 声音克隆 | Qwen3-ASR 0.6B (TRT 52语) | 云端多语言大模型 | **Qwen3-TTS CustomVoice (int4)** | **ASR RTF: 0.30**<br>**TTS RTF: 0.50 · V2V: ~1.5 s**<br>支持 3~10s 声音克隆 | `jetson-multilang-highperf` | 🟢 实测 |
 | **🇻🇳 越南语 (vi)** | 海外智能客服 / 陪伴音箱 | Qwen3-ASR 0.6B (TRT int4) | 云端 API / 1.5B (本地) | Kokoro-VI (TRT Hybrid) | **ASR: 366.3 ms**<br>**TRT前缀: 17.0 ms · RTF: 0.703**<br>**首词保留 100%（0截断）** | `jetson-qwen3asr-kokoro-vi` | 🟢 实测 |
 | **🎧 离线转写** | 会议记录 / 录音转文字 | Whisper-base (TRT bf16) | — (纯 ASR 场景) | — | **WER: 7.62%**<br>**TTFT: 18 ms · RTF: 0.008** | `orin-whisper` | 🟢 实测 |
@@ -87,6 +89,7 @@
 |---|---|---|---|---|---|---|:---:|
 | **🇺🇸 英语 (en) 优选** | 出海商业语音交互 (53款音色) | Qwen3-ASR / Paraformer (TRT) | Qwen3.5-4B (本地) / 云端 | **Kokoro-TRT (53 原生音色)** | **TTS RTF: 0.18**<br>**ASR TTFT: 18 ms · WER: 7.62%** | `jetson-paraformer-kokoro` | 🟢 实测 |
 | **🇨🇳 中文全离线** | 军工 / 政务 / 医院 / 离网机器人 | Qwen3-ASR 0.6B (TRT int4) | **Qwen3.5-4B-Instruct**<br>(TRT W4A16, ~35 tok/s, 7.8GB) | Matcha-TTS (TRT bf16) | **V2V p50: 162 ms**<br>**ASR CER: 0 · 显存占用 10GB**<br>本地端侧大模型同卡并行 | `jetson-edgellm-v091-matcha` | 🟢 实测 |
+| **🇯🇵 日语 (ja)** | 高品质商用交互 / 声音克隆 | Qwen3-ASR 0.6B (TRT 52语) | Qwen3.5-4B (本地) / 云端 | **Kokoro-TRT (Misaki 日语音色)** | **ASR RTF: 0.15**<br>**TTS RTF: 0.20 · 纯正发音** | `jetson-multilang-highperf-nx` | 🟢 实测 |
 | **🌐 多语种 (52语)** | 高并发多语种接待大厅 / 声音克隆 | Qwen3-ASR 0.6B (TRT 52语) | Qwen3.5-4B (本地) / 云端 | **Qwen3-TTS CustomVoice / Base** | **ASR RTF: 0.205**<br>**TTS RTF: 0.33 · V2V: ~1.0 s**<br>10 路并发 GPU 98% 满载 | `jetson-multilang-highperf-nx` | 🟢 实测 |
 | **🇻🇳 越南语 (vi)** | 海外智能客服 / 陪伴音箱 | Qwen3-ASR 0.6B (TRT int4) | Qwen3.5-4B (本地) / 云端 | Kokoro-VI (TRT Hybrid) | **ASR: 366.3 ms**<br>**TRT前缀: 17.0 ms · RTF: 0.703**<br>**首词保留 100%（0截断）** | `jetson-qwen3asr-kokoro-vi` | 🟢 实测 |
 | **🎧 离线转写** | 会议记录 / 录音转文字 | Whisper-base (TRT bf16) | — (纯 ASR 场景) | — | **WER: 7.62%**<br>**TTFT: 18 ms · RTF: 0.008** | `orin-whisper` | 🟢 实测 |
@@ -99,6 +102,7 @@
 |---|---|---|---|---|---|---|:---:|
 | **🇺🇸 英语 (en) 优选** | 出海智能硬件导出 | Qwen3-ASR (RKNN W8A8) | 云端 API / 轻量本地 | **Kokoro-RKNN (34% NPU 卸载)** | **TTS RTF: 0.34**<br>**ASR RTF: 0.35** | `rk3588-kokoro-rknn-34pct` | 🟢 实测 |
 | **🇨🇳 中文 (zh)** | 楼宇对讲 / 智能工位 / 巡检终端 | Qwen3-ASR (RKNN W8A8) | RKLLM Qwen2.5-3B (~15 tok/s) / 云端 | Matcha-TTS (RKNN 专版) | **TTS RTF: 0.05 (极快)**<br>**ASR RTF: 0.28 · V2V p50: 528 ms**<br>三核 NPU 独立流水线 | `rk3588-default` | 🟢 实测 |
+| **🇯🇵 日语 (ja)** | 日本市场硬件 / 交互看板 | Qwen3-ASR (RKNN W8A8) | 云端 API / 轻量本地 | **Kokoro-RKNN (34% NPU 卸载)** | **TTS RTF: 0.34**<br>**ASR RTF: 0.35 · 音质自然** | `rk3588-kokoro-rknn-34pct` | 🟢 实测 |
 | **🇪🇺 欧系小语种** | 德 / 法 / 西语等业务终端 | Qwen3-ASR (52语 RKNN) | 云端多语言模型 | Piper TTS (CPU) | **ASR RTF: ~0.35**<br>**TTS RTF: ~0.60** | `rk3588-piper` | 🔵 支持 |
 | **📊 高并发转写** | 呼叫中心录音质检 / 庭审转录 | SenseVoice-Small (RKNN) | — (纯转录) | — | **12 路并发 0 错误**<br>**CER: 5.13% · 三核 NPU 100% 满载** | `rk3588-sensevoice` | 🟢 实测 |
 
@@ -187,12 +191,13 @@ Python 客户端与进阶调用代码见 [`examples/`](examples/)。
 
 | 场景与语言 | 推荐 ASR 引擎 | 推荐 TTS 引擎 | 适用硬件 | 特性与实测指标 |
 |---|---|---|---|---|
-| **🇨🇳 中文极速对话** | Qwen3-ASR (INT4/W8A8) | **Matcha-TTS** (FP16/RKNN) | 全部设备 | **TTS RTF 0.018–0.075**，首包 <10ms，超低显存 |
 | **🇺🇸 英文纯正发音** | Paraformer / Qwen3-ASR | **Kokoro** (TRT / RKNN) | 全部设备 | **53 款原生纯正发音**，Orin RTF 0.18，RK3588 0.34 |
-| **🇻🇳 越南语出海对话** | Qwen3-ASR (TRT INT4) | **Kokoro-VI** (TRT Hybrid) | Jetson Orin | 前缀 17ms，端到端 RTF 0.703，首词 100% 留存 |
-| **🌐 多语种 / 声音克隆** | Qwen3-ASR (52 语) | **Qwen3-TTS** (INT4/CustomVoice) | Jetson Orin | 52 语流式合成，支持 3~10 秒极速克隆 |
-| **📊 高并发离线转写** | SenseVoice-Small / Whisper | — | RK3588 / RPi / Jetson | RK3588 12 路 100% 满载 0 错误；Whisper WER 7.62% |
+| **🇨🇳 中文极速对话** | Qwen3-ASR (INT4/W8A8) | **Matcha-TTS** (FP16/RKNN) | 全部设备 | **TTS RTF 0.018–0.075**，首包 <10ms，超低显存 |
+| **🇯🇵 日语地道交互** | Qwen3-ASR (52 语) | **Kokoro** (Misaki 日语音色) | Jetson / RK3588 | 原生日文 G2P，发音地道自然，Orin RTF 0.20，RK3588 0.34 |
 | **🇪🇺 欧系小语种** | Qwen3-ASR (52 语) | **Piper** (CPU) | 全部设备 | 德/法/西/俄等离线轻量级发音 |
+| **🌐 多语种 / 声音克隆** | Qwen3-ASR (52 语) | **Qwen3-TTS** (INT4/CustomVoice) | Jetson Orin | 52 语流式合成，支持 3~10 秒极速克隆 |
+| **🇻🇳 越南语出海对话** | Qwen3-ASR (TRT INT4) | **Kokoro-VI** (TRT Hybrid) | Jetson Orin | 前缀 17ms，端到端 RTF 0.703，首词 100% 留存 |
+| **📊 高并发离线转写** | SenseVoice-Small / Whisper | — | RK3588 / RPi / Jetson | RK3588 12 路 100% 满载 0 错误；Whisper WER 7.62% |
 
 完整对比与参数配置详见 [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md)。
 
