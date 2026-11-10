@@ -57,77 +57,17 @@ The underlying streaming runtime is the standalone Python library [`voxedge`](ht
 > - **Vietnamese (vi - Global Expansion)**: Qwen3-ASR + **Kokoro-VI** (TRT prefix 17.0 ms, end-to-end 0.703 RTF, 100% word retention with 0 truncation)
 > - **On-Device LM Reasoning**: Orin NX 16GB supports local offline loop with **Qwen3.5-4B** (~35 tok/s, V2V p50 162 ms)
 
-<p align="center">
-  <b>Quick Device Navigation:</b><br>
-  <a href="#1-jetson-orin-nano-8gb--mainstream-edge-recomputer-j4012--j401">🟢 Jetson Orin Nano (8GB)</a> &nbsp;|&nbsp;
-  <a href="#2-jetson-orin-nx-16gb--on-device-llm-flagship-recomputer-j4012--j4011--super">🔵 Jetson Orin NX (16GB)</a> &nbsp;|&nbsp;
-  <a href="#3-recomputer-rk3588--high-concurrency--efficiency-recomputer-r1000--industrial-box">🟠 reComputer RK3588</a> &nbsp;|&nbsp;
-  <a href="#4-recomputer-rk3576--cost-effective-iot-gateway-lubancat-3--compact-gateway">🟡 reComputer RK3576</a> &nbsp;|&nbsp;
-  <a href="#5-raspberry-pi-5--pure-cpu--lightweight-edge-raspberry-pi-5--recomputer-r1000-pi">🟣 Raspberry Pi 5</a>
-  <br>
-  <sub>You can also open the <a href="docs/device-language-matrix.html">Interactive Tabbed Matrix in browser</a> for instant switching</sub>
-</p>
+| Hardware & Specs | 🇺🇸 English (en) Primary | 🇨🇳 Chinese (zh) Secondary | 🇯🇵 Japanese (ja) APAC | 🇪🇺 European / 🌐 52L | 🇻🇳 Vietnamese (vi) Expansion | 🎧 Offline Transcription |
+|---|---|---|---|---|---|---|
+| **Jetson Orin Nano (8GB)**<br>`40 TOPS · 7–15W`<br><sub>reComputer J4012 / J401</sub> | **ASR**: Paraformer / Whisper<br>**TTS**: Kokoro-TRT (53 voices)<br><sub>ASR 50ms · TTS RTF 0.25</sub> | **ASR**: Qwen3-ASR (INT4)<br>**TTS**: Matcha-TTS (FP16)<br><sub>CER 0 · RTF 0.15 · VRAM 1.8G</sub> | **ASR**: Qwen3-ASR (52L)<br>**TTS**: Kokoro-TRT (Misaki)<br><sub>ASR 0.25 · TTS RTF 0.28</sub> | **ASR**: Qwen3-ASR (52L)<br>**TTS**: Qwen3-TTS (INT4)<br><sub>TTS RTF 0.50 · 3–10s Clone</sub> | **ASR**: Qwen3-ASR (INT4)<br>**TTS**: Kokoro-VI (Hybrid)<br><sub>TRT 17ms · RTF 0.70 (0 drop)</sub> | **ASR**: Whisper-base (TRT)<br><sub>WER 7.62% · RTF 0.008</sub> |
+| **Jetson Orin NX (16GB)**<br>`100 TOPS · 10–25W`<br><sub>reComputer J4012 / Super</sub> | **ASR**: Qwen3-ASR / Paraformer<br>**TTS**: Kokoro-TRT (53 voices)<br><sub>ASR 18ms · TTS RTF 0.18</sub> | **ASR**: Qwen3-ASR (INT4)<br>**LM**: Qwen3.5-4B (Local 35t/s)<br>**TTS**: Matcha-TTS (BF16)<br><sub>V2V 162ms · Air-gapped · 10GB</sub> | **ASR**: Qwen3-ASR (52L)<br>**TTS**: Kokoro-TRT (Misaki)<br><sub>ASR 0.15 · TTS RTF 0.20</sub> | **ASR**: Qwen3-ASR (52L)<br>**TTS**: Qwen3-TTS (BF16)<br><sub>10-stream · TTS RTF 0.33</sub> | **ASR**: Qwen3-ASR (INT4)<br>**TTS**: Kokoro-VI (Hybrid)<br><sub>TRT 17ms · RTF 0.70 (0 drop)</sub> | **ASR**: Whisper-base (TRT)<br><sub>WER 7.62% · RTF 0.008</sub> |
+| **reComputer RK3588**<br>`6 TOPS NPU · 8–15W`<br><sub>reComputer R1000 / Box</sub> | **ASR**: Qwen3-ASR (W8A8)<br>**TTS**: Kokoro-RKNN (34% offload)<br><sub>ASR 0.35 · TTS RTF 0.34</sub> | **ASR**: Qwen3-ASR (W8A8)<br>**TTS**: Matcha-TTS (RKNN)<br><sub>ASR 0.28 · TTS RTF 0.05 (fast)</sub> | **ASR**: Qwen3-ASR (W8A8)<br>**TTS**: Kokoro-RKNN (Misaki)<br><sub>ASR 0.35 · TTS RTF 0.34</sub> | **ASR**: Qwen3-ASR (52L)<br>**TTS**: Piper TTS (CPU)<br><sub>ASR ~0.35 · TTS ~0.60</sub> | — | **ASR**: SenseVoice (RKNN)<br><sub>12 channels 0 error · Tri-NPU</sub> |
+| **reComputer RK3576**<br>`6 TOPS NPU · 4–8W`<br><sub>LubanCat-3 / Gateway</sub> | **ASR**: Qwen3-ASR (W8A8)<br>**TTS**: Kokoro (RKNN/CPU)<br><sub>ASR 0.44 · TTS RTF ~0.65</sub> | **ASR**: Qwen3-ASR (W8A8)<br>**TTS**: Matcha-TTS (RKNN)<br><sub>ASR 0.44 · TTS RTF 0.12</sub> | — | **ASR**: Qwen3-ASR (RKNN)<br>**TTS**: Piper TTS (CPU)<br><sub>ASR ~0.44 · TTS ~0.80</sub> | — | **ASR**: SenseVoice (RKNN)<br><sub>16 channels 0 error · Low cost</sub> |
+| **Raspberry Pi 5**<br>`Quad CPU · Optional Hailo-8`<br><sub>RPi 5 / R1000-Pi</sub> | **ASR**: Whisper (+Hailo-8)<br>**TTS**: Sherpa / Piper (CPU)<br><sub>WER 8.39% · Saves >70% CPU</sub> | **ASR**: Sherpa-ONNX (CPU)<br>**TTS**: Sherpa-ONNX (CPU)<br><sub>Pure CPU loop · V2V ~1.5s</sub> | — | **ASR**: Sherpa-ONNX (CPU)<br>**TTS**: Piper TTS (CPU)<br><sub>Pure CPU multilingual</sub> | — | **ASR**: SenseVoice (ORT)<br><sub>8 channels 0 error · RTF 0.5-0.7</sub> |
 
-### 🟢 1. Jetson Orin Nano (8GB) — Mainstream Edge (reComputer J4012 / J401)
-
-> **Hardware Specs**: 40 TOPS compute, 8GB shared unified memory, 7–15W TDP.
-
-| Language | Use Case | ASR Engine | On-Device LM | TTS Engine | Measured Performance (ASR / TTS / V2V) | Recommended Profile | Status |
-|---|---|---|---|---|---|---|:---:|
-| **🇺🇸 English (en)** | Commercial voice agent (53 voices) | Paraformer / Whisper (TRT) | Cloud API / Local model | **Kokoro-TRT (53 native voices)** | **ASR TTFT: ~50 ms**<br>**TTS TTFT: ~130 ms · RTF: 0.25** | `jetson-paraformer-kokoro` | 🟢 Verified |
-| **🇨🇳 Chinese (zh)** | Kiosk / Industrial HMI / Robotics | Qwen3-ASR 0.6B (TRT int4) | Cloud / Local 1.5B | Matcha-TTS (TRT fp16) | **ASR CER: 0**<br>**TTS RTF: 0.15 · V2V: ~500 ms**<br>VRAM footprint: ~1.8 GB | `jetson-qwen3asr-matcha` | 🟢 Verified |
-| **🇯🇵 Japanese (ja)** | Consumer electronics / Companion robotics | Qwen3-ASR 0.6B (TRT 52L) | Cloud API / Local 1.5B | **Kokoro-TRT (Misaki Japanese voices)** | **ASR RTF: 0.25**<br>**TTS RTF: 0.28 · V2V: ~600 ms** | `jetson-multilang-highperf` | 🟢 Verified |
-| **🌐 Multilingual (52L)** | Cross-border service / Voice cloning | Qwen3-ASR 0.6B (TRT 52L) | Cloud Multilingual LM | **Qwen3-TTS CustomVoice (int4)** | **ASR RTF: 0.30**<br>**TTS RTF: 0.50 · V2V: ~1.5 s**<br>Supports 3–10s voice cloning | `jetson-multilang-highperf` | 🟢 Verified |
-| **🇻🇳 Vietnamese (vi)** | Overseas AI Agent / Companion | Qwen3-ASR 0.6B (TRT int4) | Cloud API / 1.5B (Local) | Kokoro-VI (TRT Hybrid) | **ASR: 366.3 ms**<br>**TRT Prefix: 17.0 ms · RTF: 0.703**<br>**100% word retention (0 truncation)** | `jetson-qwen3asr-kokoro-vi` | 🟢 Verified |
-| **🎧 Offline Transcription** | Meeting minutes / Audio to text | Whisper-base (TRT bf16) | — (Transcription only) | — | **WER: 7.62%**<br>**TTFT: 18 ms · RTF: 0.008** | `orin-whisper` | 🟢 Verified |
-
-### 🔵 2. Jetson Orin NX (16GB) — On-Device LLM Flagship (reComputer J4012 / J4011 / Super)
-
-> **Hardware Specs**: 100 TOPS compute, 16GB shared unified memory, 10–25W TDP.
-
-| Language | Use Case | ASR Engine | On-Device LM | TTS Engine | Measured Performance (ASR / TTS / V2V) | Recommended Profile | Status |
-|---|---|---|---|---|---|---|:---:|
-| **🇺🇸 English (en)** | High-throughput English agent | Qwen3-ASR / Paraformer (TRT) | Qwen3.5-4B (Local) / Cloud | **Kokoro-TRT (53 native voices)** | **TTS RTF: 0.18**<br>**ASR TTFT: 18 ms · WER: 7.62%** | `jetson-paraformer-kokoro` | 🟢 Verified |
-| **🇨🇳 Chinese Offline** | Air-gapped robotics / Healthcare / Defense | Qwen3-ASR 0.6B (TRT int4) | **Qwen3.5-4B-Instruct**<br>(TRT W4A16, ~35 tok/s, 7.8GB) | Matcha-TTS (TRT bf16) | **V2V p50: 162 ms**<br>**ASR CER: 0 · VRAM total: 10GB**<br>Full on-device concurrency on single GPU | `jetson-edgellm-v091-matcha` | 🟢 Verified |
-| **🇯🇵 Japanese (ja)** | High-quality commercial dialogue / Cloning | Qwen3-ASR 0.6B (TRT 52L) | Qwen3.5-4B (Local) / Cloud | **Kokoro-TRT (Misaki Japanese voices)** | **ASR RTF: 0.15**<br>**TTS RTF: 0.20 · Natural prosody** | `jetson-multilang-highperf-nx` | 🟢 Verified |
-| **🌐 Multilingual (52L)** | Multi-tenant reception kiosks / Voice clone | Qwen3-ASR 0.6B (TRT 52L) | Qwen3.5-4B (Local) / Cloud | **Qwen3-TTS CustomVoice (bf16)** | **ASR RTF: 0.205**<br>**TTS RTF: 0.33 · 52-lang streaming** | `jetson-multilang-highperf-nx` | 🟢 Verified |
-| **🇻🇳 Vietnamese (vi)** | Overseas AI Agent / Companion | Qwen3-ASR 0.6B (TRT int4) | Qwen3.5-4B (Local) / Cloud | Kokoro-VI (TRT Hybrid) | **ASR: 366.3 ms**<br>**TRT Prefix: 17.0 ms · RTF: 0.703**<br>**100% word retention (0 truncation)** | `jetson-qwen3asr-kokoro-vi` | 🟢 Verified |
-| **🎧 Offline Transcription** | Meeting minutes / Audio to text | Whisper-base (TRT bf16) | — (Transcription only) | — | **WER: 7.62%**<br>**TTFT: 18 ms · RTF: 0.008** | `orin-whisper` | 🟢 Verified |
-
-### 🟠 3. reComputer RK3588 — High Concurrency & Efficiency (reComputer R1000 / Industrial Box)
-
-> **Hardware Specs**: 6 TOPS NPU, 8GB/16GB RAM, 8–15W TDP.
-
-| Language | Use Case | ASR Engine | On-Device LM | TTS Engine | Measured Performance (ASR / TTS / V2V) | Recommended Profile | Status |
-|---|---|---|---|---|---|---|:---:|
-| **🇺🇸 English (en)** | Global IoT hardware deployment | Qwen3-ASR (RKNN W8A8) | Cloud API / Lightweight local | **Kokoro-RKNN (34% NPU offload)** | **TTS RTF: 0.34**<br>**ASR RTF: 0.35** | `rk3588-kokoro-rknn-34pct` | 🟢 Verified |
-| **🇨🇳 Chinese (zh)** | Building intercom / Industrial station / Inspection | Qwen3-ASR (RKNN W8A8) | RKLLM Qwen2.5-3B (~15 tok/s) / Cloud | Matcha-TTS (RKNN build) | **TTS RTF: 0.05 (Ultra-fast)**<br>**ASR RTF: 0.28 · V2V p50: 528 ms**<br>Triple-core NPU independent pipeline | `rk3588-default` | 🟢 Verified |
-| **🇯🇵 Japanese (ja)** | Japanese market hardware / HMI | Qwen3-ASR (RKNN W8A8) | Cloud API / Lightweight local | **Kokoro-RKNN (34% NPU offload)** | **TTS RTF: 0.34**<br>**ASR RTF: 0.35 · Natural tone** | `rk3588-kokoro-rknn-34pct` | 🟢 Verified |
-| **🇪🇺 European Languages** | German / French / Spanish terminals | Qwen3-ASR (52L RKNN) | Cloud Multilingual LM | Piper TTS (CPU) | **ASR RTF: ~0.35**<br>**TTS RTF: ~0.60** | `rk3588-piper` | 🔵 Supported |
-| **📊 Concurrent Transcription** | Call center QA / Meeting records | SenseVoice-Small (RKNN) | — (Transcription only) | — | **12 parallel channels 0 error**<br>**CER: 5.13% · Tri-NPU 100% saturated** | `rk3588-sensevoice` | 🟢 Verified |
-
-### 🟡 4. reComputer RK3576 — Cost-Effective IoT Gateway (LubanCat-3 / Compact Gateway)
-
-> **Hardware Specs**: 6 TOPS NPU, 4GB/8GB RAM, 4–8W ultra-low TDP.
-
-| Language | Use Case | ASR Engine | On-Device LM | TTS Engine | Measured Performance (ASR / TTS / V2V) | Recommended Profile | Status |
-|---|---|---|---|---|---|---|:---:|
-| **🇺🇸 English (en)** | Lightweight English voice dialogue | Qwen3-ASR 0.6B (RKNN W8A8) | Cloud API / 1.5B (Lightweight) | **Kokoro (RKNN/CPU hybrid)** | **ASR RTF: 0.44**<br>**TTS RTF: ~0.65 · Natural tone** | `rk3576-kokoro-long32-canary` | 🟢 Verified |
-| **🇨🇳 Chinese (zh)** | Elderly care speaker / Warehouse picking | Qwen3-ASR 0.6B (RKNN W8A8) | Cloud API / 1.5B (Lightweight) | Matcha-TTS (RKNN) | **TTS RTF: 0.12**<br>**ASR RTF: 0.44 · V2V p50: 1020 ms** | `rk3576-default` | 🟢 Verified |
-| **🇪🇺 European Languages** | Lightweight multilingual voice prompt | Qwen3-ASR (RKNN) | Cloud API | Piper TTS (CPU) | **ASR RTF: ~0.44**<br>**TTS RTF: ~0.80** | `rk3576-piper` | 🔵 Supported |
-| **📊 Multi-channel Transcription** | Industrial audio monitoring | SenseVoice-Small (RKNN) | — | — | **16 parallel channels 0 error**<br>Lowest-cost multichannel pick | `rk3576-sensevoice` | 🟢 Verified |
-
-### 🟣 5. Raspberry Pi 5 — Pure CPU & Lightweight Edge (Raspberry Pi 5 / reComputer R1000-Pi)
-
-> **Hardware Specs**: Quad-core Cortex-A76 CPU, optional Hailo-8 M.2 module (26 TOPS).
-
-| Language | Use Case | ASR Engine | On-Device LM | TTS Engine | Measured Performance (ASR / TTS / V2V) | Recommended Profile | Status |
-|---|---|---|---|---|---|---|:---:|
-| **🇺🇸 English (+Hailo-8 / CPU)** | Industrial low-power English ASR | Whisper-base (Hailo-8 hardware encoder) / Sherpa | Cloud API | Sherpa / Piper | **WER: 8.39%**<br>Saves >70% CPU usage | `rpi5-hailo-whisper` | 🟢 Verified |
-| **🇨🇳 Chinese (zh)** | Maker projects / Basic assistant | Sherpa-ONNX streaming (CPU) | Cloud API (Bailian / OpenAI) | Sherpa-ONNX (CPU) | **ASR RTF: ~0.50**<br>**TTS RTF: ~0.60 · V2V: ~1.5 s** | `rpi4-default` | 🟢 Verified |
-| **📊 CPU-only Transcription** | 8-way offline command transcription | SenseVoice (ORT CPU) | — | — | **8 parallel channels 0 error**<br>RTF ~0.5–0.7 | `rpi4-sensevoice` | 🟢 Verified |
-
-Full specification available in [docs/DEVICE-LANGUAGE-MATRIX.md](docs/DEVICE-LANGUAGE-MATRIX.md) and [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md).
+> 💡 **Full Per-Device Specifications & Profiles**:
+> - 📄 Detailed Docker profiles, VRAM footprints, and deployment commands: **[Full Benchmark Matrix (docs/DEVICE-LANGUAGE-MATRIX.md)](docs/DEVICE-LANGUAGE-MATRIX.md)**
+> - 🖥️ For instant tab switching in browser: **[Interactive Tabbed Matrix (docs/device-language-matrix.html)](docs/device-language-matrix.html)**
 
 ---
 
