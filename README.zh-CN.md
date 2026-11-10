@@ -50,14 +50,14 @@
 ## 边缘设备推荐搭配与多语言性能基准矩阵
 
 > 💡 **模型选型原则**：
-> - **中文对话**：Qwen3-ASR + Matcha-TTS（极快、超低显存、自然度高）
-> - **英文对话**：所有设备统一主推 **Kokoro**（原生 53 款音色，音质纯正自然；RK3588/RK3576 全面支持）
-> - **越南语对话**：Qwen3-ASR + **Kokoro-VI**（前缀 TRT 17ms，端到端 0.703 RTF，首词 100% 完整留存）
-> - **声音克隆 / 52 语多语言**：统一使用 **Qwen3-ASR + Qwen3-TTS**（多语种流式与声音克隆）
+> - **英文对话（首要）**：所有设备统一主推 **Kokoro**（原生 53 款音色，音质纯正自然；RK3588/RK3576 全面支持）
+> - **中文对话（其次）**：Qwen3-ASR + Matcha-TTS（极快、超低显存、自然度高）
+> - **欧系语言 / 52 语多语言（第三）**：统一使用 **Qwen3-ASR + Qwen3-TTS**（多语种流式与声音克隆）或 **Piper TTS**（离线轻量）
+> - **越南语对话（出海拓展）**：Qwen3-ASR + **Kokoro-VI**（前缀 TRT 17ms，端到端 0.703 RTF，首词 100% 完整留存）
 > - **端侧大模型思考**：Orin NX 16GB 支持端侧 **Qwen3.5-4B** 离线闭环（~35 tok/s，V2V p50 162 ms）
 
 <p align="center">
-  <b>快速切换设备卡片：</b><br>
+  <b>直达设备配置与基准：</b><br>
   <a href="#1-jetson-orin-nano-8gb--推荐主流边缘方案recomputer-j4012--j401">🟢 Jetson Orin Nano (8GB)</a> &nbsp;|&nbsp;
   <a href="#2-jetson-orin-nx-16gb--端侧大模型闭环旗舰recomputer-j4012--j4011--super">🔵 Jetson Orin NX (16GB)</a> &nbsp;|&nbsp;
   <a href="#3-recomputer-rk3588--高并发与性价比标杆recomputer-r1000--工业边缘主机">🟠 reComputer RK3588</a> &nbsp;|&nbsp;
@@ -67,80 +67,61 @@
   <sub>也可在浏览器中打开 <a href="docs/device-language-matrix.html">交互式 Tab 选型网页</a> 体验点击切换</sub>
 </p>
 
-<details open>
-<summary><b>🟢 1. Jetson Orin Nano (8GB) — 推荐主流边缘方案（reComputer J4012 / J401）</b></summary>
-<br>
+### 🟢 1. Jetson Orin Nano (8GB) — 推荐主流边缘方案（reComputer J4012 / J401）
 
 > **硬件规格**：40 TOPS 算力，8GB 统一内存，7-15W 功耗。
 
 | 目标语言 | 场景定位 | ASR 语音识别 | 端侧思考 / LM | TTS 语音合成 | 实测性能 (ASR / TTS / V2V) | 推荐 Profile 预设 | 状态 |
 |---|---|---|---|---|---|---|:---:|
-| **🇻🇳 越南语 (vi)** | 海外智能客服 / 陪伴音箱 | Qwen3-ASR 0.6B (TRT int4) | 云端 API / 1.5B (本地) | Kokoro-VI (TRT Hybrid) | **ASR: 366.3 ms**<br>**TRT前缀: 17.0 ms · RTF: 0.703**<br>**首词保留 100%（0截断）** | `jetson-qwen3asr-kokoro-vi` | 🟢 实测 |
-| **🇨🇳 中文 (zh)** | 智能终端 / 工业看板 / 机器人 | Qwen3-ASR 0.6B (TRT int4) | 云端百炼 / 本地 1.5B | Matcha-TTS (TRT fp16) | **ASR CER: 0**<br>**TTS RTF: 0.15 · V2V: ~500 ms**<br>显存占用仅 ~1.8 GB | `jetson-qwen3asr-matcha` | 🟢 实测 |
 | **🇺🇸 英语 (en)** | 出海商业语音交互 (53款音色) | Paraformer / Whisper (TRT) | 云端 API / 本地模型 | **Kokoro-TRT (53 原生音色)** | **ASR TTFT: ~50 ms**<br>**TTS TTFT: ~130 ms · RTF: 0.25** | `jetson-paraformer-kokoro` | 🟢 实测 |
+| **🇨🇳 中文 (zh)** | 智能终端 / 工业看板 / 机器人 | Qwen3-ASR 0.6B (TRT int4) | 云端百炼 / 本地 1.5B | Matcha-TTS (TRT fp16) | **ASR CER: 0**<br>**TTS RTF: 0.15 · V2V: ~500 ms**<br>显存占用仅 ~1.8 GB | `jetson-qwen3asr-matcha` | 🟢 实测 |
 | **🌐 多语种 (52语)** | 跨国语音服务 / 声音克隆 | Qwen3-ASR 0.6B (TRT 52语) | 云端多语言大模型 | **Qwen3-TTS CustomVoice (int4)** | **ASR RTF: 0.30**<br>**TTS RTF: 0.50 · V2V: ~1.5 s**<br>支持 3~10s 声音克隆 | `jetson-multilang-highperf` | 🟢 实测 |
+| **🇻🇳 越南语 (vi)** | 海外智能客服 / 陪伴音箱 | Qwen3-ASR 0.6B (TRT int4) | 云端 API / 1.5B (本地) | Kokoro-VI (TRT Hybrid) | **ASR: 366.3 ms**<br>**TRT前缀: 17.0 ms · RTF: 0.703**<br>**首词保留 100%（0截断）** | `jetson-qwen3asr-kokoro-vi` | 🟢 实测 |
 | **🎧 离线转写** | 会议记录 / 录音转文字 | Whisper-base (TRT bf16) | — (纯 ASR 场景) | — | **WER: 7.62%**<br>**TTFT: 18 ms · RTF: 0.008** | `orin-whisper` | 🟢 实测 |
 
-</details>
-
-<details open>
-<summary><b>🔵 2. Jetson Orin NX (16GB) — 端侧大模型闭环旗舰（reComputer J4012 / J4011 / Super）</b></summary>
-<br>
+### 🔵 2. Jetson Orin NX (16GB) — 端侧大模型闭环旗舰（reComputer J4012 / J4011 / Super）
 
 > **硬件规格**：100 TOPS 算力，16GB 统一内存，10-25W 功耗。
 
 | 目标语言 | 场景定位 | ASR 语音识别 | 端侧思考 / LM | TTS 语音合成 | 实测性能 (ASR / TTS / V2V) | 推荐 Profile 预设 | 状态 |
 |---|---|---|---|---|---|---|:---:|
-| **🇨🇳 中文全离线** | 军工 / 政务 / 医院 / 离网机器人 | Qwen3-ASR 0.6B (TRT int4) | **Qwen3.5-4B-Instruct**<br>(TRT W4A16, ~35 tok/s, 7.8GB) | Matcha-TTS (TRT bf16) | **V2V p50: 162 ms**<br>**ASR CER: 0 · 显存占用 10GB**<br>本地端侧大模型同卡并行 | `jetson-edgellm-v091-matcha` | 🟢 实测 |
-| **🎙️ 声音克隆 (多语)** | IP 形象定制 / 声音克隆 | Qwen3-ASR 0.6B (TRT int4) | Qwen3.5-4B (本地) / 云端 | **Qwen3-TTS CustomVoice / Base** | **TTS RTF: 0.33**<br>**ASR RTF: 0.205 · V2V: ~1.0 s**<br>10 路并发 GPU 98% 满载 | `jetson-multilang-highperf-nx` | 🟢 实测 |
 | **🇺🇸 英语 (en) 优选** | 出海商业语音交互 (53款音色) | Qwen3-ASR / Paraformer (TRT) | Qwen3.5-4B (本地) / 云端 | **Kokoro-TRT (53 原生音色)** | **TTS RTF: 0.18**<br>**ASR TTFT: 18 ms · WER: 7.62%** | `jetson-paraformer-kokoro` | 🟢 实测 |
-| **🌐 多语种 (52语)** | 高并发多语种接待大厅 | Qwen3-ASR 0.6B (TRT 52语) | Qwen3.5-4B (本地) / 云端 | **Qwen3-TTS CustomVoice (bf16)** | **ASR RTF: 0.205**<br>**TTS RTF: 0.33 · 52语流式** | `jetson-multilang-highperf-nx` | 🟢 实测 |
+| **🇨🇳 中文全离线** | 军工 / 政务 / 医院 / 离网机器人 | Qwen3-ASR 0.6B (TRT int4) | **Qwen3.5-4B-Instruct**<br>(TRT W4A16, ~35 tok/s, 7.8GB) | Matcha-TTS (TRT bf16) | **V2V p50: 162 ms**<br>**ASR CER: 0 · 显存占用 10GB**<br>本地端侧大模型同卡并行 | `jetson-edgellm-v091-matcha` | 🟢 实测 |
+| **🌐 多语种 (52语)** | 高并发多语种接待大厅 / 声音克隆 | Qwen3-ASR 0.6B (TRT 52语) | Qwen3.5-4B (本地) / 云端 | **Qwen3-TTS CustomVoice / Base** | **ASR RTF: 0.205**<br>**TTS RTF: 0.33 · V2V: ~1.0 s**<br>10 路并发 GPU 98% 满载 | `jetson-multilang-highperf-nx` | 🟢 实测 |
+| **🇻🇳 越南语 (vi)** | 海外智能客服 / 陪伴音箱 | Qwen3-ASR 0.6B (TRT int4) | Qwen3.5-4B (本地) / 云端 | Kokoro-VI (TRT Hybrid) | **ASR: 366.3 ms**<br>**TRT前缀: 17.0 ms · RTF: 0.703**<br>**首词保留 100%（0截断）** | `jetson-qwen3asr-kokoro-vi` | 🟢 实测 |
+| **🎧 离线转写** | 会议记录 / 录音转文字 | Whisper-base (TRT bf16) | — (纯 ASR 场景) | — | **WER: 7.62%**<br>**TTFT: 18 ms · RTF: 0.008** | `orin-whisper` | 🟢 实测 |
 
-</details>
-
-<details open>
-<summary><b>🟠 3. reComputer RK3588 — 高并发与性价比标杆（reComputer R1000 / 工业边缘主机）</b></summary>
-<br>
+### 🟠 3. reComputer RK3588 — 高并发与性价比标杆（reComputer R1000 / 工业边缘主机）
 
 > **硬件规格**：6 TOPS NPU，8GB/16GB 内存，8-15W 功耗。
 
 | 目标语言 | 场景定位 | ASR 语音识别 | 端侧思考 / LM | TTS 语音合成 | 实测性能 (ASR / TTS / V2V) | 推荐 Profile 预设 | 状态 |
 |---|---|---|---|---|---|---|:---:|
-| **🇨🇳 中文 (zh)** | 楼宇对讲 / 智能工位 / 巡检终端 | Qwen3-ASR (RKNN W8A8) | RKLLM Qwen2.5-3B (~15 tok/s) / 云端 | Matcha-TTS (RKNN 专版) | **TTS RTF: 0.05 (极快)**<br>**ASR RTF: 0.28 · V2V p50: 528 ms**<br>三核 NPU 独立流水线 | `rk3588-default` | 🟢 实测 |
 | **🇺🇸 英语 (en) 优选** | 出海智能硬件导出 | Qwen3-ASR (RKNN W8A8) | 云端 API / 轻量本地 | **Kokoro-RKNN (34% NPU 卸载)** | **TTS RTF: 0.34**<br>**ASR RTF: 0.35** | `rk3588-kokoro-rknn-34pct` | 🟢 实测 |
-| **📊 高并发转写** | 呼叫中心录音质检 / 庭审转录 | SenseVoice-Small (RKNN) | — (纯转录) | — | **12 路并发 0 错误**<br>**CER: 5.13% · 三核 NPU 100% 满载** | `rk3588-sensevoice` | 🟢 实测 |
+| **🇨🇳 中文 (zh)** | 楼宇对讲 / 智能工位 / 巡检终端 | Qwen3-ASR (RKNN W8A8) | RKLLM Qwen2.5-3B (~15 tok/s) / 云端 | Matcha-TTS (RKNN 专版) | **TTS RTF: 0.05 (极快)**<br>**ASR RTF: 0.28 · V2V p50: 528 ms**<br>三核 NPU 独立流水线 | `rk3588-default` | 🟢 实测 |
 | **🇪🇺 欧系小语种** | 德 / 法 / 西语等业务终端 | Qwen3-ASR (52语 RKNN) | 云端多语言模型 | Piper TTS (CPU) | **ASR RTF: ~0.35**<br>**TTS RTF: ~0.60** | `rk3588-piper` | 🔵 支持 |
+| **📊 高并发转写** | 呼叫中心录音质检 / 庭审转录 | SenseVoice-Small (RKNN) | — (纯转录) | — | **12 路并发 0 错误**<br>**CER: 5.13% · 三核 NPU 100% 满载** | `rk3588-sensevoice` | 🟢 实测 |
 
-</details>
-
-<details open>
-<summary><b>🟡 4. reComputer RK3576 — 入门级低成本边缘网关（LubanCat-3 / 紧凑型网关）</b></summary>
-<br>
+### 🟡 4. reComputer RK3576 — 入门级低成本边缘网关（LubanCat-3 / 紧凑型网关）
 
 > **硬件规格**：6 TOPS NPU，4GB/8GB 内存，4-8W 超低功耗。
 
 | 目标语言 | 场景定位 | ASR 语音识别 | 端侧思考 / LM | TTS 语音合成 | 实测性能 (ASR / TTS / V2V) | 推荐 Profile 预设 | 状态 |
 |---|---|---|---|---|---|---|:---:|
-| **🇨🇳 中文 (zh)** | 智慧养老音箱 / 仓储捡货终端 | Qwen3-ASR 0.6B (RKNN W8A8) | 云端 API / 1.5B (轻量) | Matcha-TTS (RKNN) | **TTS RTF: 0.12**<br>**ASR RTF: 0.44 · V2V p50: 1020 ms** | `rk3576-default` | 🟢 实测 |
 | **🇺🇸 英语 (en) 优选** | 轻量化英语对话与提示 | Qwen3-ASR 0.6B (RKNN W8A8) | 云端 API / 1.5B (轻量) | **Kokoro (RKNN/CPU 混合)** | **ASR RTF: 0.44**<br>**TTS RTF: ~0.65 · 音质自然** | `rk3576-kokoro-long32-canary` | 🟢 实测 |
-| **📊 多路音频转写** | 工业多通道音频监控 | SenseVoice-Small (RKNN) | — | — | **16 路并发 0 错误**<br>极低成本多路转录首选 | `rk3576-sensevoice` | 🟢 实测 |
+| **🇨🇳 中文 (zh)** | 智慧养老音箱 / 仓储捡货终端 | Qwen3-ASR 0.6B (RKNN W8A8) | 云端 API / 1.5B (轻量) | Matcha-TTS (RKNN) | **TTS RTF: 0.12**<br>**ASR RTF: 0.44 · V2V p50: 1020 ms** | `rk3576-default` | 🟢 实测 |
 | **🇪🇺 小语种覆盖** | 轻量化多语言提示 | Qwen3-ASR (RKNN) | 云端 API | Piper TTS (CPU) | **ASR RTF: ~0.44**<br>**TTS RTF: ~0.80** | `rk3576-piper` | 🔵 支持 |
+| **📊 多路音频转写** | 工业多通道音频监控 | SenseVoice-Small (RKNN) | — | — | **16 路并发 0 错误**<br>极低成本多路转录首选 | `rk3576-sensevoice` | 🟢 实测 |
 
-</details>
-
-<details open>
-<summary><b>🟣 5. 树莓派 5 (Raspberry Pi 5) — 纯 CPU 与轻量边缘（树莓派 5 / reComputer R1000-Pi）</b></summary>
-<br>
+### 🟣 5. 树莓派 5 (Raspberry Pi 5) — 纯 CPU 与轻量边缘（树莓派 5 / reComputer R1000-Pi）
 
 > **硬件规格**：4核 A76 CPU，可选配 Hailo-8 M.2 扩展卡 (26 TOPS)。
 
 | 目标语言 | 场景定位 | ASR 语音识别 | 端侧思考 / LM | TTS 语音合成 | 实测性能 (ASR / TTS / V2V) | 推荐 Profile 预设 | 状态 |
 |---|---|---|---|---|---|---|:---:|
-| **🇨🇳 中文 / 🇺🇸 英文** | 创客制作 / 基础语音助手 | Sherpa-ONNX 流式 (CPU) | 云端百炼 / OpenAI | Sherpa-ONNX (CPU) | **ASR RTF: ~0.50**<br>**TTS RTF: ~0.60 · V2V: ~1.5 s** | `rpi4-default` | 🟢 实测 |
+| **🇺🇸 英文 (+Hailo-8 / CPU)** | 工业低功耗英文语音识别 | Whisper-base (Hailo-8 硬件编码器) / Sherpa | 云端 API | Sherpa / Piper | **WER: 8.39%**<br>节省 >70% CPU 占用 | `rpi5-hailo-whisper` | 🟢 实测 |
+| **🇨🇳 中文 (zh)** | 创客制作 / 基础语音助手 | Sherpa-ONNX 流式 (CPU) | 云端百炼 / OpenAI | Sherpa-ONNX (CPU) | **ASR RTF: ~0.50**<br>**TTS RTF: ~0.60 · V2V: ~1.5 s** | `rpi4-default` | 🟢 实测 |
 | **📊 纯 CPU 转写** | 8路并发离线指令转录 | SenseVoice (ORT CPU) | — | — | **8 路并发 0 错误**<br>RTF ~0.5–0.7 | `rpi4-sensevoice` | 🟢 实测 |
-| **⚡ 英文 (+Hailo-8)** | 工业低功耗英文语音识别 | Whisper-base (Hailo-8 硬件编码器) | 云端 API | Sherpa / Piper | **WER: 8.39%**<br>节省 >70% CPU 占用 | `rpi5-hailo-whisper` | 🟢 实测 |
-
-</details>
 
 完整技术选型文档参见 [docs/DEVICE-LANGUAGE-MATRIX.md](docs/DEVICE-LANGUAGE-MATRIX.md) 与 [docs/RECOMMENDED-MODELS.md](docs/RECOMMENDED-MODELS.md)。
 
