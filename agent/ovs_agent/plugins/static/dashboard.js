@@ -1126,9 +1126,33 @@
   });
 
   // ── controls ─────────────────────────────────────────────────────
+  function controlToken() {
+    let urlToken = "";
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      urlToken = (urlParams.get("control_token") || urlParams.get("token") || "").trim();
+    } catch (_) {}
+    if (urlToken) {
+      try {
+        localStorage.setItem("ovs_control_token", urlToken);
+      } catch (_) {}
+      return urlToken;
+    }
+    try {
+      return (localStorage.getItem("ovs_control_token") || "").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
   async function post(path, body) {
     try {
       const opts = { method: "POST", headers: { "Content-Type": "application/json" } };
+      const cToken = controlToken();
+      if (cToken && (path.startsWith("/api/control/") || path.startsWith("api/control/"))) {
+        opts.headers["Authorization"] = "Bearer " + cToken;
+        opts.headers["X-OVS-Control-Token"] = cToken;
+      }
       if (body !== undefined) opts.body = JSON.stringify(body);
       const r = await fetch(path, opts);
       if (!r.ok) throw new Error("HTTP " + r.status);
@@ -2171,6 +2195,11 @@
     const headers = { Accept: "application/json" };
     const token = adminToken();
     if (token) headers["X-Admin-Token"] = token;
+    const cToken = controlToken();
+    if (cToken && (path.startsWith("/api/control/") || path.startsWith("api/control/"))) {
+      headers["Authorization"] = "Bearer " + cToken;
+      headers["X-OVS-Control-Token"] = cToken;
+    }
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (opts.ifMatch) headers["If-Match"] = opts.ifMatch;
     let r;

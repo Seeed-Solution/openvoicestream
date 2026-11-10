@@ -43,6 +43,8 @@ def _mk_app(port: int, config: Config):
     app = MagicMock()
     app.config = config
     app.events = EventBus()
+    app.wake = AsyncMock()
+    app.sleep = AsyncMock()
     app.audio = SimpleNamespace(_in_queue=None, stop_playback=AsyncMock())
     app.slv = SimpleNamespace(
         _ws=None, reconnect=AsyncMock(), abort=AsyncMock(), send_text=AsyncMock()
@@ -1219,3 +1221,277 @@ async def test_llm_test_probe_and_security_boundary(tmp_path, unused_tcp_port):
     finally:
         await mock_runner.cleanup()
         await plugin.stop()
+
+
+@pytest.mark.asyncio
+async def test_control_auth_disabled_by_default_allows_access(unused_tcp_port, monkeypatch):
+    monkeypatch.delenv("OVS_CONTROL_API_KEY", raising=False)
+    cfg = Config(metadata={"dashboard_port": unused_tcp_port})
+    app = _mk_app(unused_tcp_port, cfg)
+    plugin = DebugDashboardPlugin(app)
+    plugin.setup()
+    await plugin.start()
+    try:
+        base = f"http://127.0.0.1:{unused_tcp_port}"
+        async with aiohttp.ClientSession() as s:
+            # Wake endpoint without auth
+            r = await s.post(f"{base}/api/control/wake")
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
+
+            # Sleep endpoint without auth
+            r = await s.post(f"{base}/api/control/sleep")
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
+
+            # Index page should not contain ovs-control-token
+            r = await s.get(f"{base}/")
+            assert r.status == 200
+            html = await r.text()
+            assert 'meta name="ovs-control-token"' not in html
+            assert 'meta name="ovs-admin-token"' in html
+    finally:
+        await plugin.stop()
+
+
+@pytest.mark.asyncio
+async def test_control_auth_env_var_enforces_auth(unused_tcp_port, monkeypatch):
+    test_key = "secret-control-key-123"
+    monkeypatch.setenv("OVS_CONTROL_API_KEY", test_key)
+    cfg = Config(metadata={"dashboard_port": unused_tcp_port})
+    app = _mk_app(unused_tcp_port, cfg)
+    plugin = DebugDashboardPlugin(app)
+    plugin.setup()
+    await plugin.start()
+    try:
+        base = f"http://127.0.0.1:{unused_tcp_port}"
+        async with aiohttp.ClientSession() as s:
+            # 1. Without credentials -> 401
+            r = await s.post(f"{base}/api/control/wake")
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            r = await s.post(f"{base}/api/control/sleep")
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # 2. Invalid Bearer token -> 401
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": "Bearer invalid-token"},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # 3. Invalid X-OVS-Control-Token -> 401
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"X-OVS-Control-Token": "invalid-token"},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # 4. Valid Bearer token -> 200
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": f"Bearer {test_key}"},
+            )
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
+
+            # 5. Valid X-OVS-Control-Token -> 200
+            r = await s.post(
+                f"{base}/api/control/sleep",
+                headers={"X-OVS-Control-Token": test_key},
+            )
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
+
+            # 6. Non-control endpoints are unaffected
+            r = await s.post(f"{base}/api/errors/clear")
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
+
+            # 7. Index page does NOT leak ovs-control-token
+            r = await s.get(f"{base}/")
+            assert r.status == 200
+            html = await r.text()
+            assert 'meta name="ovs-control-token"' not in html
+            assert 'meta name="ovs-admin-token"' in html
+    finally:
+        await plugin.stop()
+
+
+@pytest.mark.asyncio
+async def test_control_auth_multi_keys_support(unused_tcp_port, monkeypatch):
+    monkeypatch.setenv("OVS_CONTROL_API_KEY", "  key-alpha , key-beta,  key-gamma  ")
+    cfg = Config(metadata={"dashboard_port": unused_tcp_port})
+    app = _mk_app(unused_tcp_port, cfg)
+    plugin = DebugDashboardPlugin(app)
+    plugin.setup()
+    await plugin.start()
+    try:
+        base = f"http://127.0.0.1:{unused_tcp_port}"
+        async with aiohttp.ClientSession() as s:
+            # Key alpha via Bearer
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": "Bearer key-alpha"},
+            )
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
+
+            # Key beta via Bearer (case insensitive scheme)
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": "bearer key-beta"},
+            )
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
+
+            # Key gamma via X-OVS-Control-Token
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"X-OVS-Control-Token": "key-gamma"},
+            )
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
+
+            # Unknown key -> 401
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": "Bearer key-delta"},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # HTML head injects the primary key (first key)
+            r = await s.get(f"{base}/")
+            assert r.status == 200
+            # HTML does NOT leak control tokens
+            r = await s.get(f"{base}/")
+            assert r.status == 200
+            html = await r.text()
+            assert 'meta name="ovs-control-token"' not in html
+    finally:
+        await plugin.stop()
+
+
+@pytest.mark.asyncio
+async def test_control_auth_metadata_configuration(unused_tcp_port, monkeypatch):
+    monkeypatch.delenv("OVS_CONTROL_API_KEY", raising=False)
+    meta_key = "meta-token-xyz"
+    cfg = Config(metadata={"dashboard_port": unused_tcp_port, "control_api_key": meta_key})
+    app = _mk_app(unused_tcp_port, cfg)
+    plugin = DebugDashboardPlugin(app)
+    plugin.setup()
+    await plugin.start()
+    try:
+        base = f"http://127.0.0.1:{unused_tcp_port}"
+        async with aiohttp.ClientSession() as s:
+            # Without token -> 401
+            r = await s.post(f"{base}/api/control/wake")
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # Correct Bearer token -> 200
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": f"Bearer {meta_key}"},
+            )
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
+
+            # Correct X-OVS-Control-Token -> 200
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"X-OVS-Control-Token": meta_key},
+            )
+            assert r.status == 200
+            assert await r.json() == {"ok": True}
+
+            # HTML head does not leak control token
+            r = await s.get(f"{base}/")
+            assert r.status == 200
+            html = await r.text()
+            assert 'meta name="ovs-control-token"' not in html
+
+            # Empty or separator-only environment value does NOT disable metadata auth
+            for bad_env in ("   ", " , ,  , "):
+                monkeypatch.setenv("OVS_CONTROL_API_KEY", bad_env)
+                r = await s.post(f"{base}/api/control/wake")
+                assert r.status == 401
+                assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+                r = await s.post(
+                    f"{base}/api/control/wake",
+                    headers={"Authorization": f"Bearer {meta_key}"},
+                )
+                assert r.status == 200
+                assert await r.json() == {"ok": True}
+    finally:
+        await plugin.stop()
+
+
+@pytest.mark.asyncio
+async def test_control_auth_malformed_headers(unused_tcp_port, monkeypatch):
+    test_key = "valid-key-456"
+    monkeypatch.setenv("OVS_CONTROL_API_KEY", test_key)
+    cfg = Config(metadata={"dashboard_port": unused_tcp_port})
+    app = _mk_app(unused_tcp_port, cfg)
+    plugin = DebugDashboardPlugin(app)
+    plugin.setup()
+    await plugin.start()
+    try:
+        base = f"http://127.0.0.1:{unused_tcp_port}"
+        async with aiohttp.ClientSession() as s:
+            # Non-bearer scheme -> 401
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": f"Basic {test_key}"},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # Empty Bearer -> 401
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": "Bearer"},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # Whitespace Bearer -> 401
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": "Bearer   "},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # Whitespace X-OVS-Control-Token -> 401
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"X-OVS-Control-Token": "   "},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # Non-ASCII Bearer token -> 401 (does NOT raise 500)
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"Authorization": "Bearer café-au-lait"},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+
+            # Non-ASCII X-OVS-Control-Token -> 401 (does NOT raise 500)
+            r = await s.post(
+                f"{base}/api/control/wake",
+                headers={"X-OVS-Control-Token": "钥匙-test"},
+            )
+            assert r.status == 401
+            assert await r.json() == {"ok": False, "error": "unauthorized"}
+    finally:
+        await plugin.stop()
+

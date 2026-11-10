@@ -185,6 +185,26 @@ N=2). fp16 stays available for accuracy-sensitive comparison. See the
 
 ---
 
+## Vietnamese dialogue benchmark (Jetson Orin Nano 8GB, 2026-11-10)
+
+End-to-end Vietnamese speech synthesis and transcription verified on `orin-nano` (JetPack 6.2 / TensorRT 10.3 / SM87):
+
+- **ASR**: Qwen3-ASR 0.6B INT4 (`/opt/jv-workers/qwen3_asr_worker`)
+- **TTS**: Kokoro-Vietnamese v1.0 hybrid (Prefix TRT FP16 engine + CPU Suffix ORT)
+- **Profile**: `configs/profiles/jetson-qwen3asr-kokoro-vi.json`
+
+| Metric | Measured Value | Notes |
+|---|---|---|
+| Kokoro TRT Prefix Latency | **17.0 ms** | 128 dynamic token sequence, Throughput 25.5 QPS |
+| Kokoro E2E TTS RTF | **0.703** | 4.15s speech generated in 2.92s wall-clock |
+| Qwen3-ASR Latency | **366.3 ms** | Single utterance transcribe latency |
+| First-Word Retention | **100% (0 loss)** | First word `xin` intact (fixed `Vietnamese` language tag parsing) |
+| Total Artifact Memory | **~343 MB** | Prefix TRT 29.6 MB + Suffix ONNX 325 MB + Voices 1.04 MB |
+
+Artifact on Hugging Face: `harvestsu/seeed-local-voice-artifacts:models/kokoro-vi-v1_0/engines/sm87-trt10.3-jp6.2-cuda12.6.tar.gz`.
+
+---
+
 ## Reproduction artifacts (2026-06-21)
 
 | Artifact | Anchor / hash |

@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seeed 边缘端多语言语音方案选型与性能基准矩阵</title>
+<style>
+  :root {
+    --bg: #0b0f19;
+    --card-bg: rgba(17, 24, 39, 0.75);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(59, 130, 246, 0.5);
+    --text-primary: #f3f4f6;
+    --text-secondary: #9ca3af;
+    --accent: #3b82f6;
+    --accent-glow: rgba(59, 130, 246, 0.25);
+    --success: #10b981;
+    --success-bg: rgba(16, 185, 129, 0.15);
+    --success-border: rgba(16, 185, 129, 0.3);
+    --warn: #f59e0b;
+    --warn-bg: rgba(245, 158, 11, 0.15);
+    --info: #06b6d4;
+    --info-bg: rgba(6, 182, 212, 0.15);
+    --code-bg: #1e293b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.6;
+    padding: 36px 20px 80px;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.12) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.08) 0px, transparent 50%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  header {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  h1 {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    background: linear-gradient(135deg, #60a5fa 20%, #34d399 80%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    color: var(--text-secondary);
+    font-size: 15px;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  /* Tabs */
+  .tabs-nav {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .tab-btn {
+    background: rgba(30, 41, 59, 0.7);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    backdrop-filter: blur(8px);
+  }
+  .tab-btn:hover {
+    color: #fff;
+    border-color: var(--border-hover);
+    background: rgba(30, 41, 59, 0.95);
+  }
+  .tab-btn.active {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+    border-color: #60a5fa;
+    box-shadow: 0 4px 16px var(--accent-glow);
+  }
+  .tab-badge {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.15);
+  }
+  /* Tab Content */
+  .tab-pane {
+    display: none;
+    animation: fadeIn 0.25s ease-out forwards;
+  }
+  .tab-pane.active {
+    display: block;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  /* Hardware Spec Bar */
+  .spec-banner {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    backdrop-filter: blur(12px);
+  }
+  .spec-item {
+    border-left: 3px solid var(--accent);
+    padding-left: 14px;
+  }
+  .spec-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .spec-val {
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+    margin-top: 2px;
+  }
+  /* Table */
+  .table-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    backdrop-filter: blur(12px);
+  }
+  .table-responsive {
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    text-align: left;
+  }
+  th {
+    background: #111827;
+    color: #94a3b8;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    white-space: nowrap;
+  }
+  td {
+    padding: 18px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tr:last-child td {
+    border-bottom: none;
+  }
+  tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .lang-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 15px;
+    color: #fff;
+  }
+  .lang-flag {
+    font-size: 20px;
+    line-height: 1;
+  }
+  .scenario-tag {
+    font-size: 12px;
+    color: #cbd5e1;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 3px 8px;
+    border-radius: 6px;
+    display: inline-block;
+    margin-top: 4px;
+  }
+  .model-name {
+    font-weight: 600;
+    color: #e2e8f0;
+  }
+  .model-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .metric-highlight {
+    color: #34d399;
+    font-weight: 600;
+    font-family: "SF Mono", Consolas, Menlo, monospace;
+  }
+  .metric-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .profile-code {
+    font-family: "SF Mono", Consolas, Menlo, monospace;
+    font-size: 12px;
+    background: var(--code-bg);
+    color: #93c5fd;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(147, 197, 253, 0.2);
+    display: inline-block;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge-measured {
+    background: var(--success-bg);
+    color: #34d399;
+    border: 1px solid var(--success-border);
+  }
+  .badge-supported {
+    background: var(--info-bg);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>Seeed 边缘端多语言语音方案与性能基准矩阵</h1>
+    <p class="subtitle">覆盖主流边缘 AI 设备（Jetson Orin Nano / NX、reComputer RK3588 / RK3576、树莓派 5）针对不同语种的最优端到端软硬件搭配、加速后端与实测性能数据。</p>
+  </header>
+
+  <!-- Device Switch Tabs -->
+  <div class="tabs-nav">
+    <button class="tab-btn active" data-tab="orin-nano" onclick="switchTab('orin-nano', this)">
+      <span>Jetson Orin Nano (8GB)</span>
+      <span class="tab-badge">推荐主流</span>
+    </button>
+    <button class="tab-btn" data-tab="orin-nx" onclick="switchTab('orin-nx', this)">
+      <span>Jetson Orin NX (16GB)</span>
+      <span class="tab-badge">端侧大模型</span>
+    </button>
+    <button class="tab-btn" data-tab="rk3588" onclick="switchTab('rk3588', this)">
+      <span>reComputer RK3588</span>
+      <span class="tab-badge">高并发性价比</span>
+    </button>
+    <button class="tab-btn" data-tab="rk3576" onclick="switchTab('rk3576', this)">
+      <span>reComputer RK3576</span>
+      <span class="tab-badge">入门边缘</span>
+    </button>
+    <button class="tab-btn" data-tab="rpi5" onclick="switchTab('rpi5', this)">
+      <span>Raspberry Pi 5</span>
+      <span class="tab-badge">极低功耗</span>
+    </button>
+  </div>
+
+  <!-- Tab 1: Jetson Orin Nano -->
+  <div id="tab-orin-nano" class="tab-pane active">
+    <div class="spec-banner">
+      <div class="spec-item">
+        <div class="spec-label">核心芯片 & 算力</div>
+        <div class="spec-val">Orin Nano 8GB · 40 TOPS</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">对应产品形态</div>
+        <div class="spec-val">reComputer J4012 / J401</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">内存与功耗</div>
+        <div class="spec-val">8GB 统一内存 · 7-15W</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">核心优势</div>
+        <div class="spec-val">TensorRT 深度加速、全双工高实时、多语种音色</div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>目标语言</th>
+              <th>场景定位</th>
+              <th>ASR 语音识别</th>
+              <th>端侧思考 / LLM</th>
+              <th>TTS 语音合成</th>
+              <th>实测核心性能</th>
+              <th>推荐 Profile 预设</th>
+              <th>验证状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇻🇳</span> 越南语 (vi)</div>
+                <div class="scenario-tag">全新优化 · 全双工对话</div>
+              </td>
+              <td>海外智能客服 / 陪伴助手</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">TensorRT INT4-AWQ</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API / 本地小型 LM</div>
+                <div class="model-sub">如 Qwen2.5-1.5B (4-bit)</div>
+              </td>
+              <td>
+                <div class="model-name">Kokoro-VI (Hybrid)</div>
+                <div class="model-sub">TRT FP16 前缀 + CPU 后缀</div>
+              </td>
+              <td>
+                <div class="metric-highlight">ASR: 366.3 ms</div>
+                <div class="metric-sub">TRT前缀: 17.0 ms · RTF: 0.703</div>
+                <div class="metric-sub" style="color:#60a5fa;">首词 100% 完整保留</div>
+              </td>
+              <td><span class="profile-code">jetson-qwen3asr-kokoro-vi</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇨🇳</span> 中文 (zh)</div>
+                <div class="scenario-tag">生产推荐 · 极速响应</div>
+              </td>
+              <td>智能终端 / 工业看板 / 机器人</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">TensorRT INT4-AWQ</div>
+              </td>
+              <td>
+                <div class="model-name">云端百炼 / 本地 1.5B</div>
+                <div class="model-sub">流式 SSE / WebSocket</div>
+              </td>
+              <td>
+                <div class="model-name">Matcha-TTS</div>
+                <div class="model-sub">TensorRT FP16 + Vocos</div>
+              </td>
+              <td>
+                <div class="metric-highlight">ASR CER: 0</div>
+                <div class="metric-sub">TTS RTF: 0.15 · V2V: ~500 ms</div>
+                <div class="metric-sub">显存占用仅 ~1.8 GB</div>
+              </td>
+              <td><span class="profile-code">jetson-qwen3asr-matcha</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇺🇸</span> 英语 (en)</div>
+                <div class="scenario-tag">53 款音色 · 原生发音</div>
+              </td>
+              <td>出海商业语音交互</td>
+              <td>
+                <div class="model-name">Paraformer / Whisper-base</div>
+                <div class="model-sub">TensorRT BF16</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API / 本地模型</div>
+                <div class="model-sub">英文指令与自由对话</div>
+              </td>
+              <td>
+                <div class="model-name">Kokoro-TRT (53音色)</div>
+                <div class="model-sub">TensorRT FP16</div>
+              </td>
+              <td>
+                <div class="metric-highlight">ASR TTFT: ~50 ms</div>
+                <div class="metric-sub">TTS TTFT: ~130 ms · RTF: 0.25</div>
+              </td>
+              <td><span class="profile-code">jetson-paraformer-kokoro</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🌐</span> 多语种 (52语)</div>
+                <div class="scenario-tag">全能国际化 · 声音克隆</div>
+              </td>
+              <td>跨国语音服务 / 声音定制</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">TensorRT 52语流式</div>
+              </td>
+              <td>
+                <div class="model-name">云端多语言大模型</div>
+                <div class="model-sub">支持多国语言翻译对话</div>
+              </td>
+              <td>
+                <div class="model-name">Qwen3-TTS CustomVoice</div>
+                <div class="model-sub">TensorRT INT4-AWQ</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.50</div>
+                <div class="metric-sub">ASR RTF: 0.30 · V2V: ~1.5s</div>
+                <div class="metric-sub">支持 3~10s 参考音频克隆</div>
+              </td>
+              <td><span class="profile-code">jetson-multilang-highperf</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🎧</span> 录音转写 (跨语种)</div>
+                <div class="scenario-tag">高精度离线 / 会议转写</div>
+              </td>
+              <td>会议录音 / 访谈转文字</td>
+              <td>
+                <div class="model-name">Whisper-base</div>
+                <div class="model-sub">TensorRT BF16</div>
+              </td>
+              <td>
+                <div class="model-name">—</div>
+                <div class="model-sub">无须对话大模型</div>
+              </td>
+              <td>
+                <div class="model-name">—</div>
+                <div class="model-sub">纯转录场景</div>
+              </td>
+              <td>
+                <div class="metric-highlight">WER: 7.62%</div>
+                <div class="metric-sub">TTFT: 18 ms · RTF: 0.008</div>
+              </td>
+              <td><span class="profile-code">orin-whisper</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 2: Jetson Orin NX -->
+  <div id="tab-orin-nx" class="tab-pane">
+    <div class="spec-banner">
+      <div class="spec-item">
+        <div class="spec-label">核心芯片 & 算力</div>
+        <div class="spec-val">Orin NX 16GB · 100 TOPS</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">对应产品形态</div>
+        <div class="spec-val">reComputer J4012 / J4011 / Super</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">内存与功耗</div>
+        <div class="spec-val">16GB 统一内存 · 10-25W</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">核心优势</div>
+        <div class="spec-val">完全离线端侧 4B LLM 闭环、高并发多路会话</div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>目标语言</th>
+              <th>场景定位</th>
+              <th>ASR 语音识别</th>
+              <th>端侧思考 / LLM</th>
+              <th>TTS 语音合成</th>
+              <th>实测核心性能</th>
+              <th>推荐 Profile 预设</th>
+              <th>验证状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇨🇳</span> 中文全离线闭环</div>
+                <div class="scenario-tag">端侧 100% 离线隐私</div>
+              </td>
+              <td>军工/政务/医院/离网机器人</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">TensorRT INT4-AWQ</div>
+              </td>
+              <td>
+                <div class="model-name">Qwen3.5-4B-Instruct</div>
+                <div class="model-sub">TRT W4A16 · ~35 tok/s (7.8GB)</div>
+              </td>
+              <td>
+                <div class="model-name">Matcha-TTS</div>
+                <div class="model-sub">TensorRT BF16 + Vocos</div>
+              </td>
+              <td>
+                <div class="metric-highlight">端到端 V2V: 162 ms (p50)</div>
+                <div class="metric-sub">ASR CER: 0 · 显存总占 10GB</div>
+                <div class="metric-sub" style="color:#60a5fa;">本地 LLM + 语音同卡并发运行</div>
+              </td>
+              <td><span class="profile-code">jetson-edgellm-v091-matcha</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🎙️</span> 中/英/52语 声音克隆</div>
+                <div class="scenario-tag">统一千问技术栈 · 自然语言驱动</div>
+              </td>
+              <td>IP 形象定制 / 名人发音克隆 / 多语种</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">TensorRT INT4-AWQ</div>
+              </td>
+              <td>
+                <div class="model-name">Qwen3.5-4B (本地) / 云端</div>
+                <div class="model-sub">端侧大模型或云端决策</div>
+              </td>
+              <td>
+                <div class="model-name">Qwen3-TTS CustomVoice / Base</div>
+                <div class="model-sub">TensorRT BF16 / INT4</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.33</div>
+                <div class="metric-sub">ASR RTF: 0.205 · V2V: ~1.0 s</div>
+                <div class="metric-sub">10 路并发 GPU 98% 满载稳定</div>
+              </td>
+              <td><span class="profile-code">jetson-multilang-highperf-nx</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇺🇸</span> 英语 (en) 优选</div>
+                <div class="scenario-tag">Kokoro 原生 53 款音色</div>
+              </td>
+              <td>出海商业语音交互</td>
+              <td>
+                <div class="model-name">Qwen3-ASR / Paraformer</div>
+                <div class="model-sub">TensorRT BF16</div>
+              </td>
+              <td>
+                <div class="model-name">Qwen3.5-4B (本地) / 云端</div>
+                <div class="model-sub">本地端侧思考</div>
+              </td>
+              <td>
+                <div class="model-name">Kokoro-TRT (53音色)</div>
+                <div class="model-sub">TensorRT FP16</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.18</div>
+                <div class="metric-sub">ASR TTFT: 18 ms · WER: 7.62%</div>
+              </td>
+              <td><span class="profile-code">jetson-paraformer-kokoro</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🌐</span> 多语种 (52语)</div>
+                <div class="scenario-tag">高算力多路并发</div>
+              </td>
+              <td>多语种接待大厅 / 电话客服</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">TensorRT 52 语流式</div>
+              </td>
+              <td>
+                <div class="model-name">Qwen3.5-4B (本地) / 云端</div>
+                <div class="model-sub">多语言推理</div>
+              </td>
+              <td>
+                <div class="model-name">Qwen3-TTS CustomVoice</div>
+                <div class="model-sub">TensorRT BF16</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.33</div>
+                <div class="metric-sub">ASR RTF: 0.205 · V2V: ~1.0 s</div>
+                <div class="metric-sub">10 路并发 GPU 98% 满载稳定</div>
+              </td>
+              <td><span class="profile-code">jetson-multilang-highperf-nx</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 3: reComputer RK3588 -->
+  <div id="tab-rk3588" class="tab-pane">
+    <div class="spec-banner">
+      <div class="spec-item">
+        <div class="spec-label">核心芯片 & NPU</div>
+        <div class="spec-val">Rockchip RK3588 · 6 TOPS NPU</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">对应产品形态</div>
+        <div class="spec-val">reComputer R1000 / 工业边缘主机</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">内存与功耗</div>
+        <div class="spec-val">8GB / 16GB LPDDR4x · 8-15W</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">核心优势</div>
+        <div class="spec-val">三核 NPU 调度、无风扇低功耗、性价比极高</div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>目标语言</th>
+              <th>场景定位</th>
+              <th>ASR 语音识别</th>
+              <th>端侧思考 / LLM</th>
+              <th>TTS 语音合成</th>
+              <th>实测核心性能</th>
+              <th>推荐 Profile 预设</th>
+              <th>验证状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇨🇳</span> 中文 (zh)</div>
+                <div class="scenario-tag">经典生产架构 · 低延迟</div>
+              </td>
+              <td>楼宇对讲 / 智能工位 / 巡检终端</td>
+              <td>
+                <div class="model-name">Qwen3-ASR</div>
+                <div class="model-sub">RKNN W8A8 (NPU Core 0/1)</div>
+              </td>
+              <td>
+                <div class="model-name">RKLLM Qwen2.5-3B (可选)</div>
+                <div class="model-sub">NPU ~15 tok/s 或走云端</div>
+              </td>
+              <td>
+                <div class="model-name">Matcha-TTS</div>
+                <div class="model-sub">RKNN 专版 (NPU Core 2)</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.05 (极快)</div>
+                <div class="metric-sub">ASR RTF: 0.28 · V2V p50: 528 ms</div>
+                <div class="metric-sub">多 NPU 核心独立无冲突流水线</div>
+              </td>
+              <td><span class="profile-code">rk3588-default</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇺🇸</span> 英文 / 🇯🇵 日文</div>
+                <div class="scenario-tag">NPU 加速 Kokoro</div>
+              </td>
+              <td>海外智能硬件导出</td>
+              <td>
+                <div class="model-name">Qwen3-ASR</div>
+                <div class="model-sub">RKNN W8A8</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API / 本地轻量</div>
+                <div class="model-sub">结构化指令与对话</div>
+              </td>
+              <td>
+                <div class="model-name">Kokoro-RKNN</div>
+                <div class="model-sub">RKNN 34% NPU 卸载版</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.34</div>
+                <div class="metric-sub">ASR RTF: 0.35 · 自然度高</div>
+              </td>
+              <td><span class="profile-code">rk3588-kokoro-rknn-34pct</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">📊</span> 中/多语 高并发转写</div>
+                <div class="scenario-tag">12 路高并发满载</div>
+              </td>
+              <td>呼叫中心录音质检 / 庭审转录</td>
+              <td>
+                <div class="model-name">SenseVoice-Small</div>
+                <div class="model-sub">RKNN 量化模型</div>
+              </td>
+              <td>
+                <div class="model-name">—</div>
+                <div class="model-sub">转录分析</div>
+              </td>
+              <td>
+                <div class="model-name">—</div>
+                <div class="model-sub">纯 ASR 场景</div>
+              </td>
+              <td>
+                <div class="metric-highlight">12 路并发 0 错误</div>
+                <div class="metric-sub">CER: 5.13% · 三核 NPU 100% 满载</div>
+              </td>
+              <td><span class="profile-code">rk3588-sensevoice</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇪🇺</span> 欧系小语种 (德/法/西)</div>
+                <div class="scenario-tag">轻量级小语种兜底</div>
+              </td>
+              <td>小语种特定业务终端</td>
+              <td>
+                <div class="model-name">Qwen3-ASR (52语)</div>
+                <div class="model-sub">RKNN</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API</div>
+                <div class="model-sub">多语言推理</div>
+              </td>
+              <td>
+                <div class="model-name">Piper TTS</div>
+                <div class="model-sub">CPU 轻量化执行</div>
+              </td>
+              <td>
+                <div class="metric-highlight">ASR RTF: ~0.35</div>
+                <div class="metric-sub">TTS RTF: ~0.60</div>
+              </td>
+              <td><span class="profile-code">rk3588-piper</span></td>
+              <td><span class="badge badge-supported"><span class="dot"></span>架构支持</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 4: reComputer RK3576 -->
+  <div id="tab-rk3576" class="tab-pane">
+    <div class="spec-banner">
+      <div class="spec-item">
+        <div class="spec-label">核心芯片 & NPU</div>
+        <div class="spec-val">Rockchip RK3576 · 6 TOPS NPU</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">对应产品形态</div>
+        <div class="spec-val">LubanCat-3 / 紧凑型边缘网关</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">内存与功耗</div>
+        <div class="spec-val">4GB / 8GB · 4-8W 超低功耗</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">核心优势</div>
+        <div class="spec-val">入门级极高性价比、完整千问+Matcha 链路跑通</div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>目标语言</th>
+              <th>场景定位</th>
+              <th>ASR 语音识别</th>
+              <th>端侧思考 / LLM</th>
+              <th>TTS 语音合成</th>
+              <th>实测核心性能</th>
+              <th>推荐 Profile 预设</th>
+              <th>验证状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇨🇳</span> 中文 (zh)</div>
+                <div class="scenario-tag">高性价比 · 边缘语音</div>
+              </td>
+              <td>智慧养老音箱 / 仓储捡货终端</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">RKNN W8A8</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API / 1.5B (轻量)</div>
+                <div class="model-sub">低成本设备首选云端</div>
+              </td>
+              <td>
+                <div class="model-name">Matcha-TTS</div>
+                <div class="model-sub">RKNN 量化</div>
+              </td>
+              <td>
+                <div class="metric-highlight">TTS RTF: 0.12</div>
+                <div class="metric-sub">ASR RTF: 0.44 · V2V p50: ~1020 ms</div>
+              </td>
+              <td><span class="profile-code">rk3576-default</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇺🇸</span> 英文 (en) 优选</div>
+                <div class="scenario-tag">Kokoro 原生纯正发音</div>
+              </td>
+              <td>轻量化英语对话与提示</td>
+              <td>
+                <div class="model-name">Qwen3-ASR 0.6B</div>
+                <div class="model-sub">RKNN W8A8</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API / 1.5B (轻量)</div>
+                <div class="model-sub">低成本边缘网关</div>
+              </td>
+              <td>
+                <div class="model-name">Kokoro</div>
+                <div class="model-sub">RKNN / CPU 混合优化</div>
+              </td>
+              <td>
+                <div class="metric-highlight">ASR RTF: 0.44</div>
+                <div class="metric-sub">TTS RTF: ~0.65 · 音质自然</div>
+              </td>
+              <td><span class="profile-code">rk3576-kokoro-long32-canary</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">📊</span> 语音转写 (中/英)</div>
+                <div class="scenario-tag">16 路并发压测</div>
+              </td>
+              <td>多通道音频流接入</td>
+              <td>
+                <div class="model-name">SenseVoice-Small</div>
+                <div class="model-sub">RKNN</div>
+              </td>
+              <td>
+                <div class="model-name">—</div>
+                <div class="model-sub">—</div>
+              </td>
+              <td>
+                <div class="model-name">—</div>
+                <div class="model-sub">—</div>
+              </td>
+              <td>
+                <div class="metric-highlight">16 路并发 0 错误</div>
+                <div class="metric-sub">单价成本最低的工业级语音转录</div>
+              </td>
+              <td><span class="profile-code">rk3576-sensevoice</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 5: Raspberry Pi 5 -->
+  <div id="tab-rpi5" class="tab-pane">
+    <div class="spec-banner">
+      <div class="spec-item">
+        <div class="spec-label">核心芯片 & 硬件</div>
+        <div class="spec-val">BCM2712 (4核 A76) · 可选配 Hailo-8 (26 TOPS)</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">对应产品形态</div>
+        <div class="spec-val">树莓派 5 / reComputer R1000-Pi</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">内存与功耗</div>
+        <div class="spec-val">4GB / 8GB · 5-12W</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">核心优势</div>
+        <div class="spec-val">生态丰富、纯 CPU 零依赖轻量化运行</div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>目标语言</th>
+              <th>场景定位</th>
+              <th>ASR 语音识别</th>
+              <th>端侧思考 / LLM</th>
+              <th>TTS 语音合成</th>
+              <th>实测核心性能</th>
+              <th>推荐 Profile 预设</th>
+              <th>验证状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">🇨🇳</span> 中文 / 🇺🇸 英文</div>
+                <div class="scenario-tag">纯 CPU 运行 · 零 NPU 门槛</div>
+              </td>
+              <td>创客制作 / 基础语音助手 / 开源教育</td>
+              <td>
+                <div class="model-name">Sherpa-ONNX 流式</div>
+                <div class="model-sub">CPU 多线程优化</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API</div>
+                <div class="model-sub">百炼 / OpenAI</div>
+              </td>
+              <td>
+                <div class="model-name">Sherpa-ONNX TTS</div>
+                <div class="model-sub">CPU 轻量化</div>
+              </td>
+              <td>
+                <div class="metric-highlight">ASR RTF: ~0.50</div>
+                <div class="metric-sub">TTS RTF: ~0.60 · V2V: ~1.5 s</div>
+              </td>
+              <td><span class="profile-code">rpi4-default</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+
+            <tr>
+              <td>
+                <div class="lang-tag"><span class="lang-flag">⚡</span> 英文 (+ Hailo-8 NPU)</div>
+                <div class="scenario-tag">26 TOPS 硬件加速</div>
+              </td>
+              <td>工业级边缘低功耗英文识别</td>
+              <td>
+                <div class="model-name">Whisper-base</div>
+                <div class="model-sub">Hailo-8 硬件编码器</div>
+              </td>
+              <td>
+                <div class="model-name">云端 API</div>
+                <div class="model-sub">—</div>
+              </td>
+              <td>
+                <div class="model-name">Sherpa / Piper</div>
+                <div class="model-sub">CPU</div>
+              </td>
+              <td>
+                <div class="metric-highlight">WER: 8.39%</div>
+                <div class="metric-sub">CPU 占用节省 >70%</div>
+              </td>
+              <td><span class="profile-code">rpi5-hailo-whisper</span></td>
+              <td><span class="badge badge-measured"><span class="dot"></span>实测验证</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function switchTab(tabId, btn) {
+  // Update Buttons
+  const buttons = document.querySelectorAll('.tab-btn');
+  buttons.forEach(b => b.classList.remove('active'));
+  if (btn) {
+    btn.classList.add('active');
+  } else {
+    const matchedBtn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+    if (matchedBtn) matchedBtn.classList.add('active');
+  }
+
+  // Update Panes
+  const panes = document.querySelectorAll('.tab-pane');
+  panes.forEach(pane => pane.classList.remove('active'));
+  const targetPane = document.getElementById('tab-' + tabId);
+  if (targetPane) {
+    targetPane.classList.add('active');
+  }
+}
+</script>
+
+</body>
+</html>
