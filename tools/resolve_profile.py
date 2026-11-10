@@ -148,9 +148,14 @@ def find_cell(matrix: dict[str, Any], language: str, device: str) -> dict[str, A
             EXIT_UNKNOWN,
         )
 
+    # First check for an exact language match for the device
+    for cell in matrix["cells"]:
+        if cell.get("device") == device and cell.get("language") == language:
+            return cell
+
     group = languages[language]["group"]
     for cell in matrix["cells"]:
-        if cell.get("device") == device and cell.get("group") == group:
+        if cell.get("device") == device and cell.get("group") == group and "language" not in cell:
             return cell
     raise ResolveError(
         f"matrix has no cell for device={device} group={group} (language={language})",

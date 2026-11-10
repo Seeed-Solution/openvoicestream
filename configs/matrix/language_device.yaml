@@ -126,6 +126,18 @@ cells:
         - docs/perf/whisper-cross-device-20260827.md:48 - Orin Nano base/30s bare TensorRT bf16, en short 11.37% / en long 9.19%, TTFT 18 ms, RTF 0.008
 
   - device: orin_nano
+    language: vi
+    group: other
+    status: measured
+    ovs_profile: jetson-qwen3asr-kokoro-vi
+    asr: {backend: jetson.trt_edge_llm, model: Qwen3-ASR 0.6B, quant: int4}
+    tts: {backend: jetson.kokoro_trt, model: kokoro-vi-v1_0, quant: fp16}
+    env: {}
+    evidence:
+      - configs/profiles/jetson-qwen3asr-kokoro-vi.json:2 - Kokoro-VI prefix TRT engine (17ms) + CPU suffix ONNX + Qwen3-ASR on Jetson Orin Nano
+    planned_alternative: null
+
+  - device: orin_nano
     group: other
     status: untested
     ovs_profile: jetson-multilang-highperf
