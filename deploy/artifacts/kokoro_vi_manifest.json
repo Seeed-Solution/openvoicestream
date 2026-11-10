@@ -1,0 +1,48 @@
+{
+  "artifact_set": "kokoro-vi-trt-hybrid-sm87-trt10.3-jp6.2-cuda12.6-2026-11-10",
+  "status": "validated",
+  "hf_repo": "harvestsu/seeed-local-voice-artifacts",
+  "hf_path": "models/kokoro-vi-v1_0/engines/sm87-trt10.3-jp6.2-cuda12.6.tar.gz",
+  "host_signature": {
+    "sm": "87",
+    "tensorrt": "10.3",
+    "jetpack": "6.2",
+    "cuda": "12.6"
+  },
+  "profile": "configs/profiles/jetson-qwen3asr-kokoro-vi.json",
+  "compatible_profiles": [
+    "configs/profiles/jetson-qwen3asr-kokoro-vi.json"
+  ],
+  "runtime_path": [
+    "TRT encoder prefix FP16",
+    "CPU suffix ONNX"
+  ],
+  "bundle": {
+    "size": 327617144,
+    "sha256": "217ca35299852716e35d90c55ee21573f921bf919297e9d705d62512067d2a83"
+  },
+  "engines": [
+    "hybrid/kokoro_prefix_encoder_dyn4_128_fp16.engine"
+  ],
+  "cpu_sidecars": [
+    "hybrid/kokoro_suffix_encoder.onnx",
+    "tokens.txt",
+    "voices.bin",
+    "voices.json",
+    "config.json"
+  ],
+  "validation": {
+    "device": "orin-nano",
+    "health": {
+      "tts": true,
+      "tts_backend": "kokoro_trt",
+      "asr": true
+    },
+    "direct_backend": {
+      "language": "vi",
+      "prefix_engine_time_ms": 17.0,
+      "suffix_onnx_time_ms": 1323.4,
+      "total_rtf": 0.960
+    }
+  }
+}

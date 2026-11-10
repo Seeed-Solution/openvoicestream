@@ -1,0 +1,67 @@
+{
+  "name": "jetson-qwen3asr-kokoro-vi",
+  "description": "Vietnamese preset on Jetson Orin Nano: Qwen3 ASR (TRT-Edge-LLM worker) for native Vietnamese input + Kokoro-VI TTS (TRT prefix encoder + CPU suffix ONNX) for Vietnamese output.",
+  "asr_backend": "jetson.trt_edge_llm",
+  "asr_model_id": "qwen3-asr",
+  "tts_backend": "jetson.kokoro_trt",
+  "tts_model_id": "kokoro-vi-v1_0",
+  "execution_policy": {
+    "mode": "serialized",
+    "shared_resource": "gpu"
+  },
+  "env": {
+    "LANGUAGE_MODE": "vi",
+    "KOKORO_LANGUAGE": "vi",
+    "ASR_BACKEND": "trt_edgellm",
+    "TTS_BACKEND": "kokoro_trt",
+    "OVS_VAD_BACKEND": "silero",
+    "OVS_VAD_SILENCE_MS": "400",
+    "EDGE_LLM_QWEN3_PROFILE": "highperf",
+    "EDGE_LLM_ASR_WORKER": "1",
+    "EDGE_LLM_ASR_WORKER_BIN": "/opt/jv-workers/qwen3_asr_worker",
+    "EDGE_LLM_ASR_PLUGIN_PATH": "/opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so",
+    "EDGE_LLM_ASR_VOCAB_PRUNED": "0",
+    "QWEN3_ARTIFACT_MANIFEST": "deploy/artifacts/qwen3_manifest.json",
+    "QWEN3_ARTIFACT_SET": "orin-nano-highperf-2026-05-10",
+    "QWEN3_ARTIFACT_ROOT": "/opt/models/qwen3-edgellm",
+    "QWEN3_EDGELLM_JETSON_ROOT": "/opt/qwen3-edgellm-jetson",
+    "EDGE_LLM_ASR_STREAM_MODE": "worker",
+    "EDGE_LLM_ASR_STREAM_CHUNK_SEC": "0.5",
+    "EDGE_LLM_ASR_STREAM_UNFIXED_CHUNKS": "2",
+    "EDGE_LLM_ASR_STREAM_UNFIXED_TOKENS": "5",
+    "EDGE_LLM_ASR_MEL_SETTINGS": "${QWEN3_EDGELLM_JETSON_ROOT}/deploy/audio_preprocessing/whisper_feature_extractor.json",
+    "EDGE_LLM_ASR_MEL_FILTERS": "${QWEN3_EDGELLM_JETSON_ROOT}/deploy/audio_preprocessing/mel_filters.bin",
+    "EDGE_LLM_ASR_ENGINE_DIR": "${QWEN3_ARTIFACT_ROOT}/engines/orin-nano/highperf/asr_thinker_full_fp8embed",
+    "EDGE_LLM_ASR_AUDIO_ENC_DIR": "${QWEN3_ARTIFACT_ROOT}/engines/orin-nano/highperf/asr_audio_encoder",
+    "KOKORO_MODEL_BASE": "/opt/models/kokoro-vi-v1_0",
+    "KOKORO_TRT_RUNTIME": "hybrid",
+    "KOKORO_HYBRID_DIR": "/opt/models/kokoro-vi-v1_0/hybrid",
+    "KOKORO_HYBRID_PREFIX_ENGINE": "/opt/models/kokoro-vi-v1_0/hybrid/kokoro_prefix_encoder_dyn4_128_fp16.engine",
+    "KOKORO_HYBRID_SUFFIX_ONNX": "/opt/models/kokoro-vi-v1_0/hybrid/kokoro_suffix_encoder.onnx",
+    "KOKORO_VOICES": "/opt/models/kokoro-vi-v1_0/voices.bin",
+    "KOKORO_TOKENS": "/opt/models/kokoro-vi-v1_0/tokens.txt",
+    "KOKORO_DEFAULT_SID": "0",
+    "TTS_DEFAULT_SID": "0"
+  },
+  "required_engines": [
+    {
+      "model_id": "kokoro-vi-v1_0",
+      "engine_file": "kokoro_prefix_encoder_dyn4_128_fp16.engine",
+      "engine_path": "/opt/models/kokoro-vi-v1_0/hybrid/kokoro_prefix_encoder_dyn4_128_fp16.engine",
+      "env_var": "KOKORO_HYBRID_PREFIX_ENGINE",
+      "build_env": {
+        "ENGINE_NAME": "kokoro_prefix_encoder_dyn4_128_fp16.engine",
+        "MODEL_DIR": "/opt/models/kokoro-vi-v1_0",
+        "OUT_DIR": "/opt/models/kokoro-vi-v1_0/hybrid"
+      },
+      "extra_files": [
+        "hybrid/kokoro_suffix_encoder.onnx",
+        "voices.bin",
+        "tokens.txt",
+        "config.json"
+      ],
+      "hf_only": true,
+      "required": true
+    }
+  ]
+}
